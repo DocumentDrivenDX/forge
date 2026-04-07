@@ -1,2 +1,3 @@
-{"version": 2, "width": 100, "height": 24, "timestamp": 1775522316, "env": {"SHELL": "/bin/zsh", "TERM": "screen-256color"}, "title": "Forge: File Read Task"}
-[3.619781, "o", "**Package name:** `main`\r\n\r\n**What it does:** This is a simple Go program that prints \"Hello, World!\" to the console. It's the classic introductory example for Go programs, using the `fmt` package to output text.\r\n[success] tokens: 1791 in / 71 out\r\n"]
+{"version": 2, "width": 100, "height": 30, "timestamp": 1775524436, "env": {"SHELL": "/bin/zsh", "TERM": "screen-256color"}, "title": "Forge: Read a file and explain it"}
+[0.006538, "o", "$ forge -p 'Read main.go and explain what this program does'\r\n\r\n"]
+[3.915767, "o", "This program is a simple HTTP server that listens on port 8080 and responds with \"Hello from Forge!\" to any request. It uses Go's built-in `net/http` package to handle incoming requests and serve the response.\r\n[success] tokens: 1861 in / 70 out\r\n"]

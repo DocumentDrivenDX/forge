@@ -1,2 +1,3 @@
-{"version": 2, "width": 100, "height": 24, "timestamp": 1775522326, "env": {"SHELL": "/bin/zsh", "TERM": "screen-256color"}, "title": "Forge: File Edit Workflow"}
-[5.397835, "o", "Done. Replaced PINEAPPLE with MANGO in secret.txt and confirmed the change.\r\n[success] tokens: 3875 in / 130 out\r\n"]
+{"version": 2, "width": 100, "height": 30, "timestamp": 1775524447, "env": {"SHELL": "/bin/zsh", "TERM": "screen-256color"}, "title": "Forge: Edit a config file"}
+[0.005236, "o", "$ forge -p 'Read config.yaml, change the server port from 8080 to 9090, then verify'\r\n\r\n"]
+[5.811317, "o", "Done. The server port in `config.yaml` has been successfully changed from 8080 to 9090.\r\n[success] tokens: 4082 in / 127 out\r\n"]

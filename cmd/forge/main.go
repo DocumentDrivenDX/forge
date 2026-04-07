@@ -8,10 +8,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/DocumentDrivenDX/forge"
 	"github.com/DocumentDrivenDX/forge/prompt"
@@ -83,6 +85,10 @@ func run() int {
 			return cmdLog(args[1:])
 		case "replay":
 			return cmdReplay(args[1:])
+		case "models":
+			return cmdModels()
+		case "check":
+			return cmdCheck()
 		case "version":
 			fmt.Printf("forge %s (commit %s, built %s)\n", Version, GitCommit, BuildTime)
 			return 0
@@ -346,6 +352,94 @@ func cmdReplay(args []string) int {
 	if err := session.Replay(path, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
+	}
+	return 0
+}
+
+func cmdCheck() int {
+	cfg := loadConfig()
+	applyEnv(&cfg)
+
+	if cfg.Provider == "anthropic" {
+		fmt.Printf("Provider: anthropic\n")
+		if cfg.APIKey == "" {
+			fmt.Println("Status:   no API key configured (set FORGE_API_KEY)")
+			return 1
+		}
+		fmt.Println("Status:   API key configured")
+		return 0
+	}
+
+	url := cfg.BaseURL
+	if !strings.HasSuffix(url, "/v1") {
+		url = strings.TrimSuffix(url, "/")
+	}
+	modelsURL := strings.TrimSuffix(url, "/v1") + "/v1/models"
+
+	fmt.Printf("Provider: %s\n", cfg.Provider)
+	fmt.Printf("URL:      %s\n", cfg.BaseURL)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(modelsURL)
+	if err != nil {
+		fmt.Printf("Status:   unreachable (%s)\n", err)
+		return 1
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		fmt.Printf("Status:   error (HTTP %d)\n", resp.StatusCode)
+		return 1
+	}
+
+	fmt.Println("Status:   connected")
+	if cfg.Model != "" {
+		fmt.Printf("Model:    %s\n", cfg.Model)
+	}
+	return 0
+}
+
+func cmdModels() int {
+	cfg := loadConfig()
+	applyEnv(&cfg)
+
+	if cfg.Provider == "anthropic" {
+		fmt.Println("Anthropic provider does not support model listing.")
+		fmt.Println("Common models: claude-sonnet-4-20250514, claude-haiku-4-20250414, claude-opus-4-20250515")
+		return 0
+	}
+
+	url := cfg.BaseURL
+	if !strings.HasSuffix(url, "/v1") {
+		url = strings.TrimSuffix(url, "/")
+	}
+	modelsURL := strings.TrimSuffix(url, "/v1") + "/v1/models"
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Get(modelsURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: cannot reach %s: %s\n", cfg.BaseURL, err)
+		return 1
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Fprintf(os.Stderr, "error: parsing response: %s\n", err)
+		return 1
+	}
+
+	if len(result.Data) == 0 {
+		fmt.Println("No models loaded.")
+		return 0
+	}
+
+	for _, m := range result.Data {
+		fmt.Println(m.ID)
 	}
 	return 0
 }
