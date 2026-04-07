@@ -1,0 +1,56 @@
+---
+dun:
+  id: test-coverage
+  description: Go test coverage measurement per package
+  unit: percent
+---
+
+# Metric: Test Coverage
+
+Measures line coverage percentage for Go packages using `go test -cover`.
+
+## Measurement Command
+
+```bash
+go test -coverprofile=coverage.out ./... 2>/dev/null
+go tool cover -func=coverage.out | grep -E '^github.com/DocumentDrivenDX/forge'
+```
+
+## Output Format
+
+Per-package coverage lines:
+```
+github.com/DocumentDrivenDX/forge    82.1%
+github.com/DocumentDrivenDX/forge/compaction    93.5%
+...
+```
+
+## Thresholds
+
+| Package Pattern | Floor | Tolerance | Auto-bump Threshold |
+|-----------------|-------|-----------|---------------------|
+| `forge` (root) | 75% | 2% | 85% |
+| `*/compaction` | 80% | 2% | 90% |
+| `*/prompt` | 80% | 2% | 90% |
+| `*/tool` | 75% | 2% | 85% |
+| `*/config` | 70% | 2% | 80% |
+| `*/session` | 50% | 5% | 70% |
+| `*/provider/*` | 30% | 5% | 50% |
+| `*/picompat` | 60% | 5% | 75% |
+| `*/occompat` | 60% | 5% | 75% |
+
+Packages not matching any pattern default to 50% floor with 5% tolerance.
+
+## Enforcement
+
+Run via: `make coverage-ratchet`
+
+Exit codes:
+- 0: All packages above floor (or within tolerance)
+- 1: One or more packages below floor + tolerance (FAIL)
+- 2: Error in measurement
+
+## Notes
+
+Provider packages have lower floors because they wrap SDKs with limited unit test surface.
+CLI integration tests are deferred to e2e coverage.

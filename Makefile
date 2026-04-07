@@ -1,4 +1,4 @@
-.PHONY: build test lint vet fmt check clean
+.PHONY: build test lint vet fmt check clean coverage coverage-ratchet coverage-bump coverage-history
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 BUILD_TIME ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -35,8 +35,32 @@ gosec:
 govulncheck:
 	govulncheck ./...
 
-check: fmt vet lint test
+check: fmt vet lint test coverage-ratchet
 	@echo "All checks passed."
+
+# Coverage targets
+coverage:
+	go test -coverprofile=coverage.out ./...
+	go tool cover -func=coverage.out
+	@echo ""
+	@echo "Full coverage report: coverage.html"
+	go tool cover -html=coverage.out -o coverage.html
+
+coverage-ratchet:
+	@echo "Running coverage ratchet check..."
+	@go run scripts/coverage-ratchet.go
+
+coverage-bump: coverage-ratchet
+	@echo "Auto-bumping coverage floors where coverage exceeds floor by >10%..."
+	@go run scripts/coverage-ratchet.go --bump
+
+coverage-history:
+	@echo "Coverage history (from .helix-ratchets/coverage-floor.json):"
+	@cat .helix-ratchets/coverage-floor.json | jq '.history'
+
+coverage-trend: coverage-ratchet
+	@echo "Coverage trend from history:"
+	@go run scripts/coverage-ratchet.go --trend
 
 clean:
 	rm -f forge

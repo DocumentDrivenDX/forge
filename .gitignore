@@ -13,3 +13,7 @@
 website/public/
 website/resources/
 .helix-logs/
+
+# Coverage
+coverage.out
+coverage.html
