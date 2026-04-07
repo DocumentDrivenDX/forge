@@ -267,7 +267,11 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 			}
 		}
 
-		// Stream ended without message_stop (error or cancellation)
+		// Stream ended without message_stop — check for error.
+		if err := stream.Err(); err != nil {
+			ch <- forge.StreamDelta{Err: err}
+			return
+		}
 		ch <- forge.StreamDelta{Done: true}
 	}()
 

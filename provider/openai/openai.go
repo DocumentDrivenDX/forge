@@ -241,7 +241,10 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 			ch <- delta
 		}
 
-		// Send final done signal
+		if err := stream.Err(); err != nil {
+			ch <- forge.StreamDelta{Err: err}
+			return
+		}
 		ch <- forge.StreamDelta{Done: true}
 	}()
 

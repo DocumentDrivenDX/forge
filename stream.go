@@ -25,6 +25,10 @@ type StreamDelta struct {
 
 	// Done signals the end of the stream.
 	Done bool `json:"done,omitempty"`
+
+	// Err is set when the stream terminated with an error.
+	// consumeStream returns this error and discards any partial content.
+	Err error `json:"err,omitempty"`
 }
 
 // StreamingProvider extends Provider with streaming support.

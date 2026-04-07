@@ -3,6 +3,7 @@ package forge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -176,4 +177,33 @@ func TestRun_StreamingProvider(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 3, deltaCount)
+}
+
+func TestConsumeStream_StreamError(t *testing.T) {
+	netErr := errors.New("connection reset by peer")
+	sp := &mockStreamingProvider{
+		deltas: []StreamDelta{
+			{Content: "partial"},
+			{Err: netErr},
+		},
+	}
+
+	seq := 0
+	_, err := consumeStream(context.Background(), sp, nil, nil, Options{}, nil, "test", &seq)
+	require.ErrorIs(t, err, netErr)
+}
+
+func TestConsumeStream_StreamErrorAfterToolCall(t *testing.T) {
+	netErr := errors.New("network timeout")
+	sp := &mockStreamingProvider{
+		deltas: []StreamDelta{
+			{ToolCallID: "tc1", ToolCallName: "read"},
+			{ToolCallID: "tc1", ToolCallArgs: `{"path":`},
+			{Err: netErr},
+		},
+	}
+
+	seq := 0
+	_, err := consumeStream(context.Background(), sp, nil, nil, Options{}, nil, "test", &seq)
+	require.ErrorIs(t, err, netErr)
 }

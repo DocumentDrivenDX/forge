@@ -81,6 +81,10 @@ func consumeStream(
 			resp.Usage = *delta.Usage
 		}
 
+		if delta.Err != nil {
+			return Response{}, delta.Err
+		}
+
 		if delta.Done {
 			break
 		}
