@@ -167,6 +167,12 @@ type Request struct {
 
 	// NoStream disables streaming even if the provider supports it.
 	NoStream bool
+
+	// Compactor is called before each agent loop iteration. If non-nil,
+	// it may compact the message history to fit within the context window.
+	// Returns the (possibly compacted) messages. The compaction package
+	// provides a ready-made implementation.
+	Compactor func(ctx context.Context, messages []Message, provider Provider, toolCalls []ToolCallLog) ([]Message, error)
 }
 
 // Result is the outcome of an agent run.

@@ -74,6 +74,36 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			return result, nil
 		}
 
+		// Run compaction if configured
+		if req.Compactor != nil {
+			compacted, compErr := req.Compactor(ctx, messages, req.Provider, result.ToolCalls)
+			if compErr != nil {
+				// Compaction failure is non-fatal — continue with uncompacted messages
+				emitCallback(req.Callback, Event{
+					SessionID: sessionID,
+					Seq:       seq,
+					Type:      EventCompactionEnd,
+					Timestamp: time.Now().UTC(),
+					Data:      mustMarshal(map[string]any{"error": compErr.Error()}),
+				})
+				seq++
+			} else if len(compacted) < len(messages) {
+				// Compaction happened
+				emitCallback(req.Callback, Event{
+					SessionID: sessionID,
+					Seq:       seq,
+					Type:      EventCompactionEnd,
+					Timestamp: time.Now().UTC(),
+					Data: mustMarshal(map[string]any{
+						"messages_before": len(messages),
+						"messages_after":  len(compacted),
+					}),
+				})
+				seq++
+				messages = compacted
+			}
+		}
+
 		// Emit LLM request event
 		emitCallback(req.Callback, Event{
 			SessionID: sessionID,
