@@ -3,6 +3,7 @@ package picompat
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -180,8 +181,19 @@ func TestTranslate_SkipsUnsupported(t *testing.T) {
 
 	// Unsupported providers should be skipped with warnings
 	assert.Len(t, result.Warnings, 2)
-	assert.Contains(t, result.Warnings[0], "google-gemini-cli")
-	assert.Contains(t, result.Warnings[1], "github-copilot")
+	// Warnings may be in any order
+	hasGemini := false
+	hasCopilot := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w, "google-gemini-cli") {
+			hasGemini = true
+		}
+		if strings.Contains(w, "github-copilot") {
+			hasCopilot = true
+		}
+	}
+	assert.True(t, hasGemini, "should have warning for google-gemini-cli")
+	assert.True(t, hasCopilot, "should have warning for github-copilot")
 }
 
 func TestTranslate_SkipsCommandKeys(t *testing.T) {

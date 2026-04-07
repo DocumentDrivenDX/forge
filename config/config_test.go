@@ -199,3 +199,70 @@ func TestExpandEnvVars(t *testing.T) {
 	assert.Equal(t, "${UNSET}", expandEnvVars("${UNSET}"))
 	assert.Equal(t, "no vars", expandEnvVars("no vars"))
 }
+
+func TestSave(t *testing.T) {
+	cfg := &Config{
+		Providers: map[string]ProviderConfig{
+			"test": {
+				Type:    "openai-compat",
+				BaseURL: "http://localhost:1234/v1",
+				Model:   "test-model",
+			},
+		},
+		Default: "test",
+	}
+
+	// Test method Save
+	data, err := cfg.Save()
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "providers:")
+	assert.Contains(t, string(data), "test:")
+
+	// Test package-level Save
+	data, err = Save(cfg)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "providers:")
+}
+
+func TestSaveToFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := &Config{
+		Providers: map[string]ProviderConfig{
+			"local": {
+				Type:    "openai-compat",
+				BaseURL: "http://localhost:1234/v1",
+			},
+		},
+		Default: "local",
+	}
+
+	path := filepath.Join(dir, "config.yaml")
+	err := SaveToFile(path, cfg)
+	require.NoError(t, err)
+
+	// Verify file exists and has correct permissions
+	info, err := os.Stat(path)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0600), info.Mode().Perm())
+
+	// Verify content
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "local:")
+}
+
+func TestImportMetadata(t *testing.T) {
+	cfg := &Config{
+		ImportedFrom: &ImportMetadata{
+			Source:     "pi",
+			Timestamp:  "2026-04-07T12:00:00Z",
+			SourceHash: "a1b2c3d4",
+		},
+	}
+
+	data, err := cfg.Save()
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "imported_from:")
+	assert.Contains(t, string(data), "source: pi")
+	assert.Contains(t, string(data), "a1b2c3d4")
+}

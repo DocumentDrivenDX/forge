@@ -273,9 +273,14 @@ func (c *Config) Save() ([]byte, error) {
 	return yaml.Marshal(c)
 }
 
+// Save is a package-level alias for Config.Save.
+func Save(cfg *Config) ([]byte, error) {
+	return cfg.Save()
+}
+
 // SaveToFile writes the config to a YAML file.
 func SaveToFile(path string, cfg *Config) error {
-	data, err := yaml.Marshal(cfg)
+	data, err := cfg.Save()
 	if err != nil {
 		return fmt.Errorf("config: marshaling: %w", err)
 	}
@@ -283,9 +288,4 @@ func SaveToFile(path string, cfg *Config) error {
 		return fmt.Errorf("config: writing %s: %w", path, err)
 	}
 	return nil
-}
-
-// Save is a package-level function that marshals config to YAML.
-func Save(cfg *Config) ([]byte, error) {
-	return yaml.Marshal(cfg)
 }

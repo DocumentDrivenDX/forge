@@ -1,18 +1,18 @@
 {
   "version": 1,
   "metric": "test-coverage",
-  "updated": "2026-04-07T14:45:10-04:00",
+  "updated": "2026-04-07T17:05:32-04:00",
   "updated_by": "forge-abc123",
-  "commit": "0b36827",
+  "commit": "5f5b1ff",
   "floors": {
     "github.com/DocumentDrivenDX/forge": 75,
     "github.com/DocumentDrivenDX/forge/cmd/forge": 0,
     "github.com/DocumentDrivenDX/forge/compaction": 88.5,
-    "github.com/DocumentDrivenDX/forge/config": 75.9,
+    "github.com/DocumentDrivenDX/forge/config": 81.2,
     "github.com/DocumentDrivenDX/forge/occompat": 78.6,
     "github.com/DocumentDrivenDX/forge/picompat": 68.7,
     "github.com/DocumentDrivenDX/forge/prompt": 87.8,
-    "github.com/DocumentDrivenDX/forge/provider/anthropic": 0,
+    "github.com/DocumentDrivenDX/forge/provider/anthropic": 24.5,
     "github.com/DocumentDrivenDX/forge/provider/openai": 30,
     "github.com/DocumentDrivenDX/forge/provider/virtual": 77.1,
     "github.com/DocumentDrivenDX/forge/session": 61.400000000000006,
@@ -31,6 +31,18 @@
     {
       "date": "2026-04-07",
       "commit": "0b36827",
+      "action": "auto-bump",
+      "note": "coverage exceeded floor by \u003e10%"
+    },
+    {
+      "date": "2026-04-07",
+      "commit": "5f5b1ff",
+      "action": "auto-bump",
+      "note": "coverage exceeded floor by \u003e10%"
+    },
+    {
+      "date": "2026-04-07",
+      "commit": "5f5b1ff",
       "action": "auto-bump",
       "note": "coverage exceeded floor by \u003e10%"
     }
