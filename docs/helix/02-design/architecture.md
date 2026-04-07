@@ -46,8 +46,10 @@ forge/                          # root module: github.com/your-org/forge
 ├── provider/
 │   ├── openai/
 │   │   └── openai.go           # OpenAI-compatible provider (LM Studio, Ollama, OpenAI, etc.)
-│   └── anthropic/
-│       └── anthropic.go        # Anthropic Claude provider
+│   ├── anthropic/
+│   │   └── anthropic.go        # Anthropic Claude provider
+│   └── virtual/
+│       └── virtual.go           # Virtual provider for deterministic replay
 ├── tool/
 │   ├── read.go                 # file read tool
 │   ├── write.go                # file write tool
@@ -90,7 +92,7 @@ forge/                          # root module: github.com/your-org/forge
       │              │ │        │ │             │
       │ openai/      │ │ read   │ │ logger      │
       │ anthropic/   │ │ write  │ │ replay      │
-      │              │ │ edit   │ │ pricing     │
+      │ virtual/     │ │ edit   │ │ pricing     │
       │              │ │ bash   │ │ usage       │
       └──────────────┘ └────────┘ └─────────────┘
 ```

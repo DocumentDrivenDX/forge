@@ -47,12 +47,20 @@ hands. This implements PRD P0 requirement 2.
 
 #### edit
 
-12. Accepts: path (string), old_string (string), new_string (string)
-13. Reads file, finds old_string, replaces with new_string
-14. Fails if old_string is not found in the file
-15. Fails if old_string appears more than once (ambiguous edit)
-16. Writes modified content back to file
-17. Returns success/failure with context
+12. Accepts: path (string), plus one of:
+    - edits[] array for multi-edit (preferred, pi-style)
+    - old_string + new_string for single edit (legacy/backward compat)
+13. **Multi-edit form**: path + edits[] where each entry has oldText and newText
+    - Multiple disjoint edits applied atomically in one file write
+    - Each oldText must appear exactly once in the original file
+    - Edits are matched against the original file content, not incrementally
+    - Edits must not overlap or be nested
+14. **Single-edit form**: path + old_string + new_string
+    - Reads file, finds old_string, replaces with new_string
+15. Fails if old_string/edits oldText not found in the file
+16. Fails if old_string appears more than once (ambiguous edit)
+17. Writes modified content back to file
+18. Returns success/failure with context
 
 #### bash
 

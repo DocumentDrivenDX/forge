@@ -101,6 +101,15 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 			Output: int(msg.Usage.OutputTokens),
 			Total:  int(msg.Usage.InputTokens + msg.Usage.OutputTokens),
 		}
+
+		// Extract cache tokens if present
+		if msg.Usage.CacheCreationInputTokens > 0 {
+			resp.Usage.CacheWrite = int(msg.Usage.CacheCreationInputTokens)
+		}
+		if msg.Usage.CacheReadInputTokens > 0 {
+			resp.Usage.CacheRead = int(msg.Usage.CacheReadInputTokens)
+		}
+
 		resp.FinishReason = string(msg.StopReason)
 
 		// Extract content and tool calls from content blocks
@@ -221,7 +230,13 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 
 			switch event.Type {
 			case "message_start":
-				ch <- forge.StreamDelta{Model: string(event.Message.Model)}
+				// Capture input tokens from message_start
+				ch <- forge.StreamDelta{
+					Model: string(event.Message.Model),
+					Usage: &forge.TokenUsage{
+						Input: int(event.Usage.InputTokens),
+					},
+				}
 
 			case "content_block_start":
 				if event.ContentBlock.Type == "tool_use" {
@@ -254,10 +269,19 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 				delta := forge.StreamDelta{
 					FinishReason: string(event.Delta.StopReason),
 				}
+				// Build usage with output and cache tokens
+				usage := &forge.TokenUsage{}
 				if event.Usage.OutputTokens > 0 {
-					delta.Usage = &forge.TokenUsage{
-						Output: int(event.Usage.OutputTokens),
-					}
+					usage.Output = int(event.Usage.OutputTokens)
+				}
+				if event.Usage.CacheCreationInputTokens > 0 {
+					usage.CacheWrite = int(event.Usage.CacheCreationInputTokens)
+				}
+				if event.Usage.CacheReadInputTokens > 0 {
+					usage.CacheRead = int(event.Usage.CacheReadInputTokens)
+				}
+				if usage.Input > 0 || usage.Output > 0 || usage.CacheRead > 0 || usage.CacheWrite > 0 {
+					delta.Usage = usage
 				}
 				ch <- delta
 

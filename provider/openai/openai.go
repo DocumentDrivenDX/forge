@@ -98,6 +98,10 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 				Output: int(completion.Usage.CompletionTokens),
 				Total:  int(completion.Usage.TotalTokens),
 			}
+			// Extract cached tokens if present
+			if completion.Usage.PromptTokensDetails.CachedTokens > 0 {
+				resp.Usage.CacheRead = int(completion.Usage.PromptTokensDetails.CachedTokens)
+			}
 		}
 
 		if len(completion.Choices) > 0 {
@@ -257,13 +261,16 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 			}
 
 			if chunk.Usage.TotalTokens != 0 {
-				ch <- forge.StreamDelta{
-					Usage: &forge.TokenUsage{
-						Input:  int(chunk.Usage.PromptTokens),
-						Output: int(chunk.Usage.CompletionTokens),
-						Total:  int(chunk.Usage.TotalTokens),
-					},
+				usage := &forge.TokenUsage{
+					Input:  int(chunk.Usage.PromptTokens),
+					Output: int(chunk.Usage.CompletionTokens),
+					Total:  int(chunk.Usage.TotalTokens),
 				}
+				// Extract cached tokens if present
+				if chunk.Usage.PromptTokensDetails.CachedTokens > 0 {
+					usage.CacheRead = int(chunk.Usage.PromptTokensDetails.CachedTokens)
+				}
+				ch <- forge.StreamDelta{Usage: usage}
 			}
 		}
 

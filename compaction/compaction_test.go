@@ -73,7 +73,7 @@ func TestCompactor_TriggersOnLargeConversation(t *testing.T) {
 	// Simulate the agent loop
 	for i := 0; i < 15; i++ {
 		// Check compaction
-		newMsgs, err := compactor(context.Background(), messages, provider, toolCalls)
+		newMsgs, _, err := compactor(context.Background(), messages, provider, toolCalls)
 		require.NoError(t, err)
 		if len(newMsgs) < len(messages) {
 			compactionCount++
@@ -132,7 +132,7 @@ func TestCompactor_NoCompactionWhenDisabled(t *testing.T) {
 		messages = append(messages, forge.Message{Role: forge.RoleUser, Content: string(make([]byte, 1000))})
 	}
 
-	result, err := compactor(context.Background(), messages, nil, nil)
+	result, _, err := compactor(context.Background(), messages, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, len(messages), len(result))
 }
@@ -152,7 +152,7 @@ func TestCompactor_SkipsRecompaction(t *testing.T) {
 		InjectSummary("## Goal\nJust compacted"),
 	}
 
-	result, err := compactor(context.Background(), messages, provider, nil)
+	result, _, err := compactor(context.Background(), messages, provider, nil)
 	require.NoError(t, err)
 	assert.Equal(t, len(messages), len(result), "should skip re-compaction")
 }
@@ -178,7 +178,7 @@ func TestEndToEnd_AgentLoopWithCompaction(t *testing.T) {
 
 	for iteration := 0; iteration < 20; iteration++ {
 		// Pre-iteration compaction check
-		newMsgs, err := compactor(context.Background(), messages, provider, allToolCalls)
+		newMsgs, _, err := compactor(context.Background(), messages, provider, allToolCalls)
 		require.NoError(t, err)
 		if len(newMsgs) < len(messages) {
 			events = append(events, fmt.Sprintf("compacted at iteration %d: %d -> %d msgs", iteration, len(messages), len(newMsgs)))

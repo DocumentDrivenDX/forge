@@ -150,6 +150,51 @@ Matching pi exactly:
 - `${@:N}` — args from Nth onward (1-indexed)
 - `${@:N:L}` — L args starting from Nth
 
+## Presets
+
+Forge ships with built-in system prompt presets that track the style and conventions of well-known coding agents:
+
+| Preset | Description |
+|--------|-------------|
+| `forge` | Forge default — balanced, tool-aware, structured output |
+| `minimal` | Bare minimum — one sentence, like pi |
+| `claude` | Tracks Claude Code style — thorough, safety-conscious |
+| `codex` | Tracks OpenAI Codex CLI style — pragmatic, direct |
+| `cursor` | Tracks Cursor style — fast, action-oriented |
+
+### Using Presets
+
+```go
+// Load a preset
+preset := prompt.NewFromPreset("claude")
+
+// Apply tools and context
+preset.WithTools(tools)
+.WithContextFiles(prompt.LoadContextFiles(workDir))
+
+// Build the system prompt
+sysPrompt := preset.Build()
+
+// Use in forge.Request
+req := forge.Request{
+    SystemPrompt: sysPrompt,
+    // ...
+}
+```
+
+### Preset API
+
+```go
+// PresetNames returns all available preset names in stable order.
+func PresetNames() []string
+
+// GetPreset returns a preset by name, or the forge default if not found.
+func GetPreset(name string) Preset
+
+// NewFromPreset creates a Builder initialized from a named preset.
+func NewFromPreset(name string) *Builder
+```
+
 ## Traceability
 
 | Requirement | Component | Test Strategy |
@@ -159,6 +204,7 @@ Matching pi exactly:
 | Template loading | LoadTemplate | Unit: parse frontmatter + content |
 | Arg substitution | SubstituteArgs | Unit: all patterns ($1, $@, ${@:N:L}) |
 | Tool section | WithTools | Unit: tools listed in output |
+| Presets | prompt.NewFromPreset | Unit: build from each preset name |
 
 ## Risks
 

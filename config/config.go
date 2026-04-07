@@ -25,6 +25,16 @@ type ProviderConfig struct {
 	Headers map[string]string `yaml:"headers"` // extra HTTP headers (OpenRouter, Azure)
 }
 
+// ImportMetadata records the last import source for drift detection.
+type ImportMetadata struct {
+	// Source is the import source ("pi" or "opencode").
+	Source string `yaml:"source"`
+	// Timestamp is when the import occurred (RFC3339).
+	Timestamp string `yaml:"timestamp"`
+	// SourceHash is the truncated SHA-256 of the source files.
+	SourceHash string `yaml:"source_hash"`
+}
+
 // Config is the top-level forge configuration.
 type Config struct {
 	// Providers is a map of named provider configurations.
@@ -41,6 +51,9 @@ type Config struct {
 
 	// Preset is the system prompt preset name.
 	Preset string `yaml:"preset"`
+
+	// ImportedFrom records the last import source for drift detection.
+	ImportedFrom *ImportMetadata `yaml:"imported_from,omitempty"`
 
 	// Legacy flat fields for backwards compatibility.
 	LegacyProvider string `yaml:"provider"`
@@ -253,4 +266,26 @@ func expandEnvVars(s string) string {
 		}
 		return match // leave unexpanded if not set
 	})
+}
+
+// Save serializes the config to YAML bytes.
+func (c *Config) Save() ([]byte, error) {
+	return yaml.Marshal(c)
+}
+
+// SaveToFile writes the config to a YAML file.
+func SaveToFile(path string, cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("config: marshaling: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("config: writing %s: %w", path, err)
+	}
+	return nil
+}
+
+// Save is a package-level function that marshals config to YAML.
+func Save(cfg *Config) ([]byte, error) {
+	return yaml.Marshal(cfg)
 }

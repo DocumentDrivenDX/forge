@@ -17,6 +17,8 @@ import (
 
 	"github.com/DocumentDrivenDX/forge"
 	forgeConfig "github.com/DocumentDrivenDX/forge/config"
+	"github.com/DocumentDrivenDX/forge/occompat"
+	"github.com/DocumentDrivenDX/forge/picompat"
 	"github.com/DocumentDrivenDX/forge/prompt"
 	"github.com/DocumentDrivenDX/forge/session"
 	"github.com/DocumentDrivenDX/forge/tool"
@@ -72,6 +74,8 @@ func run() int {
 			return cmdCheck(wd, *providerFlag, args[1:])
 		case "providers":
 			return cmdProviders(wd, *jsonOutput)
+		case "import":
+			return cmdImport(wd, args[1:])
 		case "version":
 			fmt.Printf("forge %s (commit %s, built %s)\n", Version, GitCommit, BuildTime)
 			return 0
@@ -84,6 +88,12 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 2
 	}
+
+	// Check for zero-config discovery
+	checkZeroConfigDiscovery(cfg)
+
+	// Check for drift
+	checkDrift(cfg, wd)
 
 	// Resolve prompt
 	promptText, err := resolvePrompt(*promptFlag)
@@ -493,4 +503,389 @@ func listModels(pc forgeConfig.ProviderConfig) []string {
 		models = append(models, m.ID)
 	}
 	return models
+}
+
+func cmdImport(workDir string, args []string) int {
+	if len(args) == 0 {
+		fmt.Fprintln(os.Stderr, "usage: forge import <pi|opencode> [--diff] [--merge] [--project]")
+		return 2
+	}
+
+	source := args[0]
+	if source != "pi" && source != "opencode" {
+		fmt.Fprintf(os.Stderr, "error: unknown source %q (use 'pi' or 'opencode')\n", source)
+		return 2
+	}
+
+	// Parse flags
+	var diffOnly, merge, project bool
+	for _, arg := range args[1:] {
+		switch arg {
+		case "--diff":
+			diffOnly = true
+		case "--merge":
+			merge = true
+		case "--project":
+			project = true
+		}
+	}
+
+	// Determine output path
+	var configPath string
+	if project {
+		fmt.Fprintln(os.Stderr, "forge: warning: writing API keys to project config (.forge/config.yaml)")
+		fmt.Fprintln(os.Stderr, "forge: ensure .forge/config.yaml is in .gitignore before committing")
+		fmt.Fprint(os.Stderr, "Proceed? [y/N] ")
+		var response string
+		fmt.Scanln(&response)
+		if strings.ToLower(response) != "y" {
+			return 0
+		}
+		configPath = filepath.Join(workDir, ".forge", "config.yaml")
+		os.MkdirAll(filepath.Join(workDir, ".forge"), 0755)
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: cannot determine home directory: %v\n", err)
+			return 1
+		}
+		configPath = filepath.Join(home, ".config", "forge", "config.yaml")
+		os.MkdirAll(filepath.Dir(configPath), 0755)
+	}
+
+	// Import based on source
+	if source == "pi" {
+		return importPi(configPath, diffOnly, merge)
+	} else {
+		return importOpenCode(configPath, diffOnly, merge)
+	}
+}
+
+func importPi(configPath string, diffOnly, merge bool) int {
+	piDir := picompat.DefaultPiDir()
+	if piDir == "" {
+		fmt.Fprintln(os.Stderr, "error: cannot determine pi config directory")
+		return 1
+	}
+
+	if !picompat.CheckExists() {
+		fmt.Fprintf(os.Stderr, "error: pi config not found at %s\n", piDir)
+		return 1
+	}
+
+	// Translate pi config
+	result, err := picompat.Translate(piDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	// Show diff if requested
+	if diffOnly {
+		return showDiff("pi", result)
+	}
+
+	// Compute source hash
+	sourceHash, _ := picompat.ComputeSourceHash(piDir)
+
+	// Load existing config
+	cfg, err := forgeConfig.Load(filepath.Dir(configPath))
+	if err != nil {
+		cfg = &forgeConfig.Config{}
+	}
+
+	// Merge or replace
+	if merge {
+		for name, pc := range result.Providers {
+			if existing, exists := cfg.Providers[name]; exists {
+				// Update api_key only for existing providers
+				existing.APIKey = pc.APIKey
+				cfg.Providers[name] = existing
+				fmt.Printf("updated: %s\n", name)
+			} else {
+				cfg.Providers[name] = pc
+				fmt.Printf("added: %s\n", name)
+			}
+		}
+	} else {
+		if cfg.Providers == nil {
+			cfg.Providers = make(map[string]forgeConfig.ProviderConfig)
+		}
+		for name, pc := range result.Providers {
+			cfg.Providers[name] = pc
+			fmt.Printf("imported: %s\n", name)
+		}
+	}
+
+	// Set default
+	if result.Default != "" {
+		cfg.Default = result.Default
+	}
+
+	// Set import metadata
+	cfg.ImportedFrom = &forgeConfig.ImportMetadata{
+		Source:     "pi",
+		Timestamp:  time.Now().Format(time.RFC3339),
+		SourceHash: sourceHash,
+	}
+
+	// Write config with secure permissions
+	if err := writeConfig(configPath, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	// Show warnings
+	for _, w := range result.Warnings {
+		fmt.Fprintf(os.Stderr, "forge: warning: %s\n", w)
+	}
+
+	fmt.Printf("imported to %s\n", configPath)
+	return 0
+}
+
+func importOpenCode(configPath string, diffOnly, merge bool) int {
+	opencodeDir := occompat.DefaultOpenCodeDir()
+	if opencodeDir == "" {
+		fmt.Fprintln(os.Stderr, "error: cannot determine opencode config directory")
+		return 1
+	}
+
+	if !occompat.CheckExists() {
+		fmt.Fprintf(os.Stderr, "error: opencode config not found at %s\n", opencodeDir)
+		return 1
+	}
+
+	// Load auth
+	auth, err := occompat.LoadAuth(opencodeDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	// Get the API key from auth (use first entry)
+	var authKey string
+	for _, entry := range auth {
+		authKey = entry.Key
+		break
+	}
+
+	// Translate
+	result := occompat.Translate(opencodeDir, authKey)
+
+	// Show diff if requested
+	if diffOnly {
+		return showOpenCodeDiff(result)
+	}
+
+	// Compute source hash
+	sourceHash, _ := occompat.ComputeSourceHash(opencodeDir)
+
+	// Load existing config
+	cfg, err := forgeConfig.Load(filepath.Dir(configPath))
+	if err != nil {
+		cfg = &forgeConfig.Config{}
+	}
+
+	// Merge or replace
+	name := "opencode"
+	if merge {
+		if cfg.Providers == nil {
+			cfg.Providers = make(map[string]forgeConfig.ProviderConfig)
+		}
+		if existing, exists := cfg.Providers[name]; exists {
+			existing.APIKey = result.Provider.APIKey
+			cfg.Providers[name] = existing
+			fmt.Printf("updated: %s\n", name)
+		} else {
+			cfg.Providers[name] = result.Provider
+			fmt.Printf("added: %s\n", name)
+		}
+	} else {
+		if cfg.Providers == nil {
+			cfg.Providers = make(map[string]forgeConfig.ProviderConfig)
+		}
+		cfg.Providers[name] = result.Provider
+		fmt.Printf("imported: %s\n", name)
+	}
+
+	// Set import metadata
+	cfg.ImportedFrom = &forgeConfig.ImportMetadata{
+		Source:     "opencode",
+		Timestamp:  time.Now().Format(time.RFC3339),
+		SourceHash: sourceHash,
+	}
+
+	// Write config with secure permissions
+	if err := writeConfig(configPath, cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	// Show warnings
+	for _, w := range result.Warnings {
+		fmt.Fprintf(os.Stderr, "forge: warning: %s\n", w)
+	}
+
+	fmt.Printf("imported to %s\n", configPath)
+	return 0
+}
+
+func showDiff(source string, result *picompat.TranslationResult) int {
+	fmt.Printf("forge: %s config -- what would be imported:\n\n", source)
+	for name, pc := range result.Providers {
+		redactedKey := redactKey(pc.APIKey)
+		fmt.Printf("[%s]\n", name)
+		fmt.Printf("  type:    %s\n", pc.Type)
+		if pc.BaseURL != "" {
+			fmt.Printf("  url:     %s\n", pc.BaseURL)
+		}
+		if redactedKey != "" {
+			fmt.Printf("  api_key: %s\n", redactedKey)
+		}
+		if pc.Model != "" {
+			fmt.Printf("  model:   %s\n", pc.Model)
+		}
+		fmt.Println()
+	}
+	if result.Default != "" {
+		fmt.Printf("default: %s\n", result.Default)
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Println("\nWarnings:")
+		for _, w := range result.Warnings {
+			fmt.Printf("  - %s\n", w)
+		}
+	}
+	return 0
+}
+
+func showOpenCodeDiff(result *occompat.TranslationResult) int {
+	fmt.Println("forge: opencode config -- what would be imported:")
+	pc := result.Provider
+	redactedKey := redactKey(pc.APIKey)
+	fmt.Println("[opencode]")
+	fmt.Printf("  type:    %s\n", pc.Type)
+	if pc.BaseURL != "" {
+		fmt.Printf("  url:     %s\n", pc.BaseURL)
+	}
+	if redactedKey != "" {
+		fmt.Printf("  api_key: %s\n", redactedKey)
+	}
+	if len(pc.Headers) > 0 {
+		fmt.Println("  headers:")
+		for k, v := range pc.Headers {
+			fmt.Printf("    %s: %s\n", k, v)
+		}
+	}
+	if len(result.Warnings) > 0 {
+		fmt.Println("\nWarnings:")
+		for _, w := range result.Warnings {
+			fmt.Printf("  - %s\n", w)
+		}
+	}
+	return 0
+}
+
+func redactKey(key string) string {
+	if key == "" || len(key) < 10 {
+		return key
+	}
+	if len(key) <= 10 {
+		return key
+	}
+	return key[:6] + "..." + key[len(key)-4:]
+}
+
+func writeConfig(path string, cfg *forgeConfig.Config) error {
+	data, err := forgeConfig.Save(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+// checkZeroConfigDiscovery emits a notice if no config exists but pi/opencode configs do.
+func checkZeroConfigDiscovery(cfg *forgeConfig.Config) {
+	// Check if any providers are configured
+	if len(cfg.Providers) > 0 {
+		return
+	}
+
+	// Check for standard env vars
+	if os.Getenv("ANTHROPIC_API_KEY") != "" ||
+		os.Getenv("OPENAI_API_KEY") != "" ||
+		os.Getenv("OPENROUTER_API_KEY") != "" {
+		return
+	}
+
+	// Check for pi config
+	if picompat.CheckExists() {
+		piDir := picompat.DefaultPiDir()
+		fmt.Fprintf(os.Stderr, "forge: no providers configured. Found pi config at %s — run 'forge import pi' to import.\n", piDir)
+		return
+	}
+
+	// Check for opencode config
+	if occompat.CheckExists() {
+		opencodeDir := occompat.DefaultOpenCodeDir()
+		fmt.Fprintf(os.Stderr, "forge: no providers configured. Found opencode config at %s — run 'forge import opencode' to import.\n", opencodeDir)
+		return
+	}
+}
+
+// checkDrift emits a notice if the source config has changed since import.
+func checkDrift(cfg *forgeConfig.Config, workDir string) {
+	if cfg.ImportedFrom == nil || cfg.ImportedFrom.Source == "" {
+		return
+	}
+
+	// Check daily debounce
+	if !shouldCheckDrift(cfg.ImportedFrom.Source) {
+		return
+	}
+
+	// Compute current hash
+	var currentHash string
+	var err error
+
+	switch cfg.ImportedFrom.Source {
+	case "pi":
+		currentHash, err = picompat.ComputeSourceHash(picompat.DefaultPiDir())
+	case "opencode":
+		currentHash, err = occompat.ComputeSourceHash(occompat.DefaultOpenCodeDir())
+	}
+
+	if err != nil {
+		return // Can't check, just skip
+	}
+
+	if currentHash != cfg.ImportedFrom.SourceHash {
+		fmt.Fprintf(os.Stderr, "forge: %s config changed since import — run 'forge import %s --diff' to review\n",
+			cfg.ImportedFrom.Source, cfg.ImportedFrom.Source)
+	}
+}
+
+// shouldCheckDrift checks if we should perform a drift check (once per day).
+func shouldCheckDrift(source string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return true
+	}
+
+	checkFile := filepath.Join(home, ".config", "forge", ".import-check-"+source)
+
+	// Check if file exists and is recent (within 24 hours)
+	info, err := os.Stat(checkFile)
+	if err == nil {
+		// File exists, check age
+		age := time.Since(info.ModTime())
+		if age < 24*time.Hour {
+			return false
+		}
+	}
+
+	// Update check file
+	os.WriteFile(checkFile, []byte(time.Now().Format(time.RFC3339)), 0644)
+	return true
 }

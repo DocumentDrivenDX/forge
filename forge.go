@@ -168,11 +168,11 @@ type Request struct {
 	// NoStream disables streaming even if the provider supports it.
 	NoStream bool
 
-	// Compactor is called before each agent loop iteration. If non-nil,
-	// it may compact the message history to fit within the context window.
-	// Returns the (possibly compacted) messages. The compaction package
-	// provides a ready-made implementation.
-	Compactor func(ctx context.Context, messages []Message, provider Provider, toolCalls []ToolCallLog) ([]Message, error)
+	// Compactor is called before each agent loop iteration (and after tool
+	// results). If non-nil, it may compact the message history to fit within
+	// the context window. Returns the (possibly compacted) messages and result.
+	// The compaction package provides a ready-made implementation.
+	Compactor func(ctx context.Context, messages []Message, provider Provider, toolCalls []ToolCallLog) ([]Message, *CompactionResult, error)
 }
 
 // Result is the outcome of an agent run.
@@ -204,4 +204,18 @@ type Result struct {
 
 	// SessionID identifies the session log for this run.
 	SessionID string `json:"session_id"`
+}
+
+// CompactionResult holds the output of a compaction pass.
+type CompactionResult struct {
+	// Summary is the generated summary text.
+	Summary string `json:"summary"`
+	// FileOps tracks files read and modified.
+	FileOps map[string]any `json:"file_ops,omitempty"`
+	// TokensBefore is the estimated token count before compaction.
+	TokensBefore int `json:"tokens_before"`
+	// TokensAfter is the estimated token count after compaction.
+	TokensAfter int `json:"tokens_after"`
+	// Warning is a degradation warning, if any.
+	Warning string `json:"warning,omitempty"`
 }

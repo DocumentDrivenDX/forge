@@ -57,6 +57,69 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	seq := 1
 	opts := Options{}
 
+	// runCompaction handles the compaction logic and event emission.
+	// Returns true if compaction occurred.
+	runCompaction := func() (bool, *CompactionResult) {
+		if req.Compactor == nil {
+			return false, nil
+		}
+
+		// Emit compaction start event
+		emitCallback(req.Callback, Event{
+			SessionID: sessionID,
+			Seq:       seq,
+			Type:      EventCompactionStart,
+			Timestamp: time.Now().UTC(),
+			Data: mustMarshal(map[string]any{
+				"messages_before": len(messages),
+			}),
+		})
+		seq++
+
+		// Run compaction
+		compacted, compResult, compErr := req.Compactor(ctx, messages, req.Provider, result.ToolCalls)
+		if compErr != nil {
+			// Compaction failure is non-fatal — continue with uncompacted messages
+			emitCallback(req.Callback, Event{
+				SessionID: sessionID,
+				Seq:       seq,
+				Type:      EventCompactionEnd,
+				Timestamp: time.Now().UTC(),
+				Data: mustMarshal(map[string]any{
+					"error":    compErr.Error(),
+					"success":  false,
+				}),
+			})
+			seq++
+			return false, nil
+		}
+
+		if compResult != nil {
+			// Compaction happened — emit end with full result
+			emitCallback(req.Callback, Event{
+				SessionID: sessionID,
+				Seq:       seq,
+				Type:      EventCompactionEnd,
+				Timestamp: time.Now().UTC(),
+				Data: mustMarshal(map[string]any{
+					"success":         true,
+					"summary":        compResult.Summary,
+					"file_ops":       compResult.FileOps,
+					"tokens_before":  compResult.TokensBefore,
+					"tokens_after":   compResult.TokensAfter,
+					"warning":        compResult.Warning,
+					"messages_after": len(compacted),
+				}),
+			})
+			seq++
+			messages = compacted
+			return true, compResult
+		}
+
+		// No compaction happened
+		return false, nil
+	}
+
 	for iteration := 0; ; iteration++ {
 		// Check iteration limit
 		if req.MaxIterations > 0 && iteration >= req.MaxIterations {
@@ -74,35 +137,8 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			return result, nil
 		}
 
-		// Run compaction if configured
-		if req.Compactor != nil {
-			compacted, compErr := req.Compactor(ctx, messages, req.Provider, result.ToolCalls)
-			if compErr != nil {
-				// Compaction failure is non-fatal — continue with uncompacted messages
-				emitCallback(req.Callback, Event{
-					SessionID: sessionID,
-					Seq:       seq,
-					Type:      EventCompactionEnd,
-					Timestamp: time.Now().UTC(),
-					Data:      mustMarshal(map[string]any{"error": compErr.Error()}),
-				})
-				seq++
-			} else if len(compacted) < len(messages) {
-				// Compaction happened
-				emitCallback(req.Callback, Event{
-					SessionID: sessionID,
-					Seq:       seq,
-					Type:      EventCompactionEnd,
-					Timestamp: time.Now().UTC(),
-					Data: mustMarshal(map[string]any{
-						"messages_before": len(messages),
-						"messages_after":  len(compacted),
-					}),
-				})
-				seq++
-				messages = compacted
-			}
-		}
+		// Run compaction before iteration (pre-iteration check)
+		runCompaction()
 
 		// Emit LLM request event with full message bodies and tool definitions
 		emitCallback(req.Callback, Event{
@@ -251,6 +287,10 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				ToolCallID: tc.ID,
 			})
 		}
+
+		// Mid-iteration compaction check (after tool results)
+		// This handles cases where large bash output increases token count
+		runCompaction()
 	}
 }
 

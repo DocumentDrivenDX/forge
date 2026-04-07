@@ -128,11 +128,11 @@ task the same: spawn a process, send to cloud, parse the result.
 ### Should Have (P1)
 
 1. **System prompt composition** — base system prompt + caller-provided
-   additions (persona, project context, conventions)
+   additions (persona, project context, conventions) — **Implemented**
 2. **Session continuity** — option to carry conversation history across
    multiple `Run` calls within a session
 3. **Streaming callbacks** — caller can receive tool call events and partial
-   responses in real time
+   responses in real time — **Implemented**
 4. **Timeout management** — per-invocation and per-tool-call timeouts
 5. **DDx harness adapter** — implement the DDx harness interface so Forge
    appears as a native `ddx agent` harness alongside claude/codex/pi
@@ -145,6 +145,8 @@ task the same: spawn a process, send to cloud, parse the result.
    iteration, LLM call, and tool execution. If OTel overhead or complexity is
    unreasonable, fall back to the JSONL log as the primary observability
    surface.
+9. **Conversation compaction** — auto-summarize long conversation histories
+   to fit within model context windows — **Implemented**
 
 ### Nice to Have (P2)
 
