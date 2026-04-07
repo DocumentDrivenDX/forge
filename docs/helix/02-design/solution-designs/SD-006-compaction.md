@@ -79,9 +79,10 @@ type CompactionConfig struct {
     // verbatim after compaction. Default: 8192.
     KeepRecentTokens int
 
-    // MaxToolResultTokens is the max tokens per tool result included in
-    // the summarization input. Longer results are truncated. Default: 500.
-    MaxToolResultTokens int
+    // MaxToolResultChars is the max characters per tool result included in
+    // the summarization input. Longer results are truncated with a
+    // "[... N more characters truncated]" marker. Default: 2000 (matching pi).
+    MaxToolResultChars int
 
     // SummarizationModel overrides the model used for summarization.
     // If empty, uses the same model as the agent loop. Useful for using
@@ -130,8 +131,18 @@ internal overhead. For a 32K model: effective = 30720, trigger at 30720 - 8192 =
 
 Token estimation: use the provider's reported usage from the last response
 (accurate), plus chars/4 heuristic for messages added since. For the trigger
-check, use `usage.Input + usage.CacheRead` as the effective token count (cache
-tokens still consume context window space).
+check, use the full context footprint:
+```
+effectiveTokens = usage.Input + usage.Output + usage.CacheRead + usage.CacheWrite
+```
+This matches pi's `calculateContextTokens()`. All four components contribute
+to context window consumption — output tokens from the current turn become
+input tokens on the next turn, and cache tokens represent context the model
+processed regardless of billing discount.
+
+**Non-text estimation**: Tool call arguments are estimated by JSON byte length / 4.
+Images (if supported) use a fixed estimate of 1200 tokens (following pi's 4800
+chars / 4). Thinking/reasoning blocks are included in char count.
 
 Checked at two points:
 1. **Pre-iteration**: Before sending the next prompt to the model
@@ -143,8 +154,13 @@ Checked at two points:
 1. Walk backwards from newest messages, accumulating token estimates
 2. Stop when `keepRecentTokens` is reached — everything after this point is kept
 3. Everything before the cut point is serialized and summarized
-4. The cut point must be at a message boundary (never mid-tool-call —
-   a tool result must follow its tool call)
+4. The cut point must be at a valid turn boundary. Valid boundaries are:
+   user messages, assistant messages, and bash tool executions (which are
+   natural turn breaks like pi's `bashExecution` entries). Tool result
+   messages are NOT valid cut points — they must follow their tool call.
+5. **Re-compaction guard**: If the most recent entry is already a compaction
+   summary, skip compaction (following pi — prevents compacting a summary
+   that was just created)
 5. **Previous compaction entries are excluded** from the messages-to-summarize
    (the previous summary is passed separately via `<previous-summary>` tags)
 6. **Session prefix messages are excluded** from the preserved user messages
@@ -163,7 +179,9 @@ Tool calls serialized compactly:
 [Assistant]: Fixed the bug by replacing...
 ```
 
-Tool results truncated to `MaxToolResultTokens`.
+Tool results truncated to `MaxToolResultChars` (default 2000 characters,
+matching pi). Truncation keeps the beginning and appends
+`[... N more characters truncated]`.
 
 ### Summarization Call
 
@@ -210,19 +228,34 @@ Use this EXACT format:
 ## Next Steps
 1. [What should happen next]
 
-## Files
-### Read
-- [Files that were read]
-
-### Modified
-- [Files that were created or edited]
-
 ## Critical Context
 - [Data, error messages, or references needed to continue]
+
+### Blocked
+- [Issues preventing progress, if any, or "(none)"]
 
 Keep each section concise. Preserve exact file paths, function names,
 and error messages.
 ```
+
+After summarization, the file tracking module appends file lists as XML tags
+outside the structured summary (following pi's format):
+
+```xml
+<read-files>
+path/to/file1.go
+path/to/file2.go
+</read-files>
+
+<modified-files>
+path/to/edited.go
+path/to/created.go
+</modified-files>
+```
+
+These XML tags are machine-parseable and carried forward through subsequent
+compactions. They are separate from the summary body so the LLM doesn't need
+to maintain them — the compaction code manages them programmatically.
 
 **Max tokens for summary response**: `0.8 * ReserveTokens`. For the default
 8192 reserve, the summary can be at most ~6500 tokens. This prevents the
@@ -259,6 +292,7 @@ RULES:
 - UPDATE Progress: move completed items from In Progress to Done
 - UPDATE Next Steps based on what was accomplished
 - PRESERVE exact file paths and error messages
+- If something is no longer relevant, you may remove it
 - UPDATE Files section with any new reads or modifications
 ```
 
@@ -428,10 +462,14 @@ This is emitted via `EventCallback` as an `EventCompactionEnd` with a
 
 If the compaction prompt itself exceeds the context window:
 1. Trim oldest messages from the summarization input **(from the front,
-   to preserve prefix cache)**
+   to preserve prefix cache)** — this is the local/inline compaction path
 2. If still too large, fall back to aggressive truncation (keep only the
    most recent messages, drop the summarization attempt)
 3. Log a warning via callback
+
+If the summarization LLM returns an empty response, use the fallback string
+`"(no summary available)"` (following Codex) rather than leaving the summary
+empty. This ensures downstream code always has a non-empty summary to work with.
 
 ## Implementation Plan
 
