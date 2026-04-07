@@ -170,4 +170,109 @@ func convertTools(tools []forge.ToolDef) []ant.ToolUnionParam {
 	return result
 }
 
+// ChatStream implements forge.StreamingProvider for token-level streaming.
+func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (<-chan forge.StreamDelta, error) {
+	model := p.model
+	if opts.Model != "" {
+		model = opts.Model
+	}
+
+	var system []ant.TextBlockParam
+	var convMsgs []forge.Message
+	for _, m := range messages {
+		if m.Role == forge.RoleSystem {
+			system = append(system, ant.TextBlockParam{Text: m.Content})
+		} else {
+			convMsgs = append(convMsgs, m)
+		}
+	}
+
+	params := ant.MessageNewParams{
+		Model:    ant.Model(model),
+		Messages: convertMessages(convMsgs),
+	}
+	if len(system) > 0 {
+		params.System = system
+	}
+	maxTokens := 4096
+	if opts.MaxTokens > 0 {
+		maxTokens = opts.MaxTokens
+	}
+	params.MaxTokens = int64(maxTokens)
+	if opts.Temperature != nil {
+		params.Temperature = ant.Float(*opts.Temperature)
+	}
+	if len(tools) > 0 {
+		params.Tools = convertTools(tools)
+	}
+
+	stream := p.client.Messages.NewStreaming(ctx, params)
+
+	ch := make(chan forge.StreamDelta, 1)
+	go func() {
+		defer close(ch)
+
+		// Track current tool use block being streamed
+		var currentToolID string
+		var currentToolName string
+
+		for stream.Next() {
+			event := stream.Current()
+
+			switch event.Type {
+			case "message_start":
+				ch <- forge.StreamDelta{Model: string(event.Message.Model)}
+
+			case "content_block_start":
+				if event.ContentBlock.Type == "tool_use" {
+					currentToolID = event.ContentBlock.ID
+					currentToolName = event.ContentBlock.Name
+					ch <- forge.StreamDelta{
+						ToolCallID:   currentToolID,
+						ToolCallName: currentToolName,
+					}
+				}
+
+			case "content_block_delta":
+				// Text delta
+				if event.Delta.Text != "" {
+					ch <- forge.StreamDelta{Content: event.Delta.Text}
+				}
+				// Tool input JSON delta
+				if event.Delta.PartialJSON != "" {
+					ch <- forge.StreamDelta{
+						ToolCallID:   currentToolID,
+						ToolCallArgs: event.Delta.PartialJSON,
+					}
+				}
+
+			case "content_block_stop":
+				currentToolID = ""
+				currentToolName = ""
+
+			case "message_delta":
+				delta := forge.StreamDelta{
+					FinishReason: string(event.Delta.StopReason),
+				}
+				if event.Usage.OutputTokens > 0 {
+					delta.Usage = &forge.TokenUsage{
+						Output: int(event.Usage.OutputTokens),
+					}
+				}
+				ch <- delta
+
+			case "message_stop":
+				ch <- forge.StreamDelta{Done: true}
+				return
+			}
+		}
+
+		// Stream ended without message_stop (error or cancellation)
+		ch <- forge.StreamDelta{Done: true}
+	}()
+
+	return ch, nil
+}
+
 var _ forge.Provider = (*Provider)(nil)
+var _ forge.StreamingProvider = (*Provider)(nil)

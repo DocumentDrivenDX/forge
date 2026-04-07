@@ -182,4 +182,71 @@ func extractToolCalls(calls []oai.ChatCompletionMessageToolCall) []forge.ToolCal
 	return result
 }
 
+// ChatStream implements forge.StreamingProvider for token-level streaming.
+func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (<-chan forge.StreamDelta, error) {
+	model := p.model
+	if opts.Model != "" {
+		model = opts.Model
+	}
+
+	params := oai.ChatCompletionNewParams{
+		Model:    model,
+		Messages: convertMessages(messages),
+		StreamOptions: oai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: oai.Bool(true),
+		},
+	}
+	if len(tools) > 0 {
+		params.Tools = convertTools(tools)
+	}
+	if opts.MaxTokens > 0 {
+		params.MaxTokens = oai.Int(int64(opts.MaxTokens))
+	}
+	if opts.Temperature != nil {
+		params.Temperature = oai.Float(*opts.Temperature)
+	}
+
+	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
+
+	ch := make(chan forge.StreamDelta, 1)
+	go func() {
+		defer close(ch)
+		for stream.Next() {
+			chunk := stream.Current()
+
+			delta := forge.StreamDelta{
+				Model: chunk.Model,
+			}
+
+			if len(chunk.Choices) > 0 {
+				choice := chunk.Choices[0]
+				delta.Content = choice.Delta.Content
+				delta.FinishReason = string(choice.FinishReason)
+
+				for _, tc := range choice.Delta.ToolCalls {
+					delta.ToolCallID = tc.ID
+					delta.ToolCallName = tc.Function.Name
+					delta.ToolCallArgs = tc.Function.Arguments
+				}
+			}
+
+			if chunk.Usage.TotalTokens != 0 {
+				delta.Usage = &forge.TokenUsage{
+					Input:  int(chunk.Usage.PromptTokens),
+					Output: int(chunk.Usage.CompletionTokens),
+					Total:  int(chunk.Usage.TotalTokens),
+				}
+			}
+
+			ch <- delta
+		}
+
+		// Send final done signal
+		ch <- forge.StreamDelta{Done: true}
+	}()
+
+	return ch, nil
+}
+
 var _ forge.Provider = (*Provider)(nil)
+var _ forge.StreamingProvider = (*Provider)(nil)
