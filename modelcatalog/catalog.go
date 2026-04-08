@@ -75,6 +75,15 @@ func (e *DeprecatedTargetError) Error() string {
 	return fmt.Sprintf("modelcatalog: target %q is %s; use %q", e.CanonicalID, e.Status, e.Replacement)
 }
 
+// UnknownTargetError indicates an internal invariant break where a referenced target is absent.
+type UnknownTargetError struct {
+	CanonicalID string
+}
+
+func (e *UnknownTargetError) Error() string {
+	return fmt.Sprintf("modelcatalog: unknown target %q", e.CanonicalID)
+}
+
 // Current resolves a profile to its current target.
 func (c *Catalog) Current(profile string, opts ResolveOptions) (ResolvedTarget, error) {
 	profile = strings.TrimSpace(profile)
@@ -115,7 +124,10 @@ func (c *Catalog) resolveTarget(ref, profile, targetID string, opts ResolveOptio
 		return ResolvedTarget{}, &MissingSurfaceError{CanonicalID: targetID, Surface: opts.Surface}
 	}
 
-	target := c.manifest.Targets[targetID]
+	target, ok := c.manifest.Targets[targetID]
+	if !ok {
+		return ResolvedTarget{}, &UnknownTargetError{CanonicalID: targetID}
+	}
 	status := normalizedStatus(target.Status)
 	deprecated := status != statusActive
 	if deprecated && !opts.AllowDeprecated {

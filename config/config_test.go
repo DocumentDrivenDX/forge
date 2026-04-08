@@ -344,6 +344,73 @@ func TestBuildProviderWithOverrides(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4", resolved.CanonicalID)
 }
 
+func TestResolveProviderConfig_AllowDeprecated(t *testing.T) {
+	cfg := Config{
+		Providers: map[string]ProviderConfig{
+			"cloud": {
+				Type:   "anthropic",
+				APIKey: "test",
+			},
+		},
+	}
+
+	_, _, err := cfg.ResolveProviderConfig("cloud", ProviderOverrides{
+		ModelRef: "claude-sonnet-3.7",
+	})
+	require.Error(t, err)
+
+	pc, resolved, err := cfg.ResolveProviderConfig("cloud", ProviderOverrides{
+		ModelRef:        "claude-sonnet-3.7",
+		AllowDeprecated: true,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resolved)
+	assert.True(t, resolved.Deprecated)
+	assert.Equal(t, "claude-3-7-sonnet-20250219", pc.Model)
+}
+
+func TestLoad_LegacySaveRoundTripDoesNotReemitLegacyFields(t *testing.T) {
+	isolateHome(t)
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, ".forge")
+	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
+provider: openai-compat
+base_url: http://vidar:1234/v1
+api_key: secret
+model: qwen3.5-7b
+`), 0o644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+
+	data, err := cfg.Save()
+	require.NoError(t, err)
+	rendered := string(data)
+	assert.Contains(t, rendered, "providers:")
+	assert.NotContains(t, rendered, "\nprovider:")
+	assert.NotContains(t, rendered, "\nbase_url: http://vidar:1234/v1\n")
+	assert.NotContains(t, rendered, "\napi_key: secret\n")
+}
+
+func TestLoad_EnvOverridesCreateDeterministicDefaultProvider(t *testing.T) {
+	isolateHome(t)
+	t.Setenv("FORGE_MODEL", "env-model")
+
+	cfg := Defaults()
+	cfg.Providers = map[string]ProviderConfig{
+		"alpha": {Type: "openai-compat", BaseURL: "http://alpha"},
+		"zebra": {Type: "openai-compat", BaseURL: "http://zebra"},
+	}
+	cfg.applyEnvOverrides()
+
+	assert.Equal(t, "default", cfg.Default)
+	p, ok := cfg.GetProvider("default")
+	require.True(t, ok)
+	assert.Equal(t, "env-model", p.Model)
+}
+
 func TestExpandEnvVars(t *testing.T) {
 	t.Setenv("FOO", "bar")
 	assert.Equal(t, "bar", expandEnvVars("${FOO}"))

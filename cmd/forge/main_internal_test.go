@@ -47,6 +47,43 @@ func TestResolveProviderForRun_ModelRef(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-20250514", pc.Model)
 }
 
+func TestResolveProviderForRun_DeprecatedModelRefRejectedByDefault(t *testing.T) {
+	cfg := &forgeConfig.Config{
+		Providers: map[string]forgeConfig.ProviderConfig{
+			"cloud": {
+				Type:   "anthropic",
+				APIKey: "test",
+			},
+		},
+		Default: "cloud",
+	}
+
+	_, _, _, err := resolveProviderForRun(cfg, "", forgeConfig.ProviderOverrides{
+		ModelRef: "claude-sonnet-3.7",
+	})
+	require.Error(t, err)
+}
+
+func TestResolveProviderForRun_DeprecatedModelRefAllowed(t *testing.T) {
+	cfg := &forgeConfig.Config{
+		Providers: map[string]forgeConfig.ProviderConfig{
+			"cloud": {
+				Type:   "anthropic",
+				APIKey: "test",
+			},
+		},
+		Default: "cloud",
+	}
+
+	_, p, pc, err := resolveProviderForRun(cfg, "", forgeConfig.ProviderOverrides{
+		ModelRef:        "claude-sonnet-3.7",
+		AllowDeprecated: true,
+	})
+	require.NoError(t, err)
+	assert.NotNil(t, p)
+	assert.Equal(t, "claude-3-7-sonnet-20250219", pc.Model)
+}
+
 func TestResolveProviderForRun_ExplicitModelWins(t *testing.T) {
 	cfg := &forgeConfig.Config{
 		Providers: map[string]forgeConfig.ProviderConfig{

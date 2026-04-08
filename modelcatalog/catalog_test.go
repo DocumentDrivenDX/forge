@@ -10,74 +10,122 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDefault_ResolveAlias(t *testing.T) {
+func writeFixtureManifest(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "models.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o644))
+	return path
+}
+
+func loadFixtureCatalog(t *testing.T) *Catalog {
+	t.Helper()
+	catalog, err := Load(LoadOptions{
+		ManifestPath: writeFixtureManifest(t, `
+version: 7
+generated_at: 2026-04-09T00:00:00Z
+profiles:
+  code-smart:
+    target: alpha-smart
+  code-fast:
+    target: beta-fast
+targets:
+  alpha-smart:
+    family: alpha
+    aliases: [alpha, alpha-alias]
+    surfaces:
+      forge.anthropic: alpha-anthropic-1
+      forge.openai: alpha-openai-1
+  beta-fast:
+    family: beta
+    aliases: [beta]
+    surfaces:
+      forge.openai: beta-openai-1
+  legacy-alpha:
+    family: alpha
+    status: Deprecated
+    replacement: alpha-smart
+    surfaces:
+      forge.anthropic: legacy-anthropic-1
+`),
+		RequireExternal: true,
+	})
+	require.NoError(t, err)
+	return catalog
+}
+
+func TestDefault_LoadsEmbeddedManifest(t *testing.T) {
 	catalog, err := Default()
 	require.NoError(t, err)
 
-	resolved, err := catalog.Resolve("claude-sonnet", ResolveOptions{
+	resolved, err := catalog.Current("code-smart", ResolveOptions{
 		Surface: SurfaceForgeAnthropic,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "claude-sonnet-4", resolved.CanonicalID)
-	assert.Equal(t, "claude-sonnet", resolved.Ref)
-	assert.Equal(t, "claude-sonnet-4-20250514", resolved.ConcreteModel)
-	assert.False(t, resolved.Deprecated)
+	assert.NotEmpty(t, resolved.CanonicalID)
+	assert.NotEmpty(t, resolved.ConcreteModel)
 	assert.Equal(t, "embedded", resolved.ManifestSource)
-	assert.Equal(t, 1, resolved.ManifestVersion)
+}
+
+func TestResolveAliasFromFixture(t *testing.T) {
+	catalog := loadFixtureCatalog(t)
+	resolved, err := catalog.Resolve("alpha", ResolveOptions{
+		Surface: SurfaceForgeAnthropic,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "alpha-smart", resolved.CanonicalID)
+	assert.Equal(t, "alpha-anthropic-1", resolved.ConcreteModel)
+	assert.False(t, resolved.Deprecated)
+	assert.Equal(t, 7, resolved.ManifestVersion)
 }
 
 func TestCurrent_ResolveProfile(t *testing.T) {
-	catalog, err := Default()
-	require.NoError(t, err)
+	catalog := loadFixtureCatalog(t)
 
 	resolved, err := catalog.Current("code-fast", ResolveOptions{
 		Surface: SurfaceForgeOpenAI,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "code-fast", resolved.Profile)
-	assert.Equal(t, "qwen3-coder-next", resolved.CanonicalID)
-	assert.Equal(t, "qwen/qwen3-coder-next", resolved.ConcreteModel)
+	assert.Equal(t, "beta-fast", resolved.CanonicalID)
+	assert.Equal(t, "beta-openai-1", resolved.ConcreteModel)
 }
 
 func TestResolveCanonicalTarget(t *testing.T) {
-	catalog, err := Default()
-	require.NoError(t, err)
+	catalog := loadFixtureCatalog(t)
 
-	resolved, err := catalog.Resolve("claude-sonnet-4", ResolveOptions{
+	resolved, err := catalog.Resolve("alpha-smart", ResolveOptions{
 		Surface: SurfaceForgeOpenAI,
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "anthropic/claude-sonnet-4", resolved.ConcreteModel)
-	assert.Equal(t, "claude-sonnet", resolved.Family)
+	assert.Equal(t, "alpha-openai-1", resolved.ConcreteModel)
+	assert.Equal(t, "alpha", resolved.Family)
 }
 
 func TestResolveDeprecatedStrict(t *testing.T) {
-	catalog, err := Default()
-	require.NoError(t, err)
+	catalog := loadFixtureCatalog(t)
 
-	_, err = catalog.Resolve("claude-sonnet-3.7", ResolveOptions{
+	_, err := catalog.Resolve("legacy-alpha", ResolveOptions{
 		Surface: SurfaceForgeAnthropic,
 	})
 	require.Error(t, err)
 
 	var deprecatedErr *DeprecatedTargetError
 	require.True(t, errors.As(err, &deprecatedErr))
-	assert.Equal(t, "claude-sonnet-3.7", deprecatedErr.CanonicalID)
-	assert.Equal(t, "claude-sonnet-4", deprecatedErr.Replacement)
+	assert.Equal(t, "legacy-alpha", deprecatedErr.CanonicalID)
+	assert.Equal(t, "alpha-smart", deprecatedErr.Replacement)
 }
 
 func TestResolveDeprecatedAllowed(t *testing.T) {
-	catalog, err := Default()
-	require.NoError(t, err)
+	catalog := loadFixtureCatalog(t)
 
-	resolved, err := catalog.Resolve("claude-sonnet-3.7", ResolveOptions{
+	resolved, err := catalog.Resolve("legacy-alpha", ResolveOptions{
 		Surface:         SurfaceForgeAnthropic,
 		AllowDeprecated: true,
 	})
 	require.NoError(t, err)
 	assert.True(t, resolved.Deprecated)
-	assert.Equal(t, "claude-sonnet-4", resolved.Replacement)
-	assert.Equal(t, "claude-3-7-sonnet-20250219", resolved.ConcreteModel)
+	assert.Equal(t, "alpha-smart", resolved.Replacement)
+	assert.Equal(t, "legacy-anthropic-1", resolved.ConcreteModel)
 }
 
 func TestLoad_ExternalOverride(t *testing.T) {
@@ -121,7 +169,7 @@ func TestLoad_FallbackToEmbedded(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "embedded", resolved.ManifestSource)
-	assert.Equal(t, "claude-sonnet-4", resolved.CanonicalID)
+	assert.NotEmpty(t, resolved.CanonicalID)
 }
 
 func TestLoad_RequireExternal(t *testing.T) {
@@ -164,10 +212,9 @@ targets:
 }
 
 func TestResolveMissingSurface(t *testing.T) {
-	catalog, err := Default()
-	require.NoError(t, err)
+	catalog := loadFixtureCatalog(t)
 
-	_, err = catalog.Resolve("qwen3-coder-next", ResolveOptions{
+	_, err := catalog.Resolve("beta-fast", ResolveOptions{
 		Surface: SurfaceForgeAnthropic,
 	})
 	require.Error(t, err)
@@ -178,10 +225,9 @@ func TestResolveMissingSurface(t *testing.T) {
 }
 
 func TestResolveUnknownReference(t *testing.T) {
-	catalog, err := Default()
-	require.NoError(t, err)
+	catalog := loadFixtureCatalog(t)
 
-	_, err = catalog.Resolve("does-not-exist", ResolveOptions{
+	_, err := catalog.Resolve("does-not-exist", ResolveOptions{
 		Surface: SurfaceForgeOpenAI,
 	})
 	require.Error(t, err)
@@ -189,4 +235,69 @@ func TestResolveUnknownReference(t *testing.T) {
 	var unknownErr *UnknownReferenceError
 	require.True(t, errors.As(err, &unknownErr))
 	assert.Equal(t, "does-not-exist", unknownErr.Ref)
+}
+
+func TestResolveUnknownTarget(t *testing.T) {
+	catalog := loadFixtureCatalog(t)
+	delete(catalog.manifest.Targets, "alpha-smart")
+
+	_, err := catalog.Resolve("alpha", ResolveOptions{
+		Surface: SurfaceForgeAnthropic,
+	})
+	require.Error(t, err)
+
+	var unknownTargetErr *UnknownTargetError
+	require.True(t, errors.As(err, &unknownTargetErr))
+	assert.Equal(t, "alpha-smart", unknownTargetErr.CanonicalID)
+}
+
+func TestLoad_InvalidManifest_ReplacementCycle(t *testing.T) {
+	manifestPath := writeFixtureManifest(t, `
+version: 1
+generated_at: 2026-04-09T00:00:00Z
+targets:
+  a:
+    family: alpha
+    status: deprecated
+    replacement: b
+    surfaces:
+      forge.openai: a
+  b:
+    family: beta
+    status: deprecated
+    replacement: a
+    surfaces:
+      forge.openai: b
+`)
+
+	_, err := Load(LoadOptions{
+		ManifestPath:    manifestPath,
+		RequireExternal: true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cycle")
+}
+
+func TestResolveEmptyReference(t *testing.T) {
+	catalog := loadFixtureCatalog(t)
+
+	_, err := catalog.Resolve("", ResolveOptions{Surface: SurfaceForgeOpenAI})
+	require.Error(t, err)
+
+	var unknownErr *UnknownReferenceError
+	require.True(t, errors.As(err, &unknownErr))
+}
+
+func TestCurrentEmptyProfile(t *testing.T) {
+	catalog := loadFixtureCatalog(t)
+
+	_, err := catalog.Current("", ResolveOptions{Surface: SurfaceForgeOpenAI})
+	require.Error(t, err)
+
+	var unknownErr *UnknownReferenceError
+	require.True(t, errors.As(err, &unknownErr))
+}
+
+func TestNormalizedStatusCaseInsensitive(t *testing.T) {
+	assert.Equal(t, statusDeprecated, normalizedStatus(" Deprecated "))
 }

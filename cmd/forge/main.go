@@ -42,6 +42,7 @@ func run() int {
 	providerFlag := flag.String("provider", "", "Named provider from config (e.g., vidar, openrouter)")
 	model := flag.String("model", "", "Explicit model name override (bypasses catalog)")
 	modelRef := flag.String("model-ref", "", "Model catalog reference (alias, profile, or canonical target)")
+	allowDeprecatedModel := flag.Bool("allow-deprecated-model", false, "Allow deprecated model catalog references")
 	maxIter := flag.Int("max-iter", 0, "Max iterations")
 	workDir := flag.String("work-dir", "", "Working directory")
 	version := flag.Bool("version", false, "Print version")
@@ -110,8 +111,9 @@ func run() int {
 	}
 
 	_, p, _, err := resolveProviderForRun(cfg, *providerFlag, forgeConfig.ProviderOverrides{
-		Model:    *model,
-		ModelRef: *modelRef,
+		Model:           *model,
+		ModelRef:        *modelRef,
+		AllowDeprecated: *allowDeprecatedModel,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)

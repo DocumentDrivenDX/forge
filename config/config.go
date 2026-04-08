@@ -43,8 +43,9 @@ type ModelCatalogConfig struct {
 
 // ProviderOverrides are per-run overrides applied before building a provider.
 type ProviderOverrides struct {
-	Model    string
-	ModelRef string
+	Model           string
+	ModelRef        string
+	AllowDeprecated bool
 }
 
 // Config is the top-level forge configuration.
@@ -71,10 +72,10 @@ type Config struct {
 	ImportedFrom *ImportMetadata `yaml:"imported_from,omitempty"`
 
 	// Legacy flat fields for backwards compatibility.
-	LegacyProvider string `yaml:"provider"`
-	LegacyBaseURL  string `yaml:"base_url"`
-	LegacyAPIKey   string `yaml:"api_key"`
-	LegacyModel    string `yaml:"model"`
+	LegacyProvider string `yaml:"provider,omitempty"`
+	LegacyBaseURL  string `yaml:"base_url,omitempty"`
+	LegacyAPIKey   string `yaml:"api_key,omitempty"`
+	LegacyModel    string `yaml:"model,omitempty"`
 }
 
 // Defaults returns a Config with sensible defaults.
@@ -149,6 +150,10 @@ func (c *Config) migrateLegacy() {
 	if c.Default == "" {
 		c.Default = "default"
 	}
+	c.LegacyProvider = ""
+	c.LegacyBaseURL = ""
+	c.LegacyAPIKey = ""
+	c.LegacyModel = ""
 }
 
 // applyEnvOverrides applies FORGE_* env vars to the default provider.
@@ -158,7 +163,7 @@ func (c *Config) applyEnvOverrides() {
 	}
 
 	// Get or create default provider
-	defName := c.DefaultName()
+	defName := c.defaultNameForEnvOverride()
 	p := c.Providers[defName]
 
 	if v := os.Getenv("FORGE_PROVIDER"); v != "" {
@@ -197,6 +202,18 @@ func (c *Config) DefaultName() string {
 	// Return first provider name
 	for name := range c.Providers {
 		return name
+	}
+	return "default"
+}
+
+func (c *Config) defaultNameForEnvOverride() string {
+	if c.Default != "" {
+		return c.Default
+	}
+	if len(c.Providers) == 1 {
+		for name := range c.Providers {
+			return name
+		}
 	}
 	return "default"
 }
@@ -266,7 +283,8 @@ func (c *Config) ResolveProviderConfig(name string, overrides ProviderOverrides)
 	}
 
 	resolved, err := catalog.Resolve(overrides.ModelRef, modelcatalog.ResolveOptions{
-		Surface: surface,
+		Surface:         surface,
+		AllowDeprecated: overrides.AllowDeprecated,
 	})
 	if err != nil {
 		return ProviderConfig{}, nil, err

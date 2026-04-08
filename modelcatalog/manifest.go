@@ -136,6 +136,9 @@ func validateManifest(m manifest) error {
 			if _, ok := m.Targets[target.Replacement]; !ok {
 				return fmt.Errorf("target %q replacement %q not found", targetID, target.Replacement)
 			}
+			if replacementCycle := findReplacementCycle(m, targetID); replacementCycle != "" {
+				return fmt.Errorf("target %q replacement chain contains cycle via %q", targetID, replacementCycle)
+			}
 		}
 
 		if owner, exists := reserved[targetID]; exists {
@@ -191,9 +194,25 @@ func validateManifest(m manifest) error {
 }
 
 func normalizedStatus(status string) string {
-	status = strings.TrimSpace(status)
+	status = strings.ToLower(strings.TrimSpace(status))
 	if status == "" {
 		return statusActive
 	}
 	return status
+}
+
+func findReplacementCycle(m manifest, start string) string {
+	seen := map[string]bool{start: true}
+	current := start
+	for {
+		next := strings.TrimSpace(m.Targets[current].Replacement)
+		if next == "" {
+			return ""
+		}
+		if seen[next] {
+			return next
+		}
+		seen[next] = true
+		current = next
+	}
 }
