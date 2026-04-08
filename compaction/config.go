@@ -3,7 +3,7 @@ package compaction
 import (
 	"strings"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // DefaultContextWindow is used when no context window is configured.
@@ -45,7 +45,7 @@ type Config struct {
 	SummarizationModel string
 
 	// SummarizationProvider overrides the provider for summarization.
-	SummarizationProvider forge.Provider
+	SummarizationProvider agent.Provider
 
 	// SummarizationFocus is optional text appended to the summarization prompt.
 	SummarizationFocus string
@@ -67,7 +67,7 @@ func DefaultConfig() Config {
 // estimates, and returns the index of the first message to keep. Messages
 // before this index will be summarized. The cut is always at a valid turn
 // boundary — never between a tool call and its result.
-func FindCutPoint(messages []forge.Message, keepRecentTokens int) int {
+func FindCutPoint(messages []agent.Message, keepRecentTokens int) int {
 	if len(messages) == 0 {
 		return 0
 	}
@@ -92,13 +92,13 @@ func FindCutPoint(messages []forge.Message, keepRecentTokens int) int {
 // findValidBoundary scans forward from index to find a valid turn boundary.
 // Valid boundaries: user messages, assistant messages (without pending tool results).
 // Tool result messages are NOT valid cut points.
-func findValidBoundary(messages []forge.Message, index int) int {
+func findValidBoundary(messages []agent.Message, index int) int {
 	for i := index; i < len(messages); i++ {
 		msg := messages[i]
 		switch msg.Role {
-		case forge.RoleUser:
+		case agent.RoleUser:
 			return i
-		case forge.RoleAssistant:
+		case agent.RoleAssistant:
 			// Only valid if this isn't followed by tool results that belong to it
 			if len(msg.ToolCalls) == 0 {
 				return i
@@ -106,10 +106,10 @@ func findValidBoundary(messages []forge.Message, index int) int {
 			// If it has tool calls, the cut should be before this assistant message
 			// (keep the tool calls and their results together)
 			continue
-		case forge.RoleTool:
+		case agent.RoleTool:
 			// Never cut here — tool results must follow their call
 			continue
-		case forge.RoleSystem:
+		case agent.RoleSystem:
 			// System messages are always at the start, valid boundary
 			return i
 		}
@@ -119,8 +119,8 @@ func findValidBoundary(messages []forge.Message, index int) int {
 }
 
 // IsCompactionSummary checks if a message is a compaction summary injection.
-func IsCompactionSummary(msg forge.Message) bool {
-	return msg.Role == forge.RoleUser &&
+func IsCompactionSummary(msg agent.Message) bool {
+	return msg.Role == agent.RoleUser &&
 		len(msg.Content) > 50 &&
 		(strings.Contains(msg.Content, "<summary>") || strings.Contains(msg.Content, "compacted into the following summary"))
 }

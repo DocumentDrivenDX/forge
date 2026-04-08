@@ -3,14 +3,14 @@ package main
 import (
 	"testing"
 
-	forgeConfig "github.com/DocumentDrivenDX/forge/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestResolveProviderForRun_DefaultProvider(t *testing.T) {
-	cfg := &forgeConfig.Config{
-		Providers: map[string]forgeConfig.ProviderConfig{
+	cfg := &agentConfig.Config{
+		Providers: map[string]agentConfig.ProviderConfig{
 			"local": {
 				Type:    "openai-compat",
 				BaseURL: "http://localhost:1234/v1",
@@ -20,7 +20,7 @@ func TestResolveProviderForRun_DefaultProvider(t *testing.T) {
 		Default: "local",
 	}
 
-	name, p, pc, err := resolveProviderForRun(cfg, "", forgeConfig.ProviderOverrides{})
+	name, p, pc, err := resolveProviderForRun(cfg, "", agentConfig.ProviderOverrides{})
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 	assert.Equal(t, "local", name)
@@ -28,8 +28,8 @@ func TestResolveProviderForRun_DefaultProvider(t *testing.T) {
 }
 
 func TestResolveProviderForRun_ModelRef(t *testing.T) {
-	cfg := &forgeConfig.Config{
-		Providers: map[string]forgeConfig.ProviderConfig{
+	cfg := &agentConfig.Config{
+		Providers: map[string]agentConfig.ProviderConfig{
 			"cloud": {
 				Type:   "anthropic",
 				APIKey: "test",
@@ -38,7 +38,7 @@ func TestResolveProviderForRun_ModelRef(t *testing.T) {
 		Default: "cloud",
 	}
 
-	name, p, pc, err := resolveProviderForRun(cfg, "", forgeConfig.ProviderOverrides{
+	name, p, pc, err := resolveProviderForRun(cfg, "", agentConfig.ProviderOverrides{
 		ModelRef: "code-smart",
 	})
 	require.NoError(t, err)
@@ -48,8 +48,8 @@ func TestResolveProviderForRun_ModelRef(t *testing.T) {
 }
 
 func TestResolveProviderForRun_DeprecatedModelRefRejectedByDefault(t *testing.T) {
-	cfg := &forgeConfig.Config{
-		Providers: map[string]forgeConfig.ProviderConfig{
+	cfg := &agentConfig.Config{
+		Providers: map[string]agentConfig.ProviderConfig{
 			"cloud": {
 				Type:   "anthropic",
 				APIKey: "test",
@@ -58,15 +58,15 @@ func TestResolveProviderForRun_DeprecatedModelRefRejectedByDefault(t *testing.T)
 		Default: "cloud",
 	}
 
-	_, _, _, err := resolveProviderForRun(cfg, "", forgeConfig.ProviderOverrides{
+	_, _, _, err := resolveProviderForRun(cfg, "", agentConfig.ProviderOverrides{
 		ModelRef: "claude-sonnet-3.7",
 	})
 	require.Error(t, err)
 }
 
 func TestResolveProviderForRun_DeprecatedModelRefAllowed(t *testing.T) {
-	cfg := &forgeConfig.Config{
-		Providers: map[string]forgeConfig.ProviderConfig{
+	cfg := &agentConfig.Config{
+		Providers: map[string]agentConfig.ProviderConfig{
 			"cloud": {
 				Type:   "anthropic",
 				APIKey: "test",
@@ -75,7 +75,7 @@ func TestResolveProviderForRun_DeprecatedModelRefAllowed(t *testing.T) {
 		Default: "cloud",
 	}
 
-	_, p, pc, err := resolveProviderForRun(cfg, "", forgeConfig.ProviderOverrides{
+	_, p, pc, err := resolveProviderForRun(cfg, "", agentConfig.ProviderOverrides{
 		ModelRef:        "claude-sonnet-3.7",
 		AllowDeprecated: true,
 	})
@@ -85,8 +85,8 @@ func TestResolveProviderForRun_DeprecatedModelRefAllowed(t *testing.T) {
 }
 
 func TestResolveProviderForRun_ExplicitModelWins(t *testing.T) {
-	cfg := &forgeConfig.Config{
-		Providers: map[string]forgeConfig.ProviderConfig{
+	cfg := &agentConfig.Config{
+		Providers: map[string]agentConfig.ProviderConfig{
 			"cloud": {
 				Type:   "anthropic",
 				APIKey: "test",
@@ -96,7 +96,7 @@ func TestResolveProviderForRun_ExplicitModelWins(t *testing.T) {
 		Default: "cloud",
 	}
 
-	_, p, pc, err := resolveProviderForRun(cfg, "", forgeConfig.ProviderOverrides{
+	_, p, pc, err := resolveProviderForRun(cfg, "", agentConfig.ProviderOverrides{
 		Model:    "exact-model",
 		ModelRef: "code-smart",
 	})

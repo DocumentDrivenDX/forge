@@ -1,6 +1,6 @@
-// Package config provides multi-provider configuration loading for forge.
-// Supports named providers, environment variable expansion, and backwards
-// compatibility with the old flat config format.
+// Package config provides multi-provider configuration loading for agent.
+// Supports named providers, environment variable expansion, and compatibility
+// with the old flat config format.
 package config
 
 import (
@@ -10,10 +10,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/DocumentDrivenDX/forge"
-	"github.com/DocumentDrivenDX/forge/modelcatalog"
-	"github.com/DocumentDrivenDX/forge/provider/anthropic"
-	oaiProvider "github.com/DocumentDrivenDX/forge/provider/openai"
+	"github.com/DocumentDrivenDX/agent"
+	"github.com/DocumentDrivenDX/agent/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/provider/anthropic"
+	oaiProvider "github.com/DocumentDrivenDX/agent/provider/openai"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,7 +48,12 @@ type ProviderOverrides struct {
 	AllowDeprecated bool
 }
 
-// Config is the top-level forge configuration.
+const (
+	projectConfigDir    = ".agent"
+	globalConfigDirName = "agent"
+)
+
+// Config is the top-level agent configuration.
 type Config struct {
 	// Providers is a map of named provider configurations.
 	Providers map[string]ProviderConfig `yaml:"providers"`
@@ -82,13 +87,13 @@ type Config struct {
 func Defaults() Config {
 	return Config{
 		MaxIterations: 20,
-		SessionLogDir: ".forge/sessions",
-		Preset:        "forge",
+		SessionLogDir: filepath.Join(projectConfigDir, "sessions"),
+		Preset:        "agent",
 	}
 }
 
-// Load reads configuration from .forge/config.yaml (project) and
-// ~/.config/forge/config.yaml (global), with env var expansion.
+// Load reads configuration from .agent/config.yaml (project) and
+// ~/.config/agent/config.yaml (global), with env var expansion.
 // Project config overrides global config. If no config files exist,
 // returns defaults.
 func Load(workDir string) (*Config, error) {
@@ -97,9 +102,9 @@ func Load(workDir string) (*Config, error) {
 	// Try global config first, then project config (project wins)
 	var paths []string
 	if home, err := os.UserHomeDir(); err == nil {
-		paths = append(paths, filepath.Join(home, ".config", "forge", "config.yaml"))
+		paths = append(paths, filepath.Join(home, ".config", globalConfigDirName, "config.yaml"))
 	}
-	paths = append(paths, filepath.Join(workDir, ".forge", "config.yaml"))
+	paths = append(paths, filepath.Join(workDir, projectConfigDir, "config.yaml"))
 
 	for _, p := range paths {
 		data, err := os.ReadFile(p)
@@ -156,7 +161,7 @@ func (c *Config) migrateLegacy() {
 	c.LegacyModel = ""
 }
 
-// applyEnvOverrides applies FORGE_* env vars to the default provider.
+// applyEnvOverrides applies AGENT_* env vars to the default provider.
 func (c *Config) applyEnvOverrides() {
 	if c.Providers == nil {
 		c.Providers = make(map[string]ProviderConfig)
@@ -166,16 +171,16 @@ func (c *Config) applyEnvOverrides() {
 	defName := c.defaultNameForEnvOverride()
 	p := c.Providers[defName]
 
-	if v := os.Getenv("FORGE_PROVIDER"); v != "" {
+	if v := os.Getenv("AGENT_PROVIDER"); v != "" {
 		p.Type = v
 	}
-	if v := os.Getenv("FORGE_BASE_URL"); v != "" {
+	if v := os.Getenv("AGENT_BASE_URL"); v != "" {
 		p.BaseURL = v
 	}
-	if v := os.Getenv("FORGE_API_KEY"); v != "" {
+	if v := os.Getenv("AGENT_API_KEY"); v != "" {
 		p.APIKey = v
 	}
-	if v := os.Getenv("FORGE_MODEL"); v != "" {
+	if v := os.Getenv("AGENT_MODEL"); v != "" {
 		p.Model = v
 	}
 
@@ -247,8 +252,8 @@ func (c *Config) ProviderNames() []string {
 	return names
 }
 
-// BuildProvider creates a forge.Provider from a named provider config.
-func (c *Config) BuildProvider(name string) (forge.Provider, error) {
+// BuildProvider creates a agent.Provider from a named provider config.
+func (c *Config) BuildProvider(name string) (agent.Provider, error) {
 	pc, ok := c.Providers[name]
 	if !ok {
 		return nil, fmt.Errorf("config: unknown provider %q", name)
@@ -295,7 +300,7 @@ func (c *Config) ResolveProviderConfig(name string, overrides ProviderOverrides)
 }
 
 // BuildProviderWithOverrides builds a provider after applying per-run overrides.
-func (c *Config) BuildProviderWithOverrides(name string, overrides ProviderOverrides) (forge.Provider, ProviderConfig, *modelcatalog.ResolvedTarget, error) {
+func (c *Config) BuildProviderWithOverrides(name string, overrides ProviderOverrides) (agent.Provider, ProviderConfig, *modelcatalog.ResolvedTarget, error) {
 	pc, resolved, err := c.ResolveProviderConfig(name, overrides)
 	if err != nil {
 		return nil, ProviderConfig{}, nil, err
@@ -310,7 +315,7 @@ func (c *Config) BuildProviderWithOverrides(name string, overrides ProviderOverr
 }
 
 // DefaultProvider creates the default provider.
-func (c *Config) DefaultProvider() (forge.Provider, error) {
+func (c *Config) DefaultProvider() (agent.Provider, error) {
 	return c.BuildProvider(c.DefaultName())
 }
 
@@ -320,7 +325,7 @@ func (c *Config) GetProvider(name string) (ProviderConfig, bool) {
 	return pc, ok
 }
 
-func buildProviderFromConfig(pc ProviderConfig) (forge.Provider, error) {
+func buildProviderFromConfig(pc ProviderConfig) (agent.Provider, error) {
 	switch pc.Type {
 	case "openai-compat", "openai":
 		return oaiProvider.New(oaiProvider.Config{
@@ -349,9 +354,9 @@ func (c *Config) LoadModelCatalog() (*modelcatalog.Catalog, error) {
 func surfaceForProviderType(providerType string) (modelcatalog.Surface, error) {
 	switch providerType {
 	case "openai-compat", "openai":
-		return modelcatalog.SurfaceForgeOpenAI, nil
+		return modelcatalog.SurfaceAgentOpenAI, nil
 	case "anthropic":
-		return modelcatalog.SurfaceForgeAnthropic, nil
+		return modelcatalog.SurfaceAgentAnthropic, nil
 	default:
 		return "", fmt.Errorf("config: cannot resolve model reference for provider type %q", providerType)
 	}

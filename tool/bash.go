@@ -8,7 +8,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 const (
@@ -106,4 +106,4 @@ func truncateOutput(data []byte) string {
 	return string(data)
 }
 
-var _ forge.Tool = (*BashTool)(nil)
+var _ agent.Tool = (*BashTool)(nil)

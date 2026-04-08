@@ -9,11 +9,11 @@ ddx:
 **Feature ID**: FEAT-003
 **Status**: Draft
 **Priority**: P0
-**Owner**: Forge Team
+**Owner**: DDX Agent Team
 
 ## Overview
 
-Forge supports multiple LLM backends through a common interface, with two
+DDX Agent supports multiple LLM backends through a common interface, with two
 built-in implementations: an OpenAI-compatible provider (covers LM Studio,
 Ollama, OpenAI, Azure, Groq, Together, OpenRouter) and an Anthropic provider
 (Claude). This implements PRD P0 requirements 3-4.
@@ -98,7 +98,7 @@ Ollama, OpenAI, Azure, Groq, Together, OpenRouter) and an Anthropic provider
 - LM Studio and Ollama both speak OpenAI-compatible API well enough for a
   single implementation. Edge cases handled by adapter if needed.
 - Anthropic needs its own provider due to fundamentally different wire format
-- Models are pre-loaded in LM Studio/Ollama — Forge does not manage model
+- Models are pre-loaded in LM Studio/Ollama — DDX Agent does not manage model
   lifecycle
 
 ## Dependencies

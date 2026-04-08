@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,35 +19,35 @@ type multiTurnProvider struct {
 	summarizeCount int
 }
 
-func (p *multiTurnProvider) Chat(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (forge.Response, error) {
+func (p *multiTurnProvider) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (agent.Response, error) {
 	p.callCount++
 
 	// Summarization calls (no tools offered, system prompt contains "summarization")
 	if len(tools) == 0 {
 		p.summarizeCount++
-		return forge.Response{
+		return agent.Response{
 			Content: fmt.Sprintf("## Goal\nComplete the multi-step task\n\n## Progress\n### Done\n- [x] Completed %d rounds of work\n\n## Next Steps\n1. Continue processing", p.callCount),
-			Usage:   forge.TokenUsage{Input: 500, Output: 100, Total: 600},
+			Usage:   agent.TokenUsage{Input: 500, Output: 100, Total: 600},
 		}, nil
 	}
 
 	// Regular agent calls
 	if p.callCount <= p.toolRounds {
-		return forge.Response{
-			ToolCalls: []forge.ToolCall{
+		return agent.Response{
+			ToolCalls: []agent.ToolCall{
 				{
 					ID:        fmt.Sprintf("tc%d", p.callCount),
 					Name:      "read",
 					Arguments: json.RawMessage(fmt.Sprintf(`{"path":"file%d.go"}`, p.callCount)),
 				},
 			},
-			Usage: forge.TokenUsage{Input: 200, Output: 50, Total: 250},
+			Usage: agent.TokenUsage{Input: 200, Output: 50, Total: 250},
 		}, nil
 	}
 
-	return forge.Response{
+	return agent.Response{
 		Content: "All done! Processed all files.",
-		Usage:   forge.TokenUsage{Input: 300, Output: 30, Total: 330},
+		Usage:   agent.TokenUsage{Input: 300, Output: 30, Total: 330},
 	}, nil
 }
 
@@ -63,11 +63,11 @@ func TestCompactor_TriggersOnLargeConversation(t *testing.T) {
 	compactor := NewCompactor(cfg)
 
 	// Build a conversation that will exceed the context window
-	var messages []forge.Message
-	messages = append(messages, forge.Message{Role: forge.RoleSystem, Content: "You are a helpful assistant."})
-	messages = append(messages, forge.Message{Role: forge.RoleUser, Content: "Process all 15 files in this project."})
+	var messages []agent.Message
+	messages = append(messages, agent.Message{Role: agent.RoleSystem, Content: "You are a helpful assistant."})
+	messages = append(messages, agent.Message{Role: agent.RoleUser, Content: "Process all 15 files in this project."})
 
-	var toolCalls []forge.ToolCallLog
+	var toolCalls []agent.ToolCallLog
 	compactionCount := 0
 
 	// Simulate the agent loop
@@ -81,23 +81,23 @@ func TestCompactor_TriggersOnLargeConversation(t *testing.T) {
 		messages = newMsgs
 
 		// Simulate a tool call round
-		messages = append(messages, forge.Message{
-			Role: forge.RoleAssistant,
-			ToolCalls: []forge.ToolCall{
+		messages = append(messages, agent.Message{
+			Role: agent.RoleAssistant,
+			ToolCalls: []agent.ToolCall{
 				{ID: fmt.Sprintf("tc%d", i), Name: "read", Arguments: json.RawMessage(fmt.Sprintf(`{"path":"file%d.go"}`, i))},
 			},
 		})
-		messages = append(messages, forge.Message{
-			Role:       forge.RoleTool,
+		messages = append(messages, agent.Message{
+			Role:       agent.RoleTool,
 			Content:    fmt.Sprintf("package file%d\n\nfunc Do%d() { /* implementation with lots of code */ }\n%s", i, i, string(make([]byte, 300))),
 			ToolCallID: fmt.Sprintf("tc%d", i),
 		})
-		messages = append(messages, forge.Message{
-			Role:    forge.RoleAssistant,
+		messages = append(messages, agent.Message{
+			Role:    agent.RoleAssistant,
 			Content: fmt.Sprintf("Read file%d.go — it contains function Do%d with substantial implementation details.", i, i),
 		})
 
-		toolCalls = append(toolCalls, forge.ToolCallLog{
+		toolCalls = append(toolCalls, agent.ToolCallLog{
 			Tool:  "read",
 			Input: json.RawMessage(fmt.Sprintf(`{"path":"file%d.go"}`, i)),
 		})
@@ -127,9 +127,9 @@ func TestCompactor_NoCompactionWhenDisabled(t *testing.T) {
 	compactor := NewCompactor(cfg)
 
 	// Even with a huge conversation, shouldn't compact
-	var messages []forge.Message
+	var messages []agent.Message
 	for i := 0; i < 100; i++ {
-		messages = append(messages, forge.Message{Role: forge.RoleUser, Content: string(make([]byte, 1000))})
+		messages = append(messages, agent.Message{Role: agent.RoleUser, Content: string(make([]byte, 1000))})
 	}
 
 	result, _, err := compactor(context.Background(), messages, nil, nil)
@@ -148,7 +148,7 @@ func TestCompactor_SkipsRecompaction(t *testing.T) {
 	compactor := NewCompactor(cfg)
 
 	// Start with a summary as the last message (simulating just-compacted state)
-	messages := []forge.Message{
+	messages := []agent.Message{
 		InjectSummary("## Goal\nJust compacted"),
 	}
 
@@ -165,13 +165,13 @@ func TestEndToEnd_AgentLoopWithCompaction(t *testing.T) {
 	cfg.ReserveTokens = 80
 	cfg.KeepRecentTokens = 80
 
-	// Simulate what forge.Run does
-	var messages []forge.Message
-	messages = append(messages, forge.Message{Role: forge.RoleUser, Content: "Process all files"})
+	// Simulate what agent.Run does
+	var messages []agent.Message
+	messages = append(messages, agent.Message{Role: agent.RoleUser, Content: "Process all files"})
 
-	readTool := forge.ToolDef{Name: "read", Description: "Read file"}
-	tools := []forge.ToolDef{readTool}
-	var allToolCalls []forge.ToolCallLog
+	readTool := agent.ToolDef{Name: "read", Description: "Read file"}
+	tools := []agent.ToolDef{readTool}
+	var allToolCalls []agent.ToolCallLog
 
 	compactor := NewCompactor(cfg)
 	var events []string
@@ -186,7 +186,7 @@ func TestEndToEnd_AgentLoopWithCompaction(t *testing.T) {
 		messages = newMsgs
 
 		// Call provider
-		resp, err := provider.Chat(context.Background(), messages, tools, forge.Options{})
+		resp, err := provider.Chat(context.Background(), messages, tools, agent.Options{})
 		require.NoError(t, err)
 
 		if len(resp.ToolCalls) == 0 {
@@ -195,14 +195,14 @@ func TestEndToEnd_AgentLoopWithCompaction(t *testing.T) {
 		}
 
 		// Execute tool calls
-		messages = append(messages, forge.Message{Role: forge.RoleAssistant, ToolCalls: resp.ToolCalls})
+		messages = append(messages, agent.Message{Role: agent.RoleAssistant, ToolCalls: resp.ToolCalls})
 		for _, tc := range resp.ToolCalls {
-			messages = append(messages, forge.Message{
-				Role:       forge.RoleTool,
+			messages = append(messages, agent.Message{
+				Role:       agent.RoleTool,
 				Content:    "file content here " + string(make([]byte, 200)),
 				ToolCallID: tc.ID,
 			})
-			allToolCalls = append(allToolCalls, forge.ToolCallLog{Tool: tc.Name, Input: tc.Arguments})
+			allToolCalls = append(allToolCalls, agent.ToolCallLog{Tool: tc.Name, Input: tc.Arguments})
 		}
 	}
 

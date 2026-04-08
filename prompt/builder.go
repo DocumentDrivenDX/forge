@@ -1,4 +1,4 @@
-// Package prompt provides composable system prompt construction for forge.
+// Package prompt provides composable system prompt construction for agent.
 // Modeled after pi's buildSystemPrompt — section-based composition with
 // tool awareness, project context files, and dynamic context injection.
 package prompt
@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // ContextFile is a project instruction file (AGENTS.md, CLAUDE.md, etc.).
@@ -20,7 +20,7 @@ type ContextFile struct {
 // Builder constructs a system prompt from composable sections.
 type Builder struct {
 	base         string
-	tools        []forge.Tool
+	tools        []agent.Tool
 	guidelines   []string
 	contextFiles []ContextFile
 	appendText   string
@@ -38,7 +38,7 @@ func New(base string) *Builder {
 }
 
 // WithTools adds a tools section listing available tool names and descriptions.
-func (b *Builder) WithTools(tools []forge.Tool) *Builder {
+func (b *Builder) WithTools(tools []agent.Tool) *Builder {
 	b.tools = tools
 	return b
 }

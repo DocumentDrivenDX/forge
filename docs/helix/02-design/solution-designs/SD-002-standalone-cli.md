@@ -11,8 +11,8 @@ ddx:
 
 ## Scope
 
-Feature-level design for the `forge` CLI binary — the thin porcelain that
-proves the Forge library works end-to-end. The CLI is not the product; the
+Feature-level design for the `ddx-agent` CLI binary — the thin porcelain that
+proves the DDX Agent library works end-to-end. The CLI is not the product; the
 library is. This design covers the binary, config loading, and session
 subcommands.
 
@@ -22,12 +22,12 @@ subcommands.
 
 | Requirement | Technical Capability | Component | Priority |
 |-------------|---------------------|-----------|----------|
-| Non-interactive mode (FEAT-006 FR-1..3) | `forge -p "prompt"`, stdin | `cmd/forge` | P0 |
-| Exit codes (FEAT-006 FR-4) | 0/1/2 mapping | `cmd/forge` | P0 |
-| Output modes (FEAT-006 FR-5..6) | stdout text, --json, stderr progress | `cmd/forge` | P0 |
-| Config file (FEAT-006 FR-7..10) | YAML config + env + flags | `cmd/forge` | P0 |
-| Session commands (FEAT-006 FR-11..14) | log, replay, usage subcommands | `cmd/forge` | P1 |
-| DDx harness (FEAT-006 FR-15..16) | stdin prompt, JSON output | `cmd/forge` | P0 |
+| Non-interactive mode (FEAT-006 FR-1..3) | `ddx-agent -p "prompt"`, stdin | `cmd/ddx-agent` | P0 |
+| Exit codes (FEAT-006 FR-4) | 0/1/2 mapping | `cmd/ddx-agent` | P0 |
+| Output modes (FEAT-006 FR-5..6) | stdout text, --json, stderr progress | `cmd/ddx-agent` | P0 |
+| Config file (FEAT-006 FR-7..10) | YAML config + env + flags | `cmd/ddx-agent` | P0 |
+| Session commands (FEAT-006 FR-11..14) | log, replay, usage subcommands | `cmd/ddx-agent` | P1 |
+| DDx harness (FEAT-006 FR-15..16) | stdin prompt, JSON output | `cmd/ddx-agent` | P0 |
 
 ### NFR Impact
 
@@ -39,32 +39,32 @@ subcommands.
 
 ## Solution Approach
 
-The CLI is a single `cmd/forge/main.go` entry point using Go's `flag` stdlib
+The CLI is a single `cmd/ddx-agent/main.go` entry point using Go's `flag` stdlib
 package (per project concern override — no Cobra). Subcommands are dispatched
 by the first positional argument.
 
 ### Command Structure
 
 ```
-forge -p "prompt"              # run agent, print result
-forge -p @file.md              # prompt from file
-echo "prompt" | forge          # prompt from stdin
-forge --json -p "prompt"       # JSON output
+ddx-agent -p "prompt"              # run agent, print result
+ddx-agent -p @file.md              # prompt from file
+echo "prompt" | ddx-agent          # prompt from stdin
+ddx-agent --json -p "prompt"       # JSON output
 
-forge log                      # list recent sessions
-forge log <session-id>         # show session detail
-forge replay <session-id>      # human-readable replay
-forge usage                    # cost/token summary
-forge usage --since=7d         # with time window
+ddx-agent log                      # list recent sessions
+ddx-agent log <session-id>         # show session detail
+ddx-agent replay <session-id>      # human-readable replay
+ddx-agent usage                    # cost/token summary
+ddx-agent usage --since=7d         # with time window
 ```
 
 ### Config Resolution Order
 
 1. Built-in defaults (localhost:1234, openai-compat, 20 iterations)
-2. Global config: `~/.config/forge/config.yaml`
-3. Project config: `.forge/config.yaml`
-4. Environment variables: `FORGE_PROVIDER`, `FORGE_BASE_URL`, `FORGE_API_KEY`,
-   `FORGE_MODEL`
+2. Global config: `~/.config/agent/config.yaml`
+3. Project config: `.agent/config.yaml`
+4. Environment variables: `AGENT_PROVIDER`, `AGENT_BASE_URL`, `AGENT_API_KEY`,
+   `AGENT_MODEL`
 5. CLI flags: `--provider`, `--base-url`, `--api-key`, `--model`,
    `--max-iter`, `--work-dir`
 
@@ -78,7 +78,7 @@ base_url: http://localhost:1234/v1
 api_key: ""
 model: qwen3.5-7b
 max_iterations: 20
-session_log_dir: .forge/sessions
+session_log_dir: .agent/sessions
 ```
 
 ### Exit Codes
@@ -91,12 +91,12 @@ session_log_dir: .forge/sessions
 
 ## System Decomposition
 
-### `cmd/forge/main.go`
+### `cmd/ddx-agent/main.go`
 
 - Parse flags and subcommand
 - Load config (file → env → flags)
 - Construct provider and tools
-- Call `forge.Run()` or session subcommand
+- Call `agent.Run()` or session subcommand
 - Print result, set exit code
 
 ### Config loader (internal to cmd)
@@ -104,12 +104,12 @@ session_log_dir: .forge/sessions
 - YAML parsing with `gopkg.in/yaml.v3`
 - Env var overlay
 - Flag overlay
-- Validate and return `forge.Request`-compatible config
+- Validate and return `agent.Request`-compatible config
 
 ### Session subcommands (internal to cmd)
 
 - `log`: List session files from log directory, show summary
-- `replay`: Use `forge/session.Replay()` to render a session
+- `replay`: Use `agent/session.Replay()` to render a session
 - `usage`: Aggregate session logs with time filtering
 
 ## Technology Rationale

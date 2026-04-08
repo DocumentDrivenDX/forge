@@ -1,5 +1,5 @@
-baseURL: https://anthropics.github.io/forge/
-title: Forge
+baseURL: https://documentdrivendx.github.io/agent/
+title: DDX Agent
 locale: en-us
 
 module:
@@ -25,7 +25,7 @@ menu:
       pageRef: /demos
       weight: 2
     - name: GitHub
-      url: https://github.com/DocumentDrivenDX/forge
+      url: https://github.com/DocumentDrivenDX/agent
       weight: 3
       params:
         icon: github
@@ -40,4 +40,4 @@ params:
     displayPoweredBy: false
   editURL:
     enable: true
-    base: https://github.com/DocumentDrivenDX/forge/edit/main/website/content
+    base: https://github.com/DocumentDrivenDX/agent/edit/main/website/content

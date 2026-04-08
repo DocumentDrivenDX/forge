@@ -1,4 +1,4 @@
-module github.com/DocumentDrivenDX/forge
+module github.com/DocumentDrivenDX/agent
 
 go 1.26.1
 

@@ -75,7 +75,7 @@ func (f *fakeOpenAIServer) lastModel() string {
 
 func writeTempConfig(t *testing.T, workDir, configBody string) {
 	t.Helper()
-	cfgDir := filepath.Join(workDir, ".forge")
+	cfgDir := filepath.Join(workDir, ".agent")
 	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(configBody), 0o644))
 }
@@ -100,7 +100,7 @@ targets:
     family: external
     aliases: [external-alias]
     surfaces:
-      forge.openai: external-model-v1
+      agent.openai: external-model-v1
 `)
 	writeTempConfig(t, workDir, `
 model_catalog:
@@ -113,7 +113,7 @@ providers:
 default: local
 `)
 
-	out, err := runForge(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "code-smart")
+	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "code-smart")
 	require.NoError(t, err, string(out))
 	assert.Contains(t, string(out), "[success]")
 	assert.Equal(t, "external-model-v1", fake.lastModel())
@@ -132,11 +132,11 @@ targets:
     status: deprecated
     replacement: current
     surfaces:
-      forge.openai: old-model
+      agent.openai: old-model
   current:
     family: demo
     surfaces:
-      forge.openai: new-model
+      agent.openai: new-model
 `)
 	writeTempConfig(t, workDir, `
 model_catalog:
@@ -149,7 +149,7 @@ providers:
 default: local
 `)
 
-	out, err := runForge(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "legacy")
+	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "legacy")
 	require.Error(t, err)
 	assert.Contains(t, string(out), `target "legacy" is deprecated; use "current"`)
 	assert.Equal(t, "", fake.lastModel())
@@ -168,11 +168,11 @@ targets:
     status: deprecated
     replacement: current
     surfaces:
-      forge.openai: old-model
+      agent.openai: old-model
   current:
     family: demo
     surfaces:
-      forge.openai: new-model
+      agent.openai: new-model
 `)
 	writeTempConfig(t, workDir, `
 model_catalog:
@@ -185,7 +185,7 @@ providers:
 default: local
 `)
 
-	out, err := runForge(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "legacy", "--allow-deprecated-model")
+	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "legacy", "--allow-deprecated-model")
 	require.NoError(t, err, string(out))
 	assert.Contains(t, string(out), "[success]")
 	assert.Equal(t, "old-model", fake.lastModel())
@@ -205,7 +205,7 @@ targets:
   custom-fast:
     family: custom
     surfaces:
-      forge.openai: override-fast-model
+      agent.openai: override-fast-model
 `)
 	writeTempConfig(t, workDir, `
 model_catalog:
@@ -218,7 +218,7 @@ providers:
 default: local
 `)
 
-	out, err := runForge(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "code-fast")
+	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "code-fast")
 	require.NoError(t, err, string(out))
 	assert.Contains(t, string(out), "[success]")
 	assert.Equal(t, "override-fast-model", fake.lastModel())
@@ -238,7 +238,7 @@ targets:
   external-smart:
     family: external
     surfaces:
-      forge.openai: external-model-v1
+      agent.openai: external-model-v1
 `)
 	writeTempConfig(t, workDir, `
 model_catalog:
@@ -251,7 +251,7 @@ providers:
 default: local
 `)
 
-	out, err := runForge(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "code-smart", "--model", "explicit-model")
+	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "code-smart", "--model", "explicit-model")
 	require.NoError(t, err, string(out))
 	assert.Contains(t, string(out), "[success]")
 	assert.Equal(t, "explicit-model", fake.lastModel())
@@ -270,7 +270,7 @@ providers:
 default: local
 `)
 
-	out, err := runForge(t, "--work-dir", workDir, "models")
+	out, err := runAgentCLI(t, "--work-dir", workDir, "models")
 	require.NoError(t, err, string(out))
 	assert.True(t, strings.Contains(string(out), "stub-model") || strings.Contains(string(out), "configured-model"))
 	assert.Equal(t, "", fake.lastModel())

@@ -9,8 +9,8 @@ import (
 type Surface string
 
 const (
-	SurfaceForgeOpenAI    Surface = "forge.openai"
-	SurfaceForgeAnthropic Surface = "forge.anthropic"
+	SurfaceAgentOpenAI    Surface = "agent.openai"
+	SurfaceAgentAnthropic Surface = "agent.anthropic"
 	SurfaceCodex          Surface = "codex"
 	SurfaceClaudeCode     Surface = "claude-code"
 )

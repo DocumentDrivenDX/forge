@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Forge installer — downloads the latest release binary for your platform.
-# Usage: curl -fsSL https://raw.githubusercontent.com/DocumentDrivenDX/forge/master/install.sh | bash
+# DDX Agent installer — downloads the latest release binary for your platform.
+# Usage: curl -fsSL https://raw.githubusercontent.com/DocumentDrivenDX/agent/master/install.sh | bash
 
 set -euo pipefail
 
@@ -12,24 +12,24 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-REPO="DocumentDrivenDX/forge"
-INSTALL_DIR="${FORGE_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="DocumentDrivenDX/agent"
+INSTALL_DIR="${AGENT_INSTALL_DIR:-$HOME/.local/bin}"
 
 # Logging functions (all to stderr to avoid polluting command substitution)
 log() {
-    echo -e "${BLUE}[forge]${NC} $1" >&2
+    echo -e "${BLUE}[ddx-agent]${NC} $1" >&2
 }
 
 success() {
-    echo -e "${GREEN}[forge]${NC} $1" >&2
+    echo -e "${GREEN}[ddx-agent]${NC} $1" >&2
 }
 
 warn() {
-    echo -e "${YELLOW}[forge]${NC} $1" >&2
+    echo -e "${YELLOW}[ddx-agent]${NC} $1" >&2
 }
 
 error() {
-    echo -e "${RED}[forge]${NC} $1" >&2
+    echo -e "${RED}[ddx-agent]${NC} $1" >&2
     exit 1
 }
 
@@ -61,15 +61,15 @@ detect_platform() {
         *) error "Unsupported OS: $OS" ;;
     esac
 
-    BINARY="forge-${OS}-${ARCH}"
+    BINARY="ddx-agent-${OS}-${ARCH}"
 }
 
 # Get latest release tag
 get_latest_release() {
     log "Fetching latest release..."
     
-    if [ -n "${FORGE_VERSION:-}" ]; then
-        TAG="${FORGE_VERSION}"
+    if [ -n "${AGENT_VERSION:-}" ]; then
+        TAG="${AGENT_VERSION}"
         # Normalize to tag format (add v prefix if missing)
         if [[ ! "$TAG" =~ ^v ]]; then
             TAG="v${TAG}"
@@ -83,7 +83,7 @@ get_latest_release() {
         fi
 
         if [ -z "$TAG" ]; then
-            error "Could not determine latest release. Set FORGE_VERSION to specify a version."
+            error "Could not determine latest release. Set AGENT_VERSION to specify a version."
         fi
         
         log "Latest release: ${TAG}"
@@ -98,22 +98,22 @@ install_binary() {
     
     URL="https://github.com/${REPO}/releases/download/${TAG}/${BINARY}"
     
-    log "Installing forge ${TAG} (${OS}/${ARCH})..."
+    log "Installing ddx-agent ${TAG} (${OS}/${ARCH})..."
     
     # Create installation directory
     mkdir -p "$INSTALL_DIR"
     
     # Download binary
     if command -v curl &>/dev/null; then
-        curl -fsSL "$URL" -o "${INSTALL_DIR}/forge"
+        curl -fsSL "$URL" -o "${INSTALL_DIR}/ddx-agent"
     elif command -v wget &>/dev/null; then
-        wget -q "$URL" -O "${INSTALL_DIR}/forge"
+        wget -q "$URL" -O "${INSTALL_DIR}/ddx-agent"
     fi
     
     # Make executable
-    chmod +x "${INSTALL_DIR}/forge"
-    
-    success "Installed forge to ${INSTALL_DIR}/forge"
+    chmod +x "${INSTALL_DIR}/ddx-agent"
+
+    success "Installed ddx-agent to ${INSTALL_DIR}/ddx-agent"
 }
 
 # Configure PATH in shell rc files
@@ -149,7 +149,7 @@ configure_path() {
         # Check if already added
         if ! grep -q "${INSTALL_DIR}" "$RC_FILE" 2>/dev/null; then
             echo "" >> "$RC_FILE"
-            echo "# Forge CLI PATH" >> "$RC_FILE"
+            echo "# DDX Agent CLI PATH" >> "$RC_FILE"
             
             case "$SHELL_NAME" in
                 fish)
@@ -160,9 +160,9 @@ configure_path() {
                     ;;
             esac
             
-            success "Added forge to PATH in $RC_FILE"
+            success "Added ddx-agent to PATH in $RC_FILE"
         else
-            success "Forge is already configured in $RC_FILE"
+            success "DDX Agent is already configured in $RC_FILE"
         fi
     else
         warn "Could not find shell config file. Please add ${INSTALL_DIR} to your PATH manually."
@@ -184,13 +184,13 @@ verify_installation() {
     log "Verifying installation..."
 
     # Check if binary exists and is executable
-    if [ ! -f "${INSTALL_DIR}/forge" ] || [ ! -x "${INSTALL_DIR}/forge" ]; then
-        error "Installation failed: forge binary not found or not executable at ${INSTALL_DIR}/forge"
+    if [ ! -f "${INSTALL_DIR}/ddx-agent" ] || [ ! -x "${INSTALL_DIR}/ddx-agent" ]; then
+        error "Installation failed: ddx-agent binary not found or not executable at ${INSTALL_DIR}/ddx-agent"
     fi
 
     # Test binary execution
-    if ! "${INSTALL_DIR}/forge" --version &>/dev/null; then
-        warn "Forge binary installed but 'forge --version' command failed."
+    if ! "${INSTALL_DIR}/ddx-agent" --version &>/dev/null; then
+        warn "DDX Agent binary installed but 'ddx-agent --version' command failed."
         warn "This may be normal if PATH is not yet configured."
     else
         success "Installation verification passed"
@@ -200,29 +200,29 @@ verify_installation() {
 # Show getting started information
 show_getting_started() {
     echo ""
-    echo -e "${GREEN}🎉 Forge installed successfully!${NC}"
+    echo -e "${GREEN}🎉 DDX Agent installed successfully!${NC}"
     echo ""
     echo -e "${BLUE}📚 Next Steps:${NC}"
-    echo "   forge version     Check your installation"
-    echo "   forge update      Check for and install updates"
-    echo "   forge providers   List configured LLM providers"
-    echo "   forge import pi   Import configuration from Pi"
+    echo "   ddx-agent version     Check your installation"
+    echo "   ddx-agent update      Check for and install updates"
+    echo "   ddx-agent providers   List configured LLM providers"
+    echo "   ddx-agent import pi   Import configuration from Pi"
     echo ""
     echo -e "${BLUE}📖 Documentation:${NC}"
     echo "   https://github.com/${REPO}"
     echo ""
     echo -e "${BLUE}🔧 Binary Location:${NC}"
-    echo "   ${INSTALL_DIR}/forge"
+    echo "   ${INSTALL_DIR}/ddx-agent"
     echo ""
     echo -e "${BLUE}⚡ Quick Start:${NC}"
-    echo "   forge --help              Show all commands and options"
-    echo "   forge -p \"Your task\"      Run a quick task with default provider"
+    echo "   ddx-agent --help              Show all commands and options"
+    echo "   ddx-agent -p \"Your task\"      Run a quick task with default provider"
     echo ""
     
-    if command -v forge &>/dev/null; then
-        success "Forge is ready to use! Run 'forge --version' to verify."
+    if command -v ddx-agent &>/dev/null; then
+        success "DDX Agent is ready to use! Run 'ddx-agent --version' to verify."
     else
-        warn "Please restart your shell or run the following to use forge immediately:"
+        warn "Please restart your shell or run the following to use ddx-agent immediately:"
         echo ""
         case "$SHELL_NAME" in
             fish)
@@ -237,7 +237,7 @@ show_getting_started() {
 
 # Main installation flow
 main() {
-    echo -e "${BLUE}🚀 Installing Forge — Embeddable Go Agent Runtime${NC}"
+    echo -e "${BLUE}🚀 Installing DDX Agent — Embeddable Go Agent Runtime${NC}"
     echo ""
     
     check_prerequisites

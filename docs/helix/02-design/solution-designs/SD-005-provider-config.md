@@ -11,40 +11,40 @@ ddx:
 
 ## Problem
 
-Forge started with a single flat provider config (`provider`, `base_url`,
+DDX Agent started with a single flat provider config (`provider`, `base_url`,
 `api_key`, `model`). That is sufficient for one local LM Studio instance, but
 real users need three separate concerns:
 
 1. **Named providers** — concrete backend definitions for Anthropic,
    OpenRouter, LM Studio hosts, etc.
-2. **Shared model policy** — one forge-owned catalog for aliases,
+2. **Shared model policy** — one agent-owned catalog for aliases,
    tiers/profiles, canonical targets, and deprecations.
 3. **Simple routing across equivalent backends** — for example rotate among
    several local inference servers that should all serve the same logical model
    reference.
 
-Prompt presets already exist in forge and must remain a separate concern for
+Prompt presets already exist in agent and must remain a separate concern for
 system prompt behavior only.
 
 ## Design: Three-Layer Resolution Model
 
-Forge keeps three layers above the runtime boundary:
+DDX Agent keeps three layers above the runtime boundary:
 
 - **Providers** — transport/auth definitions and optional direct pinned models
-- **Model catalog** — forge-owned reusable policy/data loaded from an embedded
+- **Model catalog** — agent-owned reusable policy/data loaded from an embedded
   snapshot plus an optional external manifest override
 - **Backend pools** — routing targets that pick one provider before a run and
   optionally attach a catalog model reference
 
-After resolution, forge still builds exactly one concrete `Provider` and passes
-it to `forge.Run()`.
+After resolution, agent still builds exactly one concrete `Provider` and passes
+it to `agent.Run()`.
 
 ### Config Format
 
 ```yaml
-# .forge/config.yaml
+# .agent/config.yaml
 model_catalog:
-  manifest: ~/.config/forge/models.yaml   # optional local override of the embedded snapshot
+  manifest: ~/.config/agent/models.yaml   # optional local override of the embedded snapshot
 
 providers:
   vidar:
@@ -64,8 +64,8 @@ providers:
     base_url: https://openrouter.ai/api/v1
     api_key: ${OPENROUTER_API_KEY}
     headers:
-      HTTP-Referer: https://github.com/DocumentDrivenDX/forge
-      X-Title: Forge
+      HTTP-Referer: https://github.com/DocumentDrivenDX/agent
+      X-Title: DDX Agent
 
   anthropic:
     type: anthropic
@@ -84,14 +84,14 @@ backends:
 
 default: vidar
 default_backend: code-fast-local
-preset: forge
+preset: agent
 max_iterations: 20
-session_log_dir: .forge/sessions
+session_log_dir: .agent/sessions
 ```
 
 ### Resolution Model
 
-1. Load provider config and the forge model catalog.
+1. Load provider config and the agent model catalog.
 2. If `--backend` is provided, resolve that backend pool.
 3. Else if `default_backend` exists, resolve that backend pool.
 4. Else fall back to direct provider selection via `--provider` or `default`.
@@ -100,7 +100,7 @@ session_log_dir: .forge/sessions
 6. If `--model` is provided, treat it as an explicit concrete pin and bypass
    catalog policy for that run.
 7. Build exactly one provider with one concrete model string and pass it to
-   `forge.Run()`.
+   `agent.Run()`.
 
 This preserves the current architecture while making model policy reusable and
 terminology-safe.
@@ -111,7 +111,7 @@ terminology-safe.
 endpoint URLs, credentials, and headers. They are not the canonical source of
 alias/profile policy.
 
-**D2: Add a forge-owned model catalog as a first-class layer.** The catalog is
+**D2: Add a agent-owned model catalog as a first-class layer.** The catalog is
 loaded from an embedded manifest snapshot with an optional external override,
 and it owns aliases, tiers/profiles, canonical targets, and deprecations.
 
@@ -146,8 +146,8 @@ and backend pools only when they need them.
 ### Prompt Preset Selection
 
 ```bash
-forge -p "prompt" --preset forge
-forge -p "prompt" --preset claude
+ddx-agent -p "prompt" --preset agent
+ddx-agent -p "prompt" --preset claude
 ```
 
 Built-in preset names are defined by SD-003 and the implementation in
@@ -156,16 +156,16 @@ Built-in preset names are defined by SD-003 and the implementation in
 ### Direct Provider / Model Selection
 
 ```bash
-forge -p "prompt" --provider vidar
-forge -p "prompt" --provider anthropic --model claude-sonnet-4-20250514
-forge -p "prompt" --model-ref code-smart
+ddx-agent -p "prompt" --provider vidar
+ddx-agent -p "prompt" --provider anthropic --model claude-sonnet-4-20250514
+ddx-agent -p "prompt" --model-ref code-smart
 ```
 
 ### Backend-Pool Selection
 
 ```bash
-forge -p "prompt" --backend code-fast-local
-forge -p "prompt"                         # use default_backend if set, else default provider
+ddx-agent -p "prompt" --backend code-fast-local
+ddx-agent -p "prompt"                         # use default_backend if set, else default provider
 ```
 
 Initial phase-2A scope only requires backend resolution for runs. Provider
@@ -174,7 +174,7 @@ inspection commands can be added later if needed.
 
 ## Library and Package Boundaries
 
-The library runtime boundary does not change: `forge.Run()` still takes a
+The library runtime boundary does not change: `agent.Run()` still takes a
 single `Provider` in the `Request`.
 
 Config and CLI code grow a catalog-aware layer above that boundary. The
@@ -185,7 +185,7 @@ Expected package split:
 
 - `config/` — load provider config and optional manifest override path
 - `modelcatalog/` — load, validate, and resolve shared model policy
-- `cmd/forge/` — resolve `--provider`, `--backend`, `--model-ref`, or `--model`
+- `cmd/ddx-agent/` — resolve `--provider`, `--backend`, `--model-ref`, or `--model`
   into one concrete provider/model pair
 
 ## Traceability
@@ -194,5 +194,5 @@ Expected package split:
 - SD-003 reserves `preset` for system prompt behavior
 - `plan-2026-04-08-shared-model-catalog.md` defines the catalog package/API,
   manifest format, and consumer examples
-- `forge-94b5d420` covers the converged design
-- `forge-66eef6fe` is the follow-on implementation bead
+- `agent-94b5d420` covers the converged design
+- `agent-66eef6fe` is the follow-on implementation bead

@@ -34,11 +34,11 @@ func TestEditTool_Execute(t *testing.T) {
 		result, err := tool.Execute(context.Background(), mustJSON(t, EditParams{
 			Path:      "edit1.txt",
 			OldString: "world",
-			NewString: "forge",
+			NewString: "agent",
 		}))
 		require.NoError(t, err)
 		assert.Contains(t, result, "Replaced 1 occurrence")
-		assert.Equal(t, "hello forge", readFile(t, "edit1.txt"))
+		assert.Equal(t, "hello agent", readFile(t, "edit1.txt"))
 	})
 
 	t.Run("errors on not found", func(t *testing.T) {

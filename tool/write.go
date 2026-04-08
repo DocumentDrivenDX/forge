@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // WriteParams are the parameters for the write tool.
@@ -56,4 +56,4 @@ func (t *WriteTool) Execute(ctx context.Context, params json.RawMessage) (string
 	return fmt.Sprintf("Wrote %d bytes to %s", len(p.Content), resolved), nil
 }
 
-var _ forge.Tool = (*WriteTool)(nil)
+var _ agent.Tool = (*WriteTool)(nil)

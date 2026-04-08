@@ -137,7 +137,7 @@ type Request struct {
 ### Dependency Graph
 
 ```
-SD-004-1: StreamDelta type + StreamingProvider interface (forge.go)
+SD-004-1: StreamDelta type + StreamingProvider interface (agent.go)
     ↓
 SD-004-2: Agent loop streaming support (loop.go)
     ↓              ↓
@@ -148,7 +148,7 @@ streaming provider  streaming provider
 ### Issue Breakdown
 
 1. **Define StreamDelta and StreamingProvider interface**
-   - Add types to forge.go
+   - Add types to agent.go
    - Add EventLLMDelta event type
    - Add NoStream field to Request
    - Unit test: StreamDelta JSON round-trip

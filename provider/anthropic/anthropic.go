@@ -1,4 +1,4 @@
-// Package anthropic implements a forge.Provider for the Anthropic Claude API.
+// Package anthropic implements a agent.Provider for the Anthropic Claude API.
 package anthropic
 
 import (
@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	ant "github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
-// Provider implements forge.Provider for the Anthropic Messages API.
+// Provider implements agent.Provider for the Anthropic Messages API.
 type Provider struct {
 	client *ant.Client
 	model  string
@@ -37,7 +37,7 @@ func New(cfg Config) *Provider {
 	}
 }
 
-func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (forge.Response, error) {
+func (p *Provider) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (agent.Response, error) {
 	model := p.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -45,9 +45,9 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 
 	// Separate system message from conversation
 	var system []ant.TextBlockParam
-	var convMsgs []forge.Message
+	var convMsgs []agent.Message
 	for _, m := range messages {
-		if m.Role == forge.RoleSystem {
+		if m.Role == agent.RoleSystem {
 			system = append(system, ant.TextBlockParam{Text: m.Content})
 		} else {
 			convMsgs = append(convMsgs, m)
@@ -77,7 +77,7 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 		params.Tools = convertTools(tools)
 	}
 
-	var resp forge.Response
+	var resp agent.Response
 	var lastErr error
 
 	for attempt := range 3 {
@@ -96,7 +96,7 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 		}
 
 		resp.Model = string(msg.Model)
-		resp.Usage = forge.TokenUsage{
+		resp.Usage = agent.TokenUsage{
 			Input:  int(msg.Usage.InputTokens),
 			Output: int(msg.Usage.OutputTokens),
 			Total:  int(msg.Usage.InputTokens + msg.Usage.OutputTokens),
@@ -118,7 +118,7 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 			case "text":
 				resp.Content += block.Text
 			case "tool_use":
-				resp.ToolCalls = append(resp.ToolCalls, forge.ToolCall{
+				resp.ToolCalls = append(resp.ToolCalls, agent.ToolCall{
 					ID:        block.ID,
 					Name:      block.Name,
 					Arguments: json.RawMessage(block.Input),
@@ -132,13 +132,13 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 	return resp, fmt.Errorf("anthropic: after 3 attempts: %w", lastErr)
 }
 
-func convertMessages(msgs []forge.Message) []ant.MessageParam {
+func convertMessages(msgs []agent.Message) []ant.MessageParam {
 	var result []ant.MessageParam
 	for _, m := range msgs {
 		switch m.Role {
-		case forge.RoleUser:
+		case agent.RoleUser:
 			result = append(result, ant.NewUserMessage(ant.NewTextBlock(m.Content)))
-		case forge.RoleAssistant:
+		case agent.RoleAssistant:
 			if len(m.ToolCalls) > 0 {
 				var blocks []ant.ContentBlockParamUnion
 				if m.Content != "" {
@@ -153,7 +153,7 @@ func convertMessages(msgs []forge.Message) []ant.MessageParam {
 			} else {
 				result = append(result, ant.NewAssistantMessage(ant.NewTextBlock(m.Content)))
 			}
-		case forge.RoleTool:
+		case agent.RoleTool:
 			result = append(result, ant.NewUserMessage(
 				ant.NewToolResultBlock(m.ToolCallID, m.Content, false),
 			))
@@ -162,7 +162,7 @@ func convertMessages(msgs []forge.Message) []ant.MessageParam {
 	return result
 }
 
-func convertTools(tools []forge.ToolDef) []ant.ToolUnionParam {
+func convertTools(tools []agent.ToolDef) []ant.ToolUnionParam {
 	var result []ant.ToolUnionParam
 	for _, t := range tools {
 		var schema ant.ToolInputSchemaParam
@@ -179,17 +179,17 @@ func convertTools(tools []forge.ToolDef) []ant.ToolUnionParam {
 	return result
 }
 
-// ChatStream implements forge.StreamingProvider for token-level streaming.
-func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (<-chan forge.StreamDelta, error) {
+// ChatStream implements agent.StreamingProvider for token-level streaming.
+func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (<-chan agent.StreamDelta, error) {
 	model := p.model
 	if opts.Model != "" {
 		model = opts.Model
 	}
 
 	var system []ant.TextBlockParam
-	var convMsgs []forge.Message
+	var convMsgs []agent.Message
 	for _, m := range messages {
-		if m.Role == forge.RoleSystem {
+		if m.Role == agent.RoleSystem {
 			system = append(system, ant.TextBlockParam{Text: m.Content})
 		} else {
 			convMsgs = append(convMsgs, m)
@@ -217,7 +217,7 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 
 	stream := p.client.Messages.NewStreaming(ctx, params)
 
-	ch := make(chan forge.StreamDelta, 1)
+	ch := make(chan agent.StreamDelta, 1)
 	go func() {
 		defer close(ch)
 
@@ -231,9 +231,9 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 			switch event.Type {
 			case "message_start":
 				// Capture input tokens from message_start
-				ch <- forge.StreamDelta{
+				ch <- agent.StreamDelta{
 					Model: string(event.Message.Model),
-					Usage: &forge.TokenUsage{
+					Usage: &agent.TokenUsage{
 						Input: int(event.Usage.InputTokens),
 					},
 				}
@@ -242,7 +242,7 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 				if event.ContentBlock.Type == "tool_use" {
 					currentToolID = event.ContentBlock.ID
 					currentToolName = event.ContentBlock.Name
-					ch <- forge.StreamDelta{
+					ch <- agent.StreamDelta{
 						ToolCallID:   currentToolID,
 						ToolCallName: currentToolName,
 					}
@@ -251,11 +251,11 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 			case "content_block_delta":
 				// Text delta
 				if event.Delta.Text != "" {
-					ch <- forge.StreamDelta{Content: event.Delta.Text}
+					ch <- agent.StreamDelta{Content: event.Delta.Text}
 				}
 				// Tool input JSON delta
 				if event.Delta.PartialJSON != "" {
-					ch <- forge.StreamDelta{
+					ch <- agent.StreamDelta{
 						ToolCallID:   currentToolID,
 						ToolCallArgs: event.Delta.PartialJSON,
 					}
@@ -266,11 +266,11 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 				currentToolName = ""
 
 			case "message_delta":
-				delta := forge.StreamDelta{
+				delta := agent.StreamDelta{
 					FinishReason: string(event.Delta.StopReason),
 				}
 				// Build usage with output and cache tokens
-				usage := &forge.TokenUsage{}
+				usage := &agent.TokenUsage{}
 				if event.Usage.OutputTokens > 0 {
 					usage.Output = int(event.Usage.OutputTokens)
 				}
@@ -286,21 +286,21 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 				ch <- delta
 
 			case "message_stop":
-				ch <- forge.StreamDelta{Done: true}
+				ch <- agent.StreamDelta{Done: true}
 				return
 			}
 		}
 
 		// Stream ended without message_stop — check for error.
 		if err := stream.Err(); err != nil {
-			ch <- forge.StreamDelta{Err: err}
+			ch <- agent.StreamDelta{Err: err}
 			return
 		}
-		ch <- forge.StreamDelta{Done: true}
+		ch <- agent.StreamDelta{Done: true}
 	}()
 
 	return ch, nil
 }
 
-var _ forge.Provider = (*Provider)(nil)
-var _ forge.StreamingProvider = (*Provider)(nil)
+var _ agent.Provider = (*Provider)(nil)
+var _ agent.StreamingProvider = (*Provider)(nil)

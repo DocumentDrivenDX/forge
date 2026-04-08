@@ -1,19 +1,19 @@
-# AGENTS.md — forge coding conventions for AI agents
+# AGENTS.md — agent coding conventions for AI agents
 
 ## Package layout
 
-- Root package (`forge`) — core types only: `Request`, `Result`, `Provider`, `Tool`, `Message`, `Event`. No logic.
+- Root package (`agent`) — core types only: `Request`, `Result`, `Provider`, `Tool`, `Message`, `Event`. No logic.
 - `loop.go` — the agent loop (`Run`). All event emission lives here.
 - `stream_consume.go` — `consumeStream` helper; called from `loop.go` when provider is a `StreamingProvider`.
 - `compaction/` — conversation compaction as a standalone package; integrated via `Request.Compactor` callback.
-- `provider/openai/`, `provider/anthropic/` — LLM backends implementing `forge.Provider` and `forge.StreamingProvider`.
+- `provider/openai/`, `provider/anthropic/` — LLM backends implementing `agent.Provider` and `agent.StreamingProvider`.
 - `tool/` — built-in tools (read, write, edit, bash).
 - `session/` — session log writer.
 - `config/` — multi-provider YAML config.
 
 ## Provider interface pattern
 
-Providers implement `forge.Provider` (synchronous). Streaming is opt-in via `forge.StreamingProvider`. The agent loop detects streaming at runtime with a type assertion:
+Providers implement `agent.Provider` (synchronous). Streaming is opt-in via `agent.StreamingProvider`. The agent loop detects streaming at runtime with a type assertion:
 
 ```go
 if sp, ok := req.Provider.(StreamingProvider); ok && !req.NoStream {
@@ -41,7 +41,7 @@ Defined event types (all must be emitted at the right time):
 
 ## Compaction
 
-`compaction.NewCompactor(cfg)` returns a `func(...)` matching `Request.Compactor`. The compactor is stateful (mutex-protected `previousSummary` and `previousFileOps`). After compaction, the summary message is placed **first** in the new message list (implementation note: SD-006 specifies LAST — see forge-1e5e2c60).
+`compaction.NewCompactor(cfg)` returns a `func(...)` matching `Request.Compactor`. The compactor is stateful (mutex-protected `previousSummary` and `previousFileOps`). After compaction, the summary message is placed **first** in the new message list (implementation note: SD-006 specifies LAST — see agent-1e5e2c60).
 
 `IsCompactionSummary` detects summary messages by checking for `<summary>` tags.
 
@@ -58,7 +58,7 @@ ddx bead close <id>            # close after verification
 ## Test conventions
 
 - Unit tests live next to the code they test (e.g., `stream_consume_test.go` alongside `stream_consume.go`).
-- Mock types (`mockProvider`, `mockStreamingProvider`) are defined in `*_test.go` files in `package forge`.
+- Mock types (`mockProvider`, `mockStreamingProvider`) are defined in `*_test.go` files in `package agent`.
 - Compaction integration tests are in `compaction/compaction_test.go` (internal `package compaction`).
 - Provider packages have no unit tests (integration-only); virtual provider in `provider/virtual/` serves as a test double.
 - All tests must pass before committing: `go test ./...`

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // Logger writes session events to a JSONL file.
@@ -45,15 +45,15 @@ func NewLogger(dir, sessionID string) *Logger {
 	return l
 }
 
-// Callback returns an EventCallback suitable for forge.Request.Callback.
-func (l *Logger) Callback() forge.EventCallback {
-	return func(e forge.Event) {
+// Callback returns an EventCallback suitable for agent.Request.Callback.
+func (l *Logger) Callback() agent.EventCallback {
+	return func(e agent.Event) {
 		l.Write(e)
 	}
 }
 
 // Emit creates and writes an event with auto-incrementing sequence number.
-func (l *Logger) Emit(eventType forge.EventType, data any) {
+func (l *Logger) Emit(eventType agent.EventType, data any) {
 	l.mu.Lock()
 	seq := l.seq
 	l.seq++
@@ -64,7 +64,7 @@ func (l *Logger) Emit(eventType forge.EventType, data any) {
 }
 
 // Write appends a pre-built event to the log file.
-func (l *Logger) Write(e forge.Event) {
+func (l *Logger) Write(e agent.Event) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -100,16 +100,16 @@ func (l *Logger) Close() error {
 }
 
 // ReadEvents reads all events from a session log file.
-func ReadEvents(path string) ([]forge.Event, error) {
+func ReadEvents(path string) ([]agent.Event, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("session: reading log: %w", err)
 	}
 
-	var events []forge.Event
+	var events []agent.Event
 	dec := json.NewDecoder(jsonlReader(data))
 	for dec.More() {
-		var e forge.Event
+		var e agent.Event
 		if err := dec.Decode(&e); err != nil {
 			return events, fmt.Errorf("session: decoding event: %w", err)
 		}

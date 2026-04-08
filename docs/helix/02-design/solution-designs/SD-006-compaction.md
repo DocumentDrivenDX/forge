@@ -50,11 +50,11 @@ have especially small windows (8K-32K) making this a practical blocker.
 - **Ghost snapshots**: Preserves undo/redo state snapshots across compaction by
   copying them into the replacement history
 
-## Design: Forge Compaction
+## Design: DDX Agent Compaction
 
 ### Strategy
 
-Forge follows pi's structured approach (richer summaries, file tracking) with
+DDX Agent follows pi's structured approach (richer summaries, file tracking) with
 Codex's pragmatism (mid-turn compaction, configurable thresholds, graceful
 fallback). The compaction is a library feature — not just CLI — so embedders
 can control it.
@@ -316,7 +316,7 @@ following summary:
 
 ### File Tracking
 
-Like pi, forge tracks which files were read and modified across compactions.
+Like pi, agent tracks which files were read and modified across compactions.
 The file lists are appended to the summary in XML tags and carried forward
 through subsequent compactions.
 
@@ -371,7 +371,7 @@ last real user message (following Codex's
 3. **Invalidate provider-side cache after compaction.** The conversation
    prefix has fundamentally changed. If the provider uses sticky sessions
    or incremental request tracking, signal that the window changed.
-   Forge exposes this via `EventCompactionEnd` — providers that maintain
+   DDX Agent exposes this via `EventCompactionEnd` — providers that maintain
    session state should listen for it.
 
 ### Token Counting — Cache-Aware
@@ -381,7 +381,7 @@ Pi counts `cacheRead` and `cacheWrite` tokens in its usage calculation:
 totalTokens = input + output + cacheRead + cacheWrite
 ```
 
-Forge should do the same. The `TokenUsage` type already has `Input` and
+DDX Agent should do the same. The `TokenUsage` type already has `Input` and
 `Output` — add `CacheRead` and `CacheWrite` fields so compaction triggers
 account for the full context footprint, not just the billed tokens.
 
@@ -487,13 +487,13 @@ empty. This ensures downstream code always has a non-empty summary to work with.
 ## Design Decisions Not Taken
 
 - **Remote server-side compaction** (Codex has this for OpenAI's `/responses/compact`
-  endpoint). Not included — forge is provider-agnostic and shouldn't depend on
+  endpoint). Not included — agent is provider-agnostic and shouldn't depend on
   one provider's server-side API. If OpenAI or others expose this, it can be added
   as a provider-specific optimization later.
 - **Branch summarization** (pi has this for conversation tree navigation). Not
-  included — forge is headless with linear conversations, no branching.
+  included — agent is headless with linear conversations, no branching.
 - **Ghost snapshots / undo** (Codex preserves these across compaction). Not
-  included — forge has no undo mechanism. If added later, the compaction should
+  included — agent has no undo mechanism. If added later, the compaction should
   preserve snapshot items similarly to Codex.
 
 ## Risks

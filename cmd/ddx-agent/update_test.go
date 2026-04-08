@@ -204,7 +204,7 @@ func TestFindBinaryPath(t *testing.T) {
 	path, err := FindBinaryPath()
 	assert.NoError(t, err)
 	assert.NotEmpty(t, path)
-	assert.True(t, strings.HasSuffix(path, "/forge") || strings.Contains(path, "forge"))
+	assert.True(t, strings.HasSuffix(path, "/ddx-agent") || strings.Contains(path, "ddx-agent") || strings.Contains(path, "go-build"))
 }
 
 func TestDownloadBinary_Mock(t *testing.T) {
@@ -231,11 +231,11 @@ func TestSemVer_ComparisonEdgeCases(t *testing.T) {
 		other  SemVer
 		expect bool // true if v < other
 	}{
-		{SemVer{Major: 0, Minor: 0, Patch: 1}, SemVer{Major: 0, Minor: 0, Patch: 2}, true},   // patch diff
-		{SemVer{Major: 0, Minor: 1, Patch: 0}, SemVer{Major: 0, Minor: 1, Patch: 0}, false},  // equal
-		{SemVer{Major: 1, Minor: 0, Patch: 0}, SemVer{Major: 0, Minor: 9, Patch: 9}, false},  // major wins
+		{SemVer{Major: 0, Minor: 0, Patch: 1}, SemVer{Major: 0, Minor: 0, Patch: 2}, true},                                          // patch diff
+		{SemVer{Major: 0, Minor: 1, Patch: 0}, SemVer{Major: 0, Minor: 1, Patch: 0}, false},                                         // equal
+		{SemVer{Major: 1, Minor: 0, Patch: 0}, SemVer{Major: 0, Minor: 9, Patch: 9}, false},                                         // major wins
 		{SemVer{Major: 1, Minor: 2, Patch: 3, PreRelease: "alpha"}, SemVer{Major: 1, Minor: 2, Patch: 3, PreRelease: "beta"}, true}, // prerelease alpha < beta
-		{SemVer{Major: 1, Minor: 0, Patch: 0}, SemVer{Major: 1, Minor: 0, Patch: 0, PreRelease: "rc1"}, false},      // release > rc
+		{SemVer{Major: 1, Minor: 0, Patch: 0}, SemVer{Major: 1, Minor: 0, Patch: 0, PreRelease: "rc1"}, false},                      // release > rc
 	}
 
 	for _, tt := range tests {

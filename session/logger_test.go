@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +51,7 @@ func TestLogger_Emit(t *testing.T) {
 	defer l.Close()
 
 	// Emit several events
-	l.Emit(forge.EventSessionStart, SessionStartData{
+	l.Emit(agent.EventSessionStart, SessionStartData{
 		Provider:      "test-provider",
 		Model:         "test-model",
 		Prompt:        "Test prompt",
@@ -59,13 +59,13 @@ func TestLogger_Emit(t *testing.T) {
 		MaxIterations: 10,
 	})
 
-	l.Emit(forge.EventLLMRequest, LLMRequestData{
-		Messages: []forge.Message{{Role: forge.RoleUser, Content: "Hello"}},
+	l.Emit(agent.EventLLMRequest, LLMRequestData{
+		Messages: []agent.Message{{Role: agent.RoleUser, Content: "Hello"}},
 		Tools:    nil,
 	})
 
-	l.Emit(forge.EventSessionEnd, SessionEndData{
-		Status: forge.StatusSuccess,
+	l.Emit(agent.EventSessionEnd, SessionEndData{
+		Status: agent.StatusSuccess,
 		Output: "Done",
 	})
 
@@ -73,9 +73,9 @@ func TestLogger_Emit(t *testing.T) {
 	events, err := ReadEvents(filepath.Join(dir, "emit-test.jsonl"))
 	require.NoError(t, err)
 	assert.Len(t, events, 3)
-	assert.Equal(t, forge.EventSessionStart, events[0].Type)
-	assert.Equal(t, forge.EventLLMRequest, events[1].Type)
-	assert.Equal(t, forge.EventSessionEnd, events[2].Type)
+	assert.Equal(t, agent.EventSessionStart, events[0].Type)
+	assert.Equal(t, agent.EventLLMRequest, events[1].Type)
+	assert.Equal(t, agent.EventSessionEnd, events[2].Type)
 
 	// Verify sequence numbers
 	assert.Equal(t, 0, events[0].Seq)
@@ -85,7 +85,7 @@ func TestLogger_Emit(t *testing.T) {
 
 func TestLogger_Write_NilFile(t *testing.T) {
 	l := &Logger{} // No file initialized
-	l.Write(forge.Event{Type: forge.EventSessionStart})
+	l.Write(agent.Event{Type: agent.EventSessionStart})
 	// Should not panic
 }
 
@@ -98,9 +98,9 @@ func TestLogger_Callback(t *testing.T) {
 	require.NotNil(t, callback)
 
 	// Use the callback
-	callback(forge.Event{
+	callback(agent.Event{
 		SessionID: "callback-test",
-		Type:      forge.EventLLMResponse,
+		Type:      agent.EventLLMResponse,
 		Data:      []byte(`{"content": "test"}`),
 	})
 
@@ -152,7 +152,7 @@ func TestLogger_Emit_ConcurrentSafety(t *testing.T) {
 
 	// Emit from multiple goroutines (simulated by rapid sequential calls)
 	for i := 0; i < 100; i++ {
-		l.Emit(forge.EventLLMResponse, LLMResponseData{Content: string(rune(i))})
+		l.Emit(agent.EventLLMResponse, LLMResponseData{Content: string(rune(i))})
 	}
 
 	events, err := ReadEvents(filepath.Join(dir, "concurrent-test.jsonl"))
@@ -175,9 +175,9 @@ func TestLogger_Write_MarshalError(t *testing.T) {
 	defer l.Close()
 
 	// Write an event - normal case should work
-	event := forge.Event{
+	event := agent.Event{
 		SessionID: "marshal-error-test",
-		Type:      forge.EventLLMResponse,
+		Type:      agent.EventLLMResponse,
 		Data:      []byte(`{"content": "test"}`),
 	}
 	
@@ -242,14 +242,14 @@ func TestLogger_WarnedFlag(t *testing.T) {
 	defer l.Close()
 
 	// First write should succeed
-	l.Write(forge.Event{SessionID: "test", Type: forge.EventLLMResponse})
+	l.Write(agent.Event{SessionID: "test", Type: agent.EventLLMResponse})
 	
 	// Close the file to simulate error condition
 	l.file.Close()
 	l.file = nil
 	
 	// Subsequent writes should not panic and should set warned flag
-	l.Write(forge.Event{SessionID: "test", Type: forge.EventLLMResponse})
+	l.Write(agent.Event{SessionID: "test", Type: agent.EventLLMResponse})
 }
 
 func TestReadEvents_BinaryData(t *testing.T) {
@@ -270,11 +270,11 @@ func TestLogger_Emit_DataTypes(t *testing.T) {
 	defer l.Close()
 
 	// Emit various data types
-	l.Emit(forge.EventSessionStart, SessionStartData{Provider: "test"})
-	l.Emit(forge.EventLLMRequest, LLMRequestData{})
-	l.Emit(forge.EventLLMResponse, LLMResponseData{Content: "response"})
-	l.Emit(forge.EventToolCall, ToolCallData{Tool: "read", Input: []byte(`{"path":"x"}`)})
-	l.Emit(forge.EventSessionEnd, SessionEndData{Status: forge.StatusSuccess})
+	l.Emit(agent.EventSessionStart, SessionStartData{Provider: "test"})
+	l.Emit(agent.EventLLMRequest, LLMRequestData{})
+	l.Emit(agent.EventLLMResponse, LLMResponseData{Content: "response"})
+	l.Emit(agent.EventToolCall, ToolCallData{Tool: "read", Input: []byte(`{"path":"x"}`)})
+	l.Emit(agent.EventSessionEnd, SessionEndData{Status: agent.StatusSuccess})
 
 	events, err := ReadEvents(filepath.Join(dir, "data-types-test.jsonl"))
 	require.NoError(t, err)
@@ -323,7 +323,7 @@ func TestLogger_Emit_EmptyData(t *testing.T) {
 	defer l.Close()
 
 	// Emit with nil data
-	l.Emit(forge.EventLLMResponse, nil)
+	l.Emit(agent.EventLLMResponse, nil)
 
 	events, err := ReadEvents(filepath.Join(dir, "empty-data-test.jsonl"))
 	require.NoError(t, err)

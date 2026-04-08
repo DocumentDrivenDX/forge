@@ -1,4 +1,4 @@
-// Package openai implements a forge.Provider for any OpenAI-compatible API
+// Package openai implements a agent.Provider for any OpenAI-compatible API
 // endpoint (LM Studio, Ollama, OpenAI, Azure, Groq, Together, OpenRouter).
 package openai
 
@@ -8,13 +8,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	oai "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
 )
 
-// Provider implements forge.Provider for OpenAI-compatible APIs.
+// Provider implements agent.Provider for OpenAI-compatible APIs.
 type Provider struct {
 	client *oai.Client
 	model  string
@@ -49,7 +49,7 @@ func New(cfg Config) *Provider {
 	}
 }
 
-func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (forge.Response, error) {
+func (p *Provider) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (agent.Response, error) {
 	model := p.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -73,7 +73,7 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 		params.Stop = oai.ChatCompletionNewParamsStopUnion{OfStringArray: opts.Stop}
 	}
 
-	var resp forge.Response
+	var resp agent.Response
 	var lastErr error
 
 	for attempt := range 3 {
@@ -93,7 +93,7 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 
 		resp.Model = completion.Model
 		if completion.Usage.TotalTokens != 0 {
-			resp.Usage = forge.TokenUsage{
+			resp.Usage = agent.TokenUsage{
 				Input:  int(completion.Usage.PromptTokens),
 				Output: int(completion.Usage.CompletionTokens),
 				Total:  int(completion.Usage.TotalTokens),
@@ -117,15 +117,15 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 	return resp, fmt.Errorf("openai: after 3 attempts: %w", lastErr)
 }
 
-func convertMessages(msgs []forge.Message) []oai.ChatCompletionMessageParamUnion {
+func convertMessages(msgs []agent.Message) []oai.ChatCompletionMessageParamUnion {
 	var result []oai.ChatCompletionMessageParamUnion
 	for _, m := range msgs {
 		switch m.Role {
-		case forge.RoleSystem:
+		case agent.RoleSystem:
 			result = append(result, oai.SystemMessage(m.Content))
-		case forge.RoleUser:
+		case agent.RoleUser:
 			result = append(result, oai.UserMessage(m.Content))
-		case forge.RoleAssistant:
+		case agent.RoleAssistant:
 			if len(m.ToolCalls) > 0 {
 				var toolCalls []oai.ChatCompletionMessageToolCallParam
 				for _, tc := range m.ToolCalls {
@@ -147,14 +147,14 @@ func convertMessages(msgs []forge.Message) []oai.ChatCompletionMessageParamUnion
 			} else {
 				result = append(result, oai.AssistantMessage(m.Content))
 			}
-		case forge.RoleTool:
+		case agent.RoleTool:
 			result = append(result, oai.ToolMessage(m.Content, m.ToolCallID))
 		}
 	}
 	return result
 }
 
-func convertTools(tools []forge.ToolDef) []oai.ChatCompletionToolParam {
+func convertTools(tools []agent.ToolDef) []oai.ChatCompletionToolParam {
 	var result []oai.ChatCompletionToolParam
 	for _, t := range tools {
 		var params map[string]interface{}
@@ -171,13 +171,13 @@ func convertTools(tools []forge.ToolDef) []oai.ChatCompletionToolParam {
 	return result
 }
 
-func extractToolCalls(calls []oai.ChatCompletionMessageToolCall) []forge.ToolCall {
+func extractToolCalls(calls []oai.ChatCompletionMessageToolCall) []agent.ToolCall {
 	if len(calls) == 0 {
 		return nil
 	}
-	var result []forge.ToolCall
+	var result []agent.ToolCall
 	for _, c := range calls {
-		result = append(result, forge.ToolCall{
+		result = append(result, agent.ToolCall{
 			ID:        c.ID,
 			Name:      c.Function.Name,
 			Arguments: json.RawMessage(c.Function.Arguments),
@@ -186,8 +186,8 @@ func extractToolCalls(calls []oai.ChatCompletionMessageToolCall) []forge.ToolCal
 	return result
 }
 
-// ChatStream implements forge.StreamingProvider for token-level streaming.
-func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (<-chan forge.StreamDelta, error) {
+// ChatStream implements agent.StreamingProvider for token-level streaming.
+func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (<-chan agent.StreamDelta, error) {
 	model := p.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -212,7 +212,7 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 
 	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
 
-	ch := make(chan forge.StreamDelta, 1)
+	ch := make(chan agent.StreamDelta, 1)
 	go func() {
 		defer close(ch)
 		// OpenAI only sends tool call ID in the first chunk for each index;
@@ -234,7 +234,7 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 					} else {
 						id = indexToID[int(tc.Index)]
 					}
-					ch <- forge.StreamDelta{
+					ch <- agent.StreamDelta{
 						Model:        chunk.Model,
 						ToolCallID:   id,
 						ToolCallName: tc.Function.Name,
@@ -244,24 +244,24 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 
 				// Emit a separate delta for content / finish reason when present.
 				if choice.Delta.Content != "" || choice.FinishReason != "" {
-					ch <- forge.StreamDelta{
+					ch <- agent.StreamDelta{
 						Model:        chunk.Model,
 						Content:      choice.Delta.Content,
 						FinishReason: string(choice.FinishReason),
 					}
 				} else if len(choice.Delta.ToolCalls) == 0 {
 					// No content, no tool calls — still forward model/finish metadata.
-					ch <- forge.StreamDelta{
+					ch <- agent.StreamDelta{
 						Model:        chunk.Model,
 						FinishReason: string(choice.FinishReason),
 					}
 				}
 			} else {
-				ch <- forge.StreamDelta{Model: chunk.Model}
+				ch <- agent.StreamDelta{Model: chunk.Model}
 			}
 
 			if chunk.Usage.TotalTokens != 0 {
-				usage := &forge.TokenUsage{
+				usage := &agent.TokenUsage{
 					Input:  int(chunk.Usage.PromptTokens),
 					Output: int(chunk.Usage.CompletionTokens),
 					Total:  int(chunk.Usage.TotalTokens),
@@ -270,19 +270,19 @@ func (p *Provider) ChatStream(ctx context.Context, messages []forge.Message, too
 				if chunk.Usage.PromptTokensDetails.CachedTokens > 0 {
 					usage.CacheRead = int(chunk.Usage.PromptTokensDetails.CachedTokens)
 				}
-				ch <- forge.StreamDelta{Usage: usage}
+				ch <- agent.StreamDelta{Usage: usage}
 			}
 		}
 
 		if err := stream.Err(); err != nil {
-			ch <- forge.StreamDelta{Err: err}
+			ch <- agent.StreamDelta{Err: err}
 			return
 		}
-		ch <- forge.StreamDelta{Done: true}
+		ch <- agent.StreamDelta{Done: true}
 	}()
 
 	return ch, nil
 }
 
-var _ forge.Provider = (*Provider)(nil)
-var _ forge.StreamingProvider = (*Provider)(nil)
+var _ agent.Provider = (*Provider)(nil)
+var _ agent.StreamingProvider = (*Provider)(nil)

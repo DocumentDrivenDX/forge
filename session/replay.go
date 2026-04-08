@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // Replay reads a session log and renders a human-readable conversation.
@@ -18,7 +18,7 @@ func Replay(path string, w io.Writer) error {
 
 	for _, e := range events {
 		switch e.Type {
-		case forge.EventLLMRequest:
+		case agent.EventLLMRequest:
 			var data LLMRequestData
 			if err := json.Unmarshal(e.Data, &data); err != nil {
 				continue
@@ -26,18 +26,18 @@ func Replay(path string, w io.Writer) error {
 			fmt.Fprintf(w, "\n[LLM Request] (%d messages, %d tools)\n", len(data.Messages), len(data.Tools))
 			for _, m := range data.Messages {
 				switch m.Role {
-				case forge.RoleSystem:
+				case agent.RoleSystem:
 					fmt.Fprintf(w, "  [system] %s\n", m.Content)
-				case forge.RoleUser:
+				case agent.RoleUser:
 					fmt.Fprintf(w, "  [user] %s\n", m.Content)
-				case forge.RoleAssistant:
+				case agent.RoleAssistant:
 					if m.Content != "" {
 						fmt.Fprintf(w, "  [assistant] %s\n", m.Content)
 					}
 					for _, tc := range m.ToolCalls {
 						fmt.Fprintf(w, "  [assistant tool_call] %s(%s)\n", tc.Name, compactJSON(tc.Arguments))
 					}
-				case forge.RoleTool:
+				case agent.RoleTool:
 					content := m.Content
 					if len(content) > 200 {
 						content = content[:200] + "...[truncated]"
@@ -46,7 +46,7 @@ func Replay(path string, w io.Writer) error {
 				}
 			}
 
-		case forge.EventSessionStart:
+		case agent.EventSessionStart:
 			var data SessionStartData
 			if err := json.Unmarshal(e.Data, &data); err != nil {
 				continue
@@ -60,7 +60,7 @@ func Replay(path string, w io.Writer) error {
 			}
 			fmt.Fprintf(w, "\n[User]\n%s\n", data.Prompt)
 
-		case forge.EventLLMResponse:
+		case agent.EventLLMResponse:
 			var data LLMResponseData
 			if err := json.Unmarshal(e.Data, &data); err != nil {
 				continue
@@ -78,7 +78,7 @@ func Replay(path string, w io.Writer) error {
 				fmt.Fprintf(w, "[%d tool call(s)]\n", len(data.ToolCalls))
 			}
 
-		case forge.EventToolCall:
+		case agent.EventToolCall:
 			var data ToolCallData
 			if err := json.Unmarshal(e.Data, &data); err != nil {
 				continue
@@ -94,7 +94,7 @@ func Replay(path string, w io.Writer) error {
 				fmt.Fprintf(w, "    Error:  %s\n", data.Error)
 			}
 
-		case forge.EventSessionEnd:
+		case agent.EventSessionEnd:
 			var data SessionEndData
 			if err := json.Unmarshal(e.Data, &data); err != nil {
 				continue

@@ -1,4 +1,4 @@
-// Command forge is a standalone CLI that wraps the forge library.
+// Command ddx-agent is a standalone CLI that wraps the agent library.
 // It proves the library works end-to-end and serves as the DDx harness backend.
 package main
 
@@ -15,13 +15,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DocumentDrivenDX/forge"
-	forgeConfig "github.com/DocumentDrivenDX/forge/config"
-	"github.com/DocumentDrivenDX/forge/occompat"
-	"github.com/DocumentDrivenDX/forge/picompat"
-	"github.com/DocumentDrivenDX/forge/prompt"
-	"github.com/DocumentDrivenDX/forge/session"
-	"github.com/DocumentDrivenDX/forge/tool"
+	"github.com/DocumentDrivenDX/agent"
+	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	"github.com/DocumentDrivenDX/agent/occompat"
+	"github.com/DocumentDrivenDX/agent/picompat"
+	"github.com/DocumentDrivenDX/agent/prompt"
+	"github.com/DocumentDrivenDX/agent/session"
+	"github.com/DocumentDrivenDX/agent/tool"
 )
 
 // Version info set via -ldflags.
@@ -47,12 +47,12 @@ func run() int {
 	workDir := flag.String("work-dir", "", "Working directory")
 	version := flag.Bool("version", false, "Print version")
 	sysPromptFlag := flag.String("system", "", "System prompt (appended to preset)")
-	presetFlag := flag.String("preset", "", "System prompt preset (forge, claude, codex, cursor, minimal)")
+	presetFlag := flag.String("preset", "", "System prompt preset (agent, claude, codex, cursor, minimal)")
 
 	flag.Parse()
 
 	if *version {
-		fmt.Printf("forge %s (commit %s, built %s)\n", Version, GitCommit, BuildTime)
+		fmt.Printf("ddx-agent %s (commit %s, built %s)\n", Version, GitCommit, BuildTime)
 		return 0
 	}
 
@@ -86,7 +86,7 @@ func run() int {
 	}
 
 	// Load config
-	cfg, err := forgeConfig.Load(wd)
+	cfg, err := agentConfig.Load(wd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 2
@@ -110,7 +110,7 @@ func run() int {
 		return 2
 	}
 
-	_, p, _, err := resolveProviderForRun(cfg, *providerFlag, forgeConfig.ProviderOverrides{
+	_, p, _, err := resolveProviderForRun(cfg, *providerFlag, agentConfig.ProviderOverrides{
 		Model:           *model,
 		ModelRef:        *modelRef,
 		AllowDeprecated: *allowDeprecatedModel,
@@ -127,7 +127,7 @@ func run() int {
 	}
 
 	// Build tools
-	tools := []forge.Tool{
+	tools := []agent.Tool{
 		&tool.ReadTool{WorkDir: wd},
 		&tool.WriteTool{WorkDir: wd},
 		&tool.EditTool{WorkDir: wd},
@@ -140,7 +140,7 @@ func run() int {
 		preset = cfg.Preset
 	}
 	if preset == "" {
-		preset = "forge"
+		preset = "agent"
 	}
 	sysPrompt := prompt.NewFromPreset(preset).
 		WithTools(tools).
@@ -157,7 +157,7 @@ func run() int {
 	defer logger.Close()
 
 	// Build request
-	req := forge.Request{
+	req := agent.Request{
 		Prompt:        promptText,
 		SystemPrompt:  sysPrompt.Build(),
 		Provider:      p,
@@ -171,7 +171,7 @@ func run() int {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	result, err := forge.Run(ctx, req)
+	result, err := agent.Run(ctx, req)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -196,21 +196,21 @@ func run() int {
 	fmt.Fprintln(os.Stderr)
 
 	switch result.Status {
-	case forge.StatusSuccess:
+	case agent.StatusSuccess:
 		return 0
 	default:
 		return 1
 	}
 }
 
-func resolveProviderForRun(cfg *forgeConfig.Config, providerName string, overrides forgeConfig.ProviderOverrides) (string, forge.Provider, forgeConfig.ProviderConfig, error) {
+func resolveProviderForRun(cfg *agentConfig.Config, providerName string, overrides agentConfig.ProviderOverrides) (string, agent.Provider, agentConfig.ProviderConfig, error) {
 	if providerName == "" {
 		providerName = cfg.DefaultName()
 	}
 
 	p, pc, _, err := cfg.BuildProviderWithOverrides(providerName, overrides)
 	if err != nil {
-		return "", nil, forgeConfig.ProviderConfig{}, err
+		return "", nil, agentConfig.ProviderConfig{}, err
 	}
 
 	return providerName, p, pc, nil
@@ -241,7 +241,7 @@ func resolvePrompt(p string) (string, error) {
 }
 
 func cmdProviders(workDir string, jsonOut bool) int {
-	cfg, err := forgeConfig.Load(workDir)
+	cfg, err := agentConfig.Load(workDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -279,7 +279,7 @@ func cmdProviders(workDir string, jsonOut bool) int {
 }
 
 func cmdModels(workDir, providerName string, args []string) int {
-	cfg, err := forgeConfig.Load(workDir)
+	cfg, err := agentConfig.Load(workDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -328,7 +328,7 @@ func cmdModels(workDir, providerName string, args []string) int {
 }
 
 func cmdCheck(workDir, providerName string, args []string) int {
-	cfg, err := forgeConfig.Load(workDir)
+	cfg, err := agentConfig.Load(workDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -382,7 +382,7 @@ func cmdCheck(workDir, providerName string, args []string) int {
 }
 
 func cmdLog(workDir string, args []string) int {
-	cfg, err := forgeConfig.Load(workDir)
+	cfg, err := agentConfig.Load(workDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -423,10 +423,10 @@ func cmdLog(workDir string, args []string) int {
 
 func cmdReplay(workDir string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: forge replay <session-id>")
+		fmt.Fprintln(os.Stderr, "usage: ddx-agent replay <session-id>")
 		return 2
 	}
-	cfg, err := forgeConfig.Load(workDir)
+	cfg, err := agentConfig.Load(workDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -439,7 +439,7 @@ func cmdReplay(workDir string, args []string) int {
 	return 0
 }
 
-func checkProviderStatus(pc forgeConfig.ProviderConfig) string {
+func checkProviderStatus(pc agentConfig.ProviderConfig) string {
 	if pc.Type == "anthropic" {
 		if pc.APIKey == "" {
 			return "no API key"
@@ -472,7 +472,7 @@ func checkProviderStatus(pc forgeConfig.ProviderConfig) string {
 	return fmt.Sprintf("connected (%d models)", len(result.Data))
 }
 
-func listModels(pc forgeConfig.ProviderConfig) []string {
+func listModels(pc agentConfig.ProviderConfig) []string {
 	if pc.Type == "anthropic" {
 		return nil
 	}
@@ -510,7 +510,7 @@ func listModels(pc forgeConfig.ProviderConfig) []string {
 
 func cmdImport(workDir string, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: forge import <pi|opencode> [--diff] [--merge] [--project]")
+		fmt.Fprintln(os.Stderr, "usage: ddx-agent import <pi|opencode> [--diff] [--merge] [--project]")
 		return 2
 	}
 
@@ -536,23 +536,23 @@ func cmdImport(workDir string, args []string) int {
 	// Determine output path
 	var configPath string
 	if project {
-		fmt.Fprintln(os.Stderr, "forge: warning: writing API keys to project config (.forge/config.yaml)")
-		fmt.Fprintln(os.Stderr, "forge: ensure .forge/config.yaml is in .gitignore before committing")
+		fmt.Fprintln(os.Stderr, "ddx-agent: warning: writing API keys to project config (.agent/config.yaml)")
+		fmt.Fprintln(os.Stderr, "ddx-agent: ensure .agent/config.yaml is in .gitignore before committing")
 		fmt.Fprint(os.Stderr, "Proceed? [y/N] ")
 		var response string
 		fmt.Scanln(&response)
 		if strings.ToLower(response) != "y" {
 			return 0
 		}
-		configPath = filepath.Join(workDir, ".forge", "config.yaml")
-		os.MkdirAll(filepath.Join(workDir, ".forge"), 0755)
+		configPath = filepath.Join(workDir, ".agent", "config.yaml")
+		os.MkdirAll(filepath.Join(workDir, ".agent"), 0755)
 	} else {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: cannot determine home directory: %v\n", err)
 			return 1
 		}
-		configPath = filepath.Join(home, ".config", "forge", "config.yaml")
+		configPath = filepath.Join(home, ".config", "agent", "config.yaml")
 		os.MkdirAll(filepath.Dir(configPath), 0755)
 	}
 
@@ -592,9 +592,9 @@ func importPi(configPath string, diffOnly, merge bool) int {
 	sourceHash, _ := picompat.ComputeSourceHash(piDir)
 
 	// Load existing config
-	cfg, err := forgeConfig.Load(filepath.Dir(configPath))
+	cfg, err := agentConfig.Load(filepath.Dir(configPath))
 	if err != nil {
-		cfg = &forgeConfig.Config{}
+		cfg = &agentConfig.Config{}
 	}
 
 	// Merge or replace
@@ -612,7 +612,7 @@ func importPi(configPath string, diffOnly, merge bool) int {
 		}
 	} else {
 		if cfg.Providers == nil {
-			cfg.Providers = make(map[string]forgeConfig.ProviderConfig)
+			cfg.Providers = make(map[string]agentConfig.ProviderConfig)
 		}
 		for name, pc := range result.Providers {
 			cfg.Providers[name] = pc
@@ -626,7 +626,7 @@ func importPi(configPath string, diffOnly, merge bool) int {
 	}
 
 	// Set import metadata
-	cfg.ImportedFrom = &forgeConfig.ImportMetadata{
+	cfg.ImportedFrom = &agentConfig.ImportMetadata{
 		Source:     "pi",
 		Timestamp:  time.Now().Format(time.RFC3339),
 		SourceHash: sourceHash,
@@ -640,7 +640,7 @@ func importPi(configPath string, diffOnly, merge bool) int {
 
 	// Show warnings
 	for _, w := range result.Warnings {
-		fmt.Fprintf(os.Stderr, "forge: warning: %s\n", w)
+		fmt.Fprintf(os.Stderr, "ddx-agent: warning: %s\n", w)
 	}
 
 	fmt.Printf("imported to %s\n", configPath)
@@ -685,16 +685,16 @@ func importOpenCode(configPath string, diffOnly, merge bool) int {
 	sourceHash, _ := occompat.ComputeSourceHash(opencodeDir)
 
 	// Load existing config
-	cfg, err := forgeConfig.Load(filepath.Dir(configPath))
+	cfg, err := agentConfig.Load(filepath.Dir(configPath))
 	if err != nil {
-		cfg = &forgeConfig.Config{}
+		cfg = &agentConfig.Config{}
 	}
 
 	// Merge or replace
 	name := "opencode"
 	if merge {
 		if cfg.Providers == nil {
-			cfg.Providers = make(map[string]forgeConfig.ProviderConfig)
+			cfg.Providers = make(map[string]agentConfig.ProviderConfig)
 		}
 		if existing, exists := cfg.Providers[name]; exists {
 			existing.APIKey = result.Provider.APIKey
@@ -706,14 +706,14 @@ func importOpenCode(configPath string, diffOnly, merge bool) int {
 		}
 	} else {
 		if cfg.Providers == nil {
-			cfg.Providers = make(map[string]forgeConfig.ProviderConfig)
+			cfg.Providers = make(map[string]agentConfig.ProviderConfig)
 		}
 		cfg.Providers[name] = result.Provider
 		fmt.Printf("imported: %s\n", name)
 	}
 
 	// Set import metadata
-	cfg.ImportedFrom = &forgeConfig.ImportMetadata{
+	cfg.ImportedFrom = &agentConfig.ImportMetadata{
 		Source:     "opencode",
 		Timestamp:  time.Now().Format(time.RFC3339),
 		SourceHash: sourceHash,
@@ -727,7 +727,7 @@ func importOpenCode(configPath string, diffOnly, merge bool) int {
 
 	// Show warnings
 	for _, w := range result.Warnings {
-		fmt.Fprintf(os.Stderr, "forge: warning: %s\n", w)
+		fmt.Fprintf(os.Stderr, "ddx-agent: warning: %s\n", w)
 	}
 
 	fmt.Printf("imported to %s\n", configPath)
@@ -735,7 +735,7 @@ func importOpenCode(configPath string, diffOnly, merge bool) int {
 }
 
 func showDiff(source string, result *picompat.TranslationResult) int {
-	fmt.Printf("forge: %s config -- what would be imported:\n\n", source)
+	fmt.Printf("ddx-agent: %s config -- what would be imported:\n\n", source)
 	for name, pc := range result.Providers {
 		redactedKey := redactKey(pc.APIKey)
 		fmt.Printf("[%s]\n", name)
@@ -764,7 +764,7 @@ func showDiff(source string, result *picompat.TranslationResult) int {
 }
 
 func showOpenCodeDiff(result *occompat.TranslationResult) int {
-	fmt.Println("forge: opencode config -- what would be imported:")
+	fmt.Println("ddx-agent: opencode config -- what would be imported:")
 	pc := result.Provider
 	redactedKey := redactKey(pc.APIKey)
 	fmt.Println("[opencode]")
@@ -800,8 +800,8 @@ func redactKey(key string) string {
 	return key[:6] + "..." + key[len(key)-4:]
 }
 
-func writeConfig(path string, cfg *forgeConfig.Config) error {
-	data, err := forgeConfig.Save(cfg)
+func writeConfig(path string, cfg *agentConfig.Config) error {
+	data, err := agentConfig.Save(cfg)
 	if err != nil {
 		return err
 	}
@@ -809,7 +809,7 @@ func writeConfig(path string, cfg *forgeConfig.Config) error {
 }
 
 // checkZeroConfigDiscovery emits a notice if no config exists but pi/opencode configs do.
-func checkZeroConfigDiscovery(cfg *forgeConfig.Config) {
+func checkZeroConfigDiscovery(cfg *agentConfig.Config) {
 	// Check if any providers are configured
 	if len(cfg.Providers) > 0 {
 		return
@@ -825,20 +825,20 @@ func checkZeroConfigDiscovery(cfg *forgeConfig.Config) {
 	// Check for pi config
 	if picompat.CheckExists() {
 		piDir := picompat.DefaultPiDir()
-		fmt.Fprintf(os.Stderr, "forge: no providers configured. Found pi config at %s — run 'forge import pi' to import.\n", piDir)
+		fmt.Fprintf(os.Stderr, "ddx-agent: no providers configured. Found pi config at %s — run 'ddx-agent import pi' to import.\n", piDir)
 		return
 	}
 
 	// Check for opencode config
 	if occompat.CheckExists() {
 		opencodeDir := occompat.DefaultOpenCodeDir()
-		fmt.Fprintf(os.Stderr, "forge: no providers configured. Found opencode config at %s — run 'forge import opencode' to import.\n", opencodeDir)
+		fmt.Fprintf(os.Stderr, "ddx-agent: no providers configured. Found opencode config at %s — run 'ddx-agent import opencode' to import.\n", opencodeDir)
 		return
 	}
 }
 
 // checkDrift emits a notice if the source config has changed since import.
-func checkDrift(cfg *forgeConfig.Config, workDir string) {
+func checkDrift(cfg *agentConfig.Config, workDir string) {
 	if cfg.ImportedFrom == nil || cfg.ImportedFrom.Source == "" {
 		return
 	}
@@ -864,7 +864,7 @@ func checkDrift(cfg *forgeConfig.Config, workDir string) {
 	}
 
 	if currentHash != cfg.ImportedFrom.SourceHash {
-		fmt.Fprintf(os.Stderr, "forge: %s config changed since import — run 'forge import %s --diff' to review\n",
+		fmt.Fprintf(os.Stderr, "ddx-agent: %s config changed since import — run 'ddx-agent import %s --diff' to review\n",
 			cfg.ImportedFrom.Source, cfg.ImportedFrom.Source)
 	}
 }
@@ -876,7 +876,7 @@ func shouldCheckDrift(source string) bool {
 		return true
 	}
 
-	checkFile := filepath.Join(home, ".config", "forge", ".import-check-"+source)
+	checkFile := filepath.Join(home, ".config", "agent", ".import-check-"+source)
 
 	// Check if file exists and is recent (within 24 hours)
 	info, err := os.Stat(checkFile)
@@ -902,7 +902,7 @@ func cmdVersion(args []string) int {
 		}
 	}
 
-	fmt.Printf("forge %s (commit %s, built %s)\n", Version, GitCommit, BuildTime)
+	fmt.Printf("ddx-agent %s (commit %s, built %s)\n", Version, GitCommit, BuildTime)
 
 	// Skip update check for dev builds or if requested
 	if Version == "dev" || checkOnly {
@@ -914,7 +914,7 @@ func cmdVersion(args []string) int {
 	if err != nil {
 		return 0 // Can't determine home dir, skip update check
 	}
-	cacheFile := filepath.Join(home, ".cache", "forge", "latest-version.json")
+	cacheFile := filepath.Join(home, ".cache", "agent", "latest-version.json")
 
 	release, err := GetLatestRelease(githubRepo, cacheFile)
 	if err != nil {
@@ -966,7 +966,7 @@ func cmdUpdate(args []string) int {
 		fmt.Fprintf(os.Stderr, "error: cannot determine home directory: %v\n", err)
 		return 1
 	}
-	cacheFile := filepath.Join(home, ".cache", "forge", "latest-version.json")
+	cacheFile := filepath.Join(home, ".cache", "agent", "latest-version.json")
 
 	// Get latest release
 	release, err := GetLatestRelease(githubRepo, cacheFile)
@@ -996,7 +996,7 @@ func cmdUpdate(args []string) int {
 	}
 
 	if checkOnly {
-		fmt.Println("\nUpdate available. Run 'forge update' to upgrade.")
+		fmt.Println("\nUpdate available. Run 'ddx-agent update' to upgrade.")
 		return 1 // Exit code 1 indicates outdated
 	}
 
@@ -1024,7 +1024,7 @@ func cmdUpdate(args []string) int {
 
 		response := strings.ToLower(strings.TrimSpace(string(buf)))
 		if response != "y" && response != "yes" {
-			fmt.Println("Cancelled. Run 'forge update --force' to skip prompt.")
+			fmt.Println("Cancelled. Run 'ddx-agent update --force' to skip prompt.")
 			return 0
 		}
 	}

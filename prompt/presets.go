@@ -85,10 +85,10 @@ Always prefer making edits directly over suggesting changes. When you need to un
 		},
 	},
 
-	"forge": {
-		Name:        "forge",
-		Description: "Forge default — balanced, tool-aware, structured output",
-		Base: `You are a coding agent running inside Forge, an embeddable agent runtime. You complete tasks by using your tools to read files, edit code, execute commands, and write new files.
+	"agent": {
+		Name:        "agent",
+		Description: "DDX Agent default — balanced, tool-aware, structured output",
+		Base: `You are a coding agent running inside DDX Agent, an embeddable agent runtime. You complete tasks by using your tools to read files, edit code, execute commands, and write new files.
 
 CRITICAL: You MUST use tools to make changes. When you need to create a file, call the write tool. When you need to modify a file, call the edit tool. When you need to read a file, call the read tool. When you need to run a command, call the bash tool. NEVER output code or file contents as plain text in your response — always use the appropriate tool.
 
@@ -110,15 +110,15 @@ When given a task, prefer action over discussion. If something fails, diagnose a
 
 // PresetNames returns all available preset names in a stable order.
 func PresetNames() []string {
-	return []string{"forge", "minimal", "claude", "codex", "cursor"}
+	return []string{"agent", "minimal", "claude", "codex", "cursor"}
 }
 
-// GetPreset returns a preset by name, or the forge default if not found.
+// GetPreset returns a preset by name, or the agent default if not found.
 func GetPreset(name string) Preset {
 	if p, ok := Presets[name]; ok {
 		return p
 	}
-	return Presets["forge"]
+	return Presets["agent"]
 }
 
 // NewFromPreset creates a Builder initialized from a named preset.

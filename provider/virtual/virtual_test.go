@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,36 +17,36 @@ func TestProvider_InlineResponses(t *testing.T) {
 		InlineResponses: []InlineResponse{
 			{
 				PromptMatch: "hello",
-				Response: forge.Response{
+				Response: agent.Response{
 					Content: "Hello back!",
-					Usage:   forge.TokenUsage{Input: 5, Output: 3, Total: 8},
+					Usage:   agent.TokenUsage{Input: 5, Output: 3, Total: 8},
 					Model:   "virtual",
 				},
 			},
 			{
 				PromptMatch: `/read.*file/`,
-				Response: forge.Response{
+				Response: agent.Response{
 					Content: "I'll read that for you.",
-					ToolCalls: []forge.ToolCall{
+					ToolCalls: []agent.ToolCall{
 						{ID: "tc1", Name: "read", Arguments: json.RawMessage(`{"path":"main.go"}`)},
 					},
-					Usage: forge.TokenUsage{Input: 10, Output: 5, Total: 15},
+					Usage: agent.TokenUsage{Input: 10, Output: 5, Total: 15},
 				},
 			},
 		},
 	})
 
 	t.Run("substring match", func(t *testing.T) {
-		msgs := []forge.Message{{Role: forge.RoleUser, Content: "hello world"}}
-		resp, err := p.Chat(context.Background(), msgs, nil, forge.Options{})
+		msgs := []agent.Message{{Role: agent.RoleUser, Content: "hello world"}}
+		resp, err := p.Chat(context.Background(), msgs, nil, agent.Options{})
 		require.NoError(t, err)
 		assert.Equal(t, "Hello back!", resp.Content)
 		assert.Equal(t, 8, resp.Usage.Total)
 	})
 
 	t.Run("regex match with tool calls", func(t *testing.T) {
-		msgs := []forge.Message{{Role: forge.RoleUser, Content: "please read my file"}}
-		resp, err := p.Chat(context.Background(), msgs, nil, forge.Options{})
+		msgs := []agent.Message{{Role: agent.RoleUser, Content: "please read my file"}}
+		resp, err := p.Chat(context.Background(), msgs, nil, agent.Options{})
 		require.NoError(t, err)
 		assert.Equal(t, "I'll read that for you.", resp.Content)
 		require.Len(t, resp.ToolCalls, 1)
@@ -54,8 +54,8 @@ func TestProvider_InlineResponses(t *testing.T) {
 	})
 
 	t.Run("no match returns error", func(t *testing.T) {
-		msgs := []forge.Message{{Role: forge.RoleUser, Content: "something unmatched"}}
-		_, err := p.Chat(context.Background(), msgs, nil, forge.Options{})
+		msgs := []agent.Message{{Role: agent.RoleUser, Content: "something unmatched"}}
+		_, err := p.Chat(context.Background(), msgs, nil, agent.Options{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no matching inline response")
 	})
@@ -65,12 +65,12 @@ func TestProvider_DictionaryLookup(t *testing.T) {
 	dir := t.TempDir()
 
 	// Record an entry
-	msgs := []forge.Message{
-		{Role: forge.RoleUser, Content: "What is the package name?"},
+	msgs := []agent.Message{
+		{Role: agent.RoleUser, Content: "What is the package name?"},
 	}
-	resp := forge.Response{
+	resp := agent.Response{
 		Content: "The package name is main.",
-		Usage:   forge.TokenUsage{Input: 20, Output: 10, Total: 30},
+		Usage:   agent.TokenUsage{Input: 20, Output: 10, Total: 30},
 		Model:   "recorded-model",
 	}
 	err := RecordEntry(dir, msgs, resp, nil)
@@ -78,7 +78,7 @@ func TestProvider_DictionaryLookup(t *testing.T) {
 
 	// Look it up
 	p := New(Config{DictDir: dir})
-	result, err := p.Chat(context.Background(), msgs, nil, forge.Options{})
+	result, err := p.Chat(context.Background(), msgs, nil, agent.Options{})
 	require.NoError(t, err)
 	assert.Equal(t, "The package name is main.", result.Content)
 	assert.Equal(t, 30, result.Usage.Total)
@@ -89,8 +89,8 @@ func TestProvider_DictionaryMiss(t *testing.T) {
 	dir := t.TempDir()
 	p := New(Config{DictDir: dir})
 
-	msgs := []forge.Message{{Role: forge.RoleUser, Content: "not recorded"}}
-	_, err := p.Chat(context.Background(), msgs, nil, forge.Options{})
+	msgs := []agent.Message{{Role: agent.RoleUser, Content: "not recorded"}}
+	_, err := p.Chat(context.Background(), msgs, nil, agent.Options{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no recorded response")
 }
@@ -103,15 +103,15 @@ func TestProvider_NormalizePatterns(t *testing.T) {
 	}
 
 	// Record with a specific temp path
-	msgs1 := []forge.Message{{Role: forge.RoleUser, Content: "Read /tmp/abc123/main.go"}}
-	resp := forge.Response{Content: "package main"}
+	msgs1 := []agent.Message{{Role: agent.RoleUser, Content: "Read /tmp/abc123/main.go"}}
+	resp := agent.Response{Content: "package main"}
 	err := RecordEntry(dir, msgs1, resp, patterns)
 	require.NoError(t, err)
 
 	// Look up with a different temp path — should match after normalization
 	p := New(Config{DictDir: dir, NormalizePatterns: patterns})
-	msgs2 := []forge.Message{{Role: forge.RoleUser, Content: "Read /tmp/xyz789/main.go"}}
-	result, err := p.Chat(context.Background(), msgs2, nil, forge.Options{})
+	msgs2 := []agent.Message{{Role: agent.RoleUser, Content: "Read /tmp/xyz789/main.go"}}
+	result, err := p.Chat(context.Background(), msgs2, nil, agent.Options{})
 	require.NoError(t, err)
 	assert.Equal(t, "package main", result.Content)
 }
@@ -129,8 +129,8 @@ func TestPromptHash(t *testing.T) {
 func TestRecordEntry(t *testing.T) {
 	dir := t.TempDir()
 
-	msgs := []forge.Message{{Role: forge.RoleUser, Content: "test prompt"}}
-	resp := forge.Response{Content: "test response"}
+	msgs := []agent.Message{{Role: agent.RoleUser, Content: "test prompt"}}
+	resp := agent.Response{Content: "test response"}
 
 	err := RecordEntry(dir, msgs, resp, nil)
 	require.NoError(t, err)

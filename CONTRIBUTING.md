@@ -1,10 +1,10 @@
-# Contributing to Forge
+# Contributing to DDX Agent
 
 ## Development Setup
 
 ```bash
-git clone https://github.com/DocumentDrivenDX/forge.git
-cd forge
+git clone https://github.com/DocumentDrivenDX/agent.git
+cd agent
 make build    # build the binary
 make test     # run unit tests
 make check    # fmt + vet + lint + test
@@ -47,7 +47,7 @@ or `bragi:1234`. Override with `LMSTUDIO_URL` and `LMSTUDIO_MODEL`.
 ## Project Structure
 
 ```
-forge.go                  # Public API: Run(), Request, Result, interfaces
+agent.go                  # Public API: Run(), Request, Result, interfaces
 loop.go                   # Agent loop implementation
 prompt/                   # System prompt composition
 provider/openai/          # OpenAI-compatible provider (LM Studio, Ollama, etc.)
@@ -55,7 +55,7 @@ provider/anthropic/       # Anthropic Claude provider
 provider/virtual/         # Dictionary replay for testing
 tool/                     # Built-in tools: read, write, edit, bash
 session/                  # JSONL logging, replay, cost tracking
-cmd/forge/                # Standalone CLI
+cmd/ddx-agent/            # Standalone CLI
 website/                  # Hugo/Hextra microsite
 demos/                    # Demo scripts and session fixtures
 ```

@@ -2,27 +2,27 @@
 ddx:
   id: helix.prd
 ---
-# Product Requirements Document — Forge
+# Product Requirements Document — DDX Agent
 
 ## Summary
 
-Forge is a Go library that implements a coding agent runtime — a tool-calling
+DDX Agent is a Go library that implements a coding agent runtime — a tool-calling
 LLM loop with file read/write, shell execution, and structured I/O — designed
 to be embedded in DDx and other build orchestrators. It prioritizes local
 model inference via LM Studio and Ollama, with transparent escalation to cloud
-providers when local models are insufficient. Forge replaces the
+providers when local models are insufficient. DDX Agent replaces the
 subprocess-based agent dispatch in DDx with an in-process alternative that
 eliminates process overhead, enables direct state sharing, and provides native
 cost control. Following the ghostty model — great library, proven by a usable
-app — Forge ships as a Go package plus a thin standalone CLI that showcases the
-library and serves as the DDx harness backend. Forge also owns a reusable
+app — DDX Agent ships as a Go package plus a thin standalone CLI that showcases the
+library and serves as the DDx harness backend. DDX Agent also owns a reusable
 shared model catalog and updateable manifest so DDx and related tooling can
 resolve aliases, tiers/profiles, canonical targets, and deprecations without
 copying model policy into each consumer. Every LLM interaction and tool call is
 logged and replayable, with per-model cost tracking built in. Success means DDx
 can run a HELIX build pass where 70%+ of routine tasks use local models at
 near-zero cost, the operator can replay any session to understand exactly what
-happened, and downstream tools consume forge's model catalog rather than
+happened, and downstream tools consume agent's model catalog rather than
 duplicating release-policy tables.
 
 ## Problem and Goals
@@ -45,7 +45,7 @@ task the same: spawn a process, send to cloud, parse the result.
 
 ### Goals
 
-1. **Embed the agent loop in Go** — provide a `forge.Run(ctx, prompt, opts)`
+1. **Embed the agent loop in Go** — provide a `agent.Run(ctx, prompt, opts)`
    API that DDx calls in-process, eliminating subprocess overhead
 2. **Local-model-first** — native LM Studio and Ollama support with tool
    calling, making local models the default for routine tasks
@@ -53,9 +53,9 @@ task the same: spawn a process, send to cloud, parse the result.
    with status, output, token usage, and timing
 4. **Full observability** — every LLM turn and tool call logged, replayable,
    cost-tracked. Pattern off DDx's session logging (JSONL + per-session detail)
-5. **Prove it with an app** — standalone `forge` CLI that showcases the library
+5. **Prove it with an app** — standalone `ddx-agent` CLI that showcases the library
    and serves as a DDx harness, following the ghostty pattern
-6. **Own reusable model policy** — provide a forge-owned shared model catalog
+6. **Own reusable model policy** — provide a agent-owned shared model catalog
    and updateable manifest so aliases, tiers/profiles, canonical targets, and
    deprecations are maintained once and consumed by DDx and other clients
 
@@ -63,24 +63,24 @@ task the same: spawn a process, send to cloud, parse the result.
 
 | Metric | Target | Measurement Method |
 |--------|--------|--------------------|
-| Subprocess elimination | Forge handles ≥1 DDx harness in-process | DDx integration test |
+| Subprocess elimination | DDX Agent handles ≥1 DDx harness in-process | DDx integration test |
 | Local model completion rate | ≥70% of routine tasks succeed on local 7B+ | HELIX build pass logs |
 | Cost per bead (blended) | <$0.05 average | DDx agent usage report |
 | Agent loop overhead | <10ms beyond model inference time | Benchmark suite |
 
 ### Non-Goals
 
-- **TUI or interactive mode** — Forge is headless-only. Interactive use goes
+- **TUI or interactive mode** — DDX Agent is headless-only. Interactive use goes
   through pi, claude, or other standalone agents.
-- **MCP server** — Forge provides tools directly, not via MCP protocol.
-- **Prompt engineering** — Forge executes prompts; the caller (HELIX/DDx) owns
+- **MCP server** — DDX Agent provides tools directly, not via MCP protocol.
+- **Prompt engineering** — DDX Agent executes prompts; the caller (HELIX/DDx) owns
   prompt design and persona injection.
-- **Harness orchestration policy** — Forge owns reusable model catalog data and
+- **Harness orchestration policy** — DDX Agent owns reusable model catalog data and
   policy, but DDx chooses harnesses/providers for a task and HELIX owns only
   stage intent.
-- **Model hosting** — Forge connects to LM Studio/Ollama/cloud APIs. It does
+- **Model hosting** — DDX Agent connects to LM Studio/Ollama/cloud APIs. It does
   not run inference itself.
-- **IDE integration** — Forge is a library, not an editor plugin.
+- **IDE integration** — DDX Agent is a library, not an editor plugin.
 
 ## Users and Scope
 
@@ -92,7 +92,7 @@ task the same: spawn a process, send to cloud, parse the result.
 
 ### Secondary Persona: Build System Integrator
 
-**Role**: Developer embedding Forge in custom CI pipelines or build tools
+**Role**: Developer embedding DDX Agent in custom CI pipelines or build tools
 **Goals**: Run LLM-powered code tasks (fix lint, update deps, generate tests) in Go programs
 **Pain Points**: Existing agent CLIs require process management, don't expose a library API
 
@@ -117,7 +117,7 @@ task the same: spawn a process, send to cloud, parse the result.
 4. **Anthropic provider** — Claude API support for cloud use
 5. **Structured I/O** — accept prompt as string or DDx envelope, return
    structured result (status, output, tool calls made, tokens, duration, error)
-6. **Go library API** — `forge.Run(ctx, request) (Result, error)` as the
+6. **Go library API** — `agent.Run(ctx, request) (Result, error)` as the
    primary interface. Library takes a Config struct; no global state.
 7. **Token tracking** — count and report input/output tokens per invocation
 8. **Iteration limit** — configurable max tool-call iterations to prevent
@@ -130,8 +130,8 @@ task the same: spawn a process, send to cloud, parse the result.
     complete conversation including tool calls and results.
 11. **Cost tracking** — per-model pricing table (patterned on DDx
     `agent.Pricing`), cost estimated per session and accumulated across sessions.
-    `forge.Result` includes `CostUSD`.
-12. **Standalone CLI** — `forge` binary wrapping the library. Proves the library
+    `agent.Result` includes `CostUSD`.
+12. **Standalone CLI** — `ddx-agent` binary wrapping the library. Proves the library
     works, serves as the DDx harness backend. Reads its own config file
     (patterned on `.ddx/config.yaml`). Accepts prompt via `-p` flag or stdin.
 
@@ -144,11 +144,11 @@ task the same: spawn a process, send to cloud, parse the result.
 3. **Streaming callbacks** — caller can receive tool call events and partial
    responses in real time — **Implemented**
 4. **Timeout management** — per-invocation and per-tool-call timeouts
-5. **DDx harness adapter** — implement the DDx harness interface so Forge
+5. **DDx harness adapter** — implement the DDx harness interface so DDX Agent
    appears as a native `ddx agent` harness alongside claude/codex/pi
-6. **Usage reporting** — `forge usage` command (pattern off `ddx agent usage`):
+6. **Usage reporting** — `ddx-agent usage` command (pattern off `ddx agent usage`):
    per-provider/model token and cost summaries with time-window filtering
-7. **Session replay** — `forge replay <session-id>` reads a session log and
+7. **Session replay** — `ddx-agent replay <session-id>` reads a session log and
    prints the conversation in human-readable form (every turn, tool call,
    result, tokens, timing)
 8. **OpenTelemetry spans** — optionally emit OTel spans for each agent loop
@@ -157,7 +157,7 @@ task the same: spawn a process, send to cloud, parse the result.
    surface.
 9. **Conversation compaction** — auto-summarize long conversation histories
    to fit within model context windows — **Implemented**
-10. **Shared model catalog** — a forge-owned catalog and updateable manifest
+10. **Shared model catalog** — a agent-owned catalog and updateable manifest
     for model aliases, tiers/profiles (`smart`, `fast`, `cheap`), canonical
     targets, and deprecation metadata, kept separate from prompt presets
 
@@ -178,7 +178,7 @@ task the same: spawn a process, send to cloud, parse the result.
 ### Agent Loop
 
 - The loop MUST send the prompt + conversation history to the LLM provider
-- When the LLM responds with tool calls, Forge MUST execute each tool and
+- When the LLM responds with tool calls, DDX Agent MUST execute each tool and
   append the results to the conversation
 - When the LLM responds with text only (no tool calls), the loop MUST
   terminate and return the text as the result
@@ -203,7 +203,7 @@ task the same: spawn a process, send to cloud, parse the result.
 - Each provider MUST implement a common interface: `Chat(ctx, messages, tools,
   opts) (Response, error)`
 - Provider selection MUST be configurable per-request
-- Provider configuration MUST remain separate from forge's canonical model
+- Provider configuration MUST remain separate from agent's canonical model
   catalog. Providers own transport/auth details; the catalog owns model policy.
 - Providers MUST report token usage when the upstream API provides it
 - Providers MUST support tool/function calling in the format the model expects
@@ -213,17 +213,17 @@ task the same: spawn a process, send to cloud, parse the result.
 
 ### Model Catalog
 
-- Forge MUST define a reusable shared model catalog for aliases, model
+- DDX Agent MUST define a reusable shared model catalog for aliases, model
   families, tiers/profiles, canonical current targets, and deprecation/stale
   metadata
 - The shared catalog MUST be distinct from system prompt presets and use its
   own naming/config surface
-- Forge MUST ship an embedded release snapshot of the catalog and support an
+- DDX Agent MUST ship an embedded release snapshot of the catalog and support an
   updateable external manifest for faster policy/data refresh where practical
 - DDx and other consumers MUST be able to resolve model references through the
-  forge-owned catalog without duplicating model policy in their own repos
+  agent-owned catalog without duplicating model policy in their own repos
 - HELIX stage intent MUST remain above this layer; HELIX selects intent, DDx
-  resolves harness/provider/model details using forge-owned catalog data
+  resolves harness/provider/model details using agent-owned catalog data
 
 ### Structured I/O
 
@@ -246,10 +246,10 @@ task the same: spawn a process, send to cloud, parse the result.
 | Structured I/O | DDx envelope | JSON envelope with prompt and response_schema | Result matches schema |
 | Token tracking | Count tokens | Any successful completion | Result.tokens has non-zero input and output counts |
 | Session logging | Run any task | Any successful completion | JSONL log entry with full prompt, response, tool calls, tokens, timing |
-| Session replay | Read logged session | `forge replay <id>` on a completed session | Human-readable dump of every turn, tool call, and result |
+| Session replay | Read logged session | `ddx-agent replay <id>` on a completed session | Human-readable dump of every turn, tool call, and result |
 | Cost tracking | Run cloud task | Claude API completion | Result.CostUSD > 0, matches pricing table estimate |
 | Cost tracking | Run local task | LM Studio completion | Result.CostUSD == 0 (local model, no cost) |
-| Standalone CLI | End-to-end | `forge -p "Read main.go"` with config file | Successful completion, session logged |
+| Standalone CLI | End-to-end | `ddx-agent -p "Read main.go"` with config file | Successful completion, session logged |
 
 ## Technical Context
 
@@ -262,7 +262,7 @@ task the same: spawn a process, send to cloud, parse the result.
 - **Build**: `go build`, Makefile consistent with DDx CLI patterns
 - **Platform Targets**: Linux (primary — CI and build servers), macOS
   (development). Windows is not a priority.
-- **Integration Point**: DDx CLI (`cli/internal/agent/`) — Forge implements
+- **Integration Point**: DDx CLI (`cli/internal/agent/`) — DDX Agent implements
   the `Harness` interface or provides an adapter
 
 ## Constraints, Assumptions, Dependencies
@@ -298,12 +298,12 @@ task the same: spawn a process, send to cloud, parse the result.
 | Local model tool calling unreliable | Medium | High | Test against specific model versions (Qwen 3.5, Llama 3.2); implement retry with cloud fallback |
 | LM Studio API breaks compatibility | Low | Medium | Pin to known-good LM Studio version; test in CI against local instance |
 | openai-go SDK doesn't handle LM Studio edge cases | Medium | Medium | Thin adapter layer that can work around SDK limitations |
-| DDx harness interface changes during development | Low | Low | Forge defines its own API first; DDx adapter is a thin shim |
+| DDx harness interface changes during development | Low | Low | DDX Agent defines its own API first; DDx adapter is a thin shim |
 | Local model context window too small for large tasks | Medium | Medium | Model routing considers context length; auto-escalate large prompts to cloud |
 
 ## Resolved Decisions
 
-- **Model loading**: Assume models are pre-loaded. Forge does not manage
+- **Model loading**: Assume models are pre-loaded. DDX Agent does not manage
   `lms load` / `ollama pull`. Model selection optimization is P2.
 - **Routing**: Phase 1 is dumb — configure one server, it works or it doesn't.
   Phase 2 adds multiple providers with round robin (P2).
@@ -325,9 +325,9 @@ task the same: spawn a process, send to cloud, parse the result.
 
 ## Success Criteria
 
-- Forge library compiles with `go build` and has no CGo dependencies
-- `forge.Run()` can complete a file-read-and-edit task using LM Studio locally
-- `forge.Run()` can complete the same task using Claude API
-- DDx can use Forge as an in-process harness via adapter
-- A HELIX build pass can execute a bead using Forge with a local model
+- DDX Agent library compiles with `go build` and has no CGo dependencies
+- `agent.Run()` can complete a file-read-and-edit task using LM Studio locally
+- `agent.Run()` can complete the same task using Claude API
+- DDx can use DDX Agent as an in-process harness via adapter
+- A HELIX build pass can execute a bead using DDX Agent with a local model
 - Token usage and timing are accurately reported for both local and cloud

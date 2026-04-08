@@ -5,29 +5,29 @@ ddx:
     - SD-001
     - SD-002
 ---
-# Architecture — Forge
+# Architecture — DDX Agent
 
 ## System Context
 
-Forge is an embeddable Go agent runtime. It sits between a caller (DDx/HELIX,
+DDX Agent is an embeddable Go agent runtime. It sits between a caller (DDx/HELIX,
 CI system, or standalone CLI) and one or more LLM backends (LM Studio, Ollama,
 Anthropic, OpenAI).
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  DDx / HELIX │     │  CI Pipeline │     │  forge CLI   │
+│  DDx / HELIX │     │  CI Pipeline │     │  agent CLI   │
 │  (in-process)│     │  (in-process)│     │  (binary)    │
 └──────┬───────┘     └──────┬───────┘     └──────┬───────┘
        │                    │                    │
        └────────────┬───────┘────────────────────┘
                     │
             ┌───────▼───────┐
-            │  forge library │
-            │  forge.Run()   │
+            │  agent library │
+            │  agent.Run()   │
             └───────┬───────┘
                     │
        ┌────────────▼────────────┐
-       │ forge model catalog     │
+       │ agent model catalog     │
        │ + external manifest     │
        └────────────┬────────────┘
                     │
@@ -42,11 +42,11 @@ Anthropic, OpenAI).
 
 ## Container Diagram
 
-Forge is a Go module with the following package structure:
+DDX Agent is a Go module with the following package structure:
 
 ```
-forge/                          # root module: github.com/your-org/forge
-├── forge.go                    # Run(), Request, Result, Provider, Tool interfaces
+agent/                          # root module: github.com/your-org/agent
+├── agent.go                    # Run(), Request, Result, Provider, Tool interfaces
 ├── loop.go                     # agent loop implementation
 ├── modelcatalog/               # shared model catalog loader/resolver (planned)
 │   ├── catalog.go              # catalog API and resolution helpers
@@ -72,7 +72,7 @@ forge/                          # root module: github.com/your-org/forge
 ├── catalog/
 │   └── models.yaml             # externally maintained model manifest snapshot (planned)
 └── cmd/
-    └── forge/
+    └── agent/
         └── main.go             # standalone CLI binary
 ```
 
@@ -80,7 +80,7 @@ forge/                          # root module: github.com/your-org/forge
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                       forge (root package)                   │
+│                       agent (root package)                   │
 │                                                             │
 │  ┌────────────┐    ┌──────────────┐    ┌────────────────┐  │
 │  │   Run()    │───▶│  Loop Engine │───▶│ EventCallback  │  │
@@ -134,16 +134,16 @@ Caller                  Loop Engine          Provider         Tools          Log
 
 ## Deployment
 
-Forge has two deployment modes:
+DDX Agent has two deployment modes:
 
 1. **Library** (primary): Imported as a Go module. No deployment — compiled
    into the host binary.
-2. **CLI** (showcase): Single static binary built with `go build ./cmd/forge`.
+2. **CLI** (showcase): Single static binary built with `go build ./cmd/ddx-agent`.
    Distributed as a download or installed via `go install`.
 
-No containers, no services, no infrastructure. Forge is a library.
+No containers, no services, no infrastructure. DDX Agent is a library.
 
-The shared model catalog follows the same deployment shape: forge releases ship
+The shared model catalog follows the same deployment shape: agent releases ship
 an embedded manifest snapshot, while consumers may point at a separately
 maintained external manifest file when they need newer model policy without a
 full binary refresh.

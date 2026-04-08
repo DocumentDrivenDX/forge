@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -16,10 +16,10 @@ func TestEstimateTokens(t *testing.T) {
 }
 
 func TestEstimateMessageTokens(t *testing.T) {
-	msg := forge.Message{
-		Role:    forge.RoleAssistant,
+	msg := agent.Message{
+		Role:    agent.RoleAssistant,
 		Content: "I'll read that file.",
-		ToolCalls: []forge.ToolCall{
+		ToolCalls: []agent.ToolCall{
 			{Name: "read", Arguments: json.RawMessage(`{"path":"main.go"}`)},
 		},
 	}
@@ -32,16 +32,16 @@ func TestEstimateMessageTokens(t *testing.T) {
 }
 
 func TestEstimateConversationTokens(t *testing.T) {
-	msgs := []forge.Message{
-		{Role: forge.RoleUser, Content: "Read main.go"},
-		{Role: forge.RoleAssistant, Content: "Here is the content."},
+	msgs := []agent.Message{
+		{Role: agent.RoleUser, Content: "Read main.go"},
+		{Role: agent.RoleAssistant, Content: "Here is the content."},
 	}
 	tokens := EstimateConversationTokens(msgs)
 	assert.Greater(t, tokens, 0)
 }
 
 func TestEffectiveTokenCount(t *testing.T) {
-	usage := forge.TokenUsage{
+	usage := agent.TokenUsage{
 		Input:      1000,
 		Output:     500,
 		CacheRead:  200,

@@ -1,4 +1,4 @@
-// Package main provides the forge CLI.
+// Package main provides the ddx-agent CLI.
 package main
 
 import (
@@ -15,9 +15,9 @@ import (
 )
 
 const (
-	defaultGitHubRepo = "DocumentDrivenDX/forge"
+	defaultGitHubRepo = "DocumentDrivenDX/agent"
 	defaultGitHubAPI  = "https://api.github.com"
-	version           = "v0.0.8" // Updated by release script
+	version           = "v0.0.8"  // Updated by release script
 	updateCheckTTL    = time.Hour // Cache version check for 1 hour
 )
 
@@ -158,7 +158,7 @@ func saveCachedVersion(path, version string) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// FindBinaryPath finds the path to the forge binary.
+// FindBinaryPath finds the path to the ddx-agent binary.
 func FindBinaryPath() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -174,10 +174,10 @@ func FindBinaryPath() (string, error) {
 	}
 
 	// Fall back to which command
-	cmd := exec.Command("which", "forge")
+	cmd := exec.Command("which", "ddx-agent")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", fmt.Errorf("cannot locate forge binary: %w", err)
+		return exe, nil
 	}
 	path := strings.TrimSpace(string(output))
 	if path == "" {
@@ -200,14 +200,14 @@ func DownloadBinary(tag string, w io.Writer) (string, error) {
 		return "", fmt.Errorf("unsupported architecture: %s", arch)
 	}
 
-	binaryName := fmt.Sprintf("forge-%s-%s", osName, arch)
+	binaryName := fmt.Sprintf("ddx-agent-%s-%s", osName, arch)
 	// Use default GitHub URL for downloads (not the test override)
 	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", defaultGitHubRepo, tag, binaryName)
 
 	fmt.Fprintf(w, "Downloading %s from %s...\n", tag, url)
 
 	// Create temp file
-	tmpFile, err := os.CreateTemp("", "forge-update-*")
+	tmpFile, err := os.CreateTemp("", "ddx-agent-update-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp file: %w", err)
 	}
@@ -292,7 +292,7 @@ func ReplaceBinary(oldPath, newPath string, w io.Writer) error {
 	if err := os.Rename(newPath, oldPath); err != nil {
 		// If rename fails (different filesystem), try copy+remove
 		fmt.Fprintf(w, "  Note: Using fallback copy method...\n")
-		
+
 		// Read new binary
 		data, readErr := os.ReadFile(newPath)
 		if readErr != nil {
@@ -311,6 +311,6 @@ func ReplaceBinary(oldPath, newPath string, w io.Writer) error {
 		os.Remove(newPath)
 	}
 
-	fmt.Fprintf(w, "Successfully updated forge\n")
+	fmt.Fprintf(w, "Successfully updated ddx-agent\n")
 	return nil
 }

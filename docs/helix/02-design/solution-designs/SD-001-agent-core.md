@@ -8,14 +8,14 @@ ddx:
     - FEAT-004
     - FEAT-005
 ---
-# Solution Design: SD-001 — Forge Core Library
+# Solution Design: SD-001 — DDX Agent Core Library
 
 **Features**: FEAT-001 (Agent Loop), FEAT-002 (Tools), FEAT-003 (Providers),
 FEAT-004 (Provider Config), FEAT-005 (Logging & Cost)
 
 ## Scope
 
-Feature-level design for the Forge Go library — everything except the
+Feature-level design for the DDX Agent Go library — everything except the
 standalone CLI binary (SD-002). Covers the agent loop, tool set, provider
 interface, session logging, and cost tracking.
 
@@ -25,17 +25,17 @@ interface, session logging, and cost tracking.
 
 | Requirement | Technical Capability | Package | Priority |
 |-------------|---------------------|---------|----------|
-| Agent loop (PRD P0-1) | `forge.Run()` tool-calling loop | `forge` | P0 |
-| Tool set (PRD P0-2) | read/write/edit/bash tools | `forge/tool` | P0 |
-| OpenAI-compat provider (PRD P0-3) | Chat completion via openai-go | `forge/provider/openai` | P0 |
-| Anthropic provider (PRD P0-4) | Chat completion via anthropic-sdk-go | `forge/provider/anthropic` | P0 |
-| Structured I/O (PRD P0-5) | Request/Result types | `forge` | P0 |
-| Go library API (PRD P0-6) | `forge.Run(ctx, Request) (Result, error)` | `forge` | P0 |
-| Token tracking (PRD P0-7) | Accumulate per-iteration token counts | `forge` | P0 |
-| Iteration limit (PRD P0-8) | Configurable max iterations | `forge` | P0 |
-| Working directory (PRD P0-9) | File ops scoped to root | `forge/tool` | P0 |
-| Session logging (PRD P0-10) | JSONL event log | `forge/session` | P0 |
-| Cost tracking (PRD P0-11) | Per-model pricing table | `forge/session` | P0 |
+| Agent loop (PRD P0-1) | `agent.Run()` tool-calling loop | `ddx-agent` | P0 |
+| Tool set (PRD P0-2) | read/write/edit/bash tools | `agent/tool` | P0 |
+| OpenAI-compat provider (PRD P0-3) | Chat completion via openai-go | `agent/provider/openai` | P0 |
+| Anthropic provider (PRD P0-4) | Chat completion via anthropic-sdk-go | `agent/provider/anthropic` | P0 |
+| Structured I/O (PRD P0-5) | Request/Result types | `ddx-agent` | P0 |
+| Go library API (PRD P0-6) | `agent.Run(ctx, Request) (Result, error)` | `ddx-agent` | P0 |
+| Token tracking (PRD P0-7) | Accumulate per-iteration token counts | `ddx-agent` | P0 |
+| Iteration limit (PRD P0-8) | Configurable max iterations | `ddx-agent` | P0 |
+| Working directory (PRD P0-9) | File ops scoped to root | `agent/tool` | P0 |
+| Session logging (PRD P0-10) | JSONL event log | `agent/session` | P0 |
+| Cost tracking (PRD P0-11) | Per-model pricing table | `agent/session` | P0 |
 
 ### NFR Impact on Architecture
 
@@ -44,14 +44,14 @@ interface, session logging, and cost tracking.
 | Performance | <1ms loop overhead per iteration | No reflection, no allocs in hot path | Direct struct passing, no interface boxing in loop |
 | Concurrency | Multiple concurrent `Run` calls | No global state | All state in Request/session structs |
 | Embeddability | No global state, no init() | Config via explicit parameters | Config struct, no package-level vars |
-| Testability | Mockable providers | Provider as interface | `Provider` interface in consuming `forge` package |
+| Testability | Mockable providers | Provider as interface | `Provider` interface in consuming `ddx-agent` package |
 | No CGo | Pure Go cross-compilation | No C dependencies | stdlib + provider SDKs only |
 
 ## Solution Approaches
 
 ### Approach 1: Monolithic Package
 
-All code in a single `forge` package. Simple, but grows unwieldy as
+All code in a single `ddx-agent` package. Simple, but grows unwieldy as
 providers and tools accumulate.
 
 **Pros**: Simple imports, no internal dependency management.
@@ -60,7 +60,7 @@ providers and tools accumulate.
 
 ### Approach 2: Layered Packages with Internal
 
-Standard Go layout: public API in `forge`, implementation in `internal/`
+Standard Go layout: public API in `ddx-agent`, implementation in `internal/`
 sub-packages, provider SDKs isolated in their own packages.
 
 **Pros**: Clean API surface, testable in isolation, providers are swappable.
@@ -68,7 +68,7 @@ sub-packages, provider SDKs isolated in their own packages.
 **Evaluation**: **Selected** — idiomatic Go, clean dependency graph, each
 package is independently testable.
 
-**Selected Approach**: Layered packages. The `forge` package defines the public
+**Selected Approach**: Layered packages. The `ddx-agent` package defines the public
 API (`Run`, `Request`, `Result`, `Provider`, `Tool`). Internal packages
 implement specific concerns. Provider packages are siblings under `provider/`.
 
@@ -150,7 +150,7 @@ EventCallback func(Event)     // optional real-time event sink
 
 ## System Decomposition
 
-### Package: `forge` (root)
+### Package: `ddx-agent` (root)
 
 - **Purpose**: Public API surface — `Run()`, `Request`, `Result`, interfaces
 - **Responsibilities**: Orchestrate the agent loop, accumulate tokens/cost,
@@ -158,37 +158,37 @@ EventCallback func(Event)     // optional real-time event sink
 - **Requirements**: FEAT-001 (all), FEAT-004 P0 (single provider config)
 - **Interfaces**: Consumes `Provider` and `Tool` interfaces; produces `Result`
 
-### Package: `forge/provider/openai`
+### Package: `agent/provider/openai`
 
 - **Purpose**: OpenAI-compatible provider implementation
-- **Responsibilities**: Translate `forge.Message`/`forge.ToolDef` to OpenAI
+- **Responsibilities**: Translate `agent.Message`/`agent.ToolDef` to OpenAI
   wire format, parse responses, report token usage
 - **Requirements**: FEAT-003 (OpenAI-compat section)
-- **Interfaces**: Implements `forge.Provider`; uses `github.com/openai/openai-go`
+- **Interfaces**: Implements `agent.Provider`; uses `github.com/openai/openai-go`
 
-### Package: `forge/provider/anthropic`
+### Package: `agent/provider/anthropic`
 
 - **Purpose**: Anthropic Claude provider implementation
 - **Responsibilities**: Translate to Anthropic Messages API format, handle
   content blocks, parse tool use blocks
 - **Requirements**: FEAT-003 (Anthropic section)
-- **Interfaces**: Implements `forge.Provider`; uses `github.com/anthropics/anthropic-sdk-go`
+- **Interfaces**: Implements `agent.Provider`; uses `github.com/anthropics/anthropic-sdk-go`
 
-### Package: `forge/tool`
+### Package: `agent/tool`
 
 - **Purpose**: Built-in tool implementations
 - **Responsibilities**: File read/write/edit, bash execution, working directory
   scoping, output truncation
 - **Requirements**: FEAT-002 (all)
-- **Interfaces**: Each tool implements `forge.Tool`
+- **Interfaces**: Each tool implements `agent.Tool`
 
-### Package: `forge/session`
+### Package: `agent/session`
 
 - **Purpose**: Session logging, replay, and cost tracking
 - **Responsibilities**: Write JSONL event logs, pricing table lookup,
   cost estimation, replay rendering
 - **Requirements**: FEAT-005 (all)
-- **Interfaces**: Implements `forge.EventCallback` for the agent loop to emit
+- **Interfaces**: Implements `agent.EventCallback` for the agent loop to emit
   events; provides `Logger` for session lifecycle
 
 ### Component Interactions
@@ -196,11 +196,11 @@ EventCallback func(Event)     // optional real-time event sink
 ```
 ┌─────────────────────────────────────────────┐
 │                  Caller                      │
-│         forge.Run(ctx, Request)              │
+│         agent.Run(ctx, Request)              │
 └──────────────────┬──────────────────────────┘
                    │
 ┌──────────────────▼──────────────────────────┐
-│              forge (root)                    │
+│              agent (root)                    │
 │  ┌─────────┐  ┌──────────┐  ┌───────────┐  │
 │  │  Loop   │──│ Provider │  │  Session   │  │
 │  │ Engine  │  │(interface)│  │  Logger    │  │
@@ -247,12 +247,12 @@ P1 — if OTel is added, it wraps the same events. Rationale: OTel adds
 dependency weight and configuration complexity. The JSONL log provides full
 replay capability without it. OTel is additive, not a replacement.
 
-### D3: Provider interface defined in `forge` package
+### D3: Provider interface defined in `ddx-agent` package
 
-The `Provider` interface lives in the consuming `forge` package, not in a
+The `Provider` interface lives in the consuming `ddx-agent` package, not in a
 `provider` package. This follows the Go idiom: "accept interfaces, return
-structs." Provider implementations are in `forge/provider/openai` and
-`forge/provider/anthropic`.
+structs." Provider implementations are in `agent/provider/openai` and
+`agent/provider/anthropic`.
 
 ### D4: Tools as an interface with JSON Schema
 
@@ -313,7 +313,7 @@ Unknown models: CostUSD = -1, logged as warning.
 
 ## Security
 
-- **Sandbox assumption**: Forge assumes it runs in a sandboxed environment.
+- **Sandbox assumption**: DDX Agent assumes it runs in a sandboxed environment.
   File paths outside working directory are allowed but logged.
 - **No secrets in logs**: API keys are never logged. Session logs contain
   prompts and responses — callers must not put secrets in prompts.
@@ -330,23 +330,23 @@ Unknown models: CostUSD = -1, logged as warning.
   session logger (write + read back), pricing calculator
 - **Integration**: OpenAI provider against LM Studio (build tag `integration`),
   Anthropic provider against Claude API (build tag `e2e`)
-- **E2E**: Full `forge.Run()` with real LM Studio model completing a
+- **E2E**: Full `agent.Run()` with real LM Studio model completing a
   file-read-and-edit task (build tag `e2e`)
 
 ## Traceability
 
 | Requirement ID | Package | Design Element | Test Strategy |
 |----------------|---------|----------------|---------------|
-| FEAT-001 FR-1..11 | `forge` | Run() loop engine | Unit: mock provider loop tests |
-| FEAT-002 read | `forge/tool` | ReadTool | Unit: temp file reads |
-| FEAT-002 write | `forge/tool` | WriteTool | Unit: temp file writes |
-| FEAT-002 edit | `forge/tool` | EditTool | Unit: find-replace tests |
-| FEAT-002 bash | `forge/tool` | BashTool | Unit: command execution, timeout |
-| FEAT-003 openai | `forge/provider/openai` | OpenAIProvider | Integration: LM Studio |
-| FEAT-003 anthropic | `forge/provider/anthropic` | AnthropicProvider | E2E: Claude API |
-| FEAT-004 P0 | `forge` | Request.Provider field | Unit: provider selection |
-| FEAT-005 logging | `forge/session` | Logger, Event types | Unit: write + replay |
-| FEAT-005 cost | `forge/session` | PricingTable, CostEstimate | Unit: calculation tests |
+| FEAT-001 FR-1..11 | `ddx-agent` | Run() loop engine | Unit: mock provider loop tests |
+| FEAT-002 read | `agent/tool` | ReadTool | Unit: temp file reads |
+| FEAT-002 write | `agent/tool` | WriteTool | Unit: temp file writes |
+| FEAT-002 edit | `agent/tool` | EditTool | Unit: find-replace tests |
+| FEAT-002 bash | `agent/tool` | BashTool | Unit: command execution, timeout |
+| FEAT-003 openai | `agent/provider/openai` | OpenAIProvider | Integration: LM Studio |
+| FEAT-003 anthropic | `agent/provider/anthropic` | AnthropicProvider | E2E: Claude API |
+| FEAT-004 P0 | `ddx-agent` | Request.Provider field | Unit: provider selection |
+| FEAT-005 logging | `agent/session` | Logger, Event types | Unit: write + replay |
+| FEAT-005 cost | `agent/session` | PricingTable, CostEstimate | Unit: calculation tests |
 
 ### Gaps
 

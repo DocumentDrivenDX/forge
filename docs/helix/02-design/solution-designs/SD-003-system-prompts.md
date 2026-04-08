@@ -11,7 +11,7 @@ ddx:
 
 ## Scope
 
-System prompt composition for the forge library — how callers build and
+System prompt composition for the agent library — how callers build and
 customize the system message sent to the LLM. Modeled after pi's approach
 (`buildSystemPrompt`) but adapted for Go library semantics.
 
@@ -19,12 +19,12 @@ customize the system message sent to the LLM. Modeled after pi's approach
 
 | Requirement | Technical Capability | Package | Priority |
 |-------------|---------------------|---------|----------|
-| PRD P1-1: System prompt composition | Composable prompt builder | `forge/prompt` | P1 |
-| Base + caller additions | Section-based composition | `forge/prompt` | P1 |
-| Context file loading | Load AGENTS.md/CLAUDE.md from work dir | `forge/prompt` | P1 |
-| Template arg substitution | `$1`, `$@`, `${@:N}` patterns | `forge/prompt` | P1 |
-| Tool-aware sections | List available tools in prompt | `forge/prompt` | P1 |
-| Dynamic context injection | Date, cwd, metadata | `forge/prompt` | P1 |
+| PRD P1-1: System prompt composition | Composable prompt builder | `agent/prompt` | P1 |
+| Base + caller additions | Section-based composition | `agent/prompt` | P1 |
+| Context file loading | Load AGENTS.md/CLAUDE.md from work dir | `agent/prompt` | P1 |
+| Template arg substitution | `$1`, `$@`, `${@:N}` patterns | `agent/prompt` | P1 |
+| Tool-aware sections | List available tools in prompt | `agent/prompt` | P1 |
+| Dynamic context injection | Date, cwd, metadata | `agent/prompt` | P1 |
 
 ## Design: Pi-Style Composable Prompt Builder
 
@@ -35,7 +35,7 @@ The builder knows about available tools, project context files, and dynamic
 values. Callers configure what they need; the builder assembles the final string.
 
 This is a **library utility** — it helps callers construct the `SystemPrompt`
-field of `forge.Request`. It does not change the core types.
+field of `agent.Request`. It does not change the core types.
 
 ### Key Design Decisions
 
@@ -48,14 +48,14 @@ sections, not a generic template language. Simpler, more predictable, debuggable
 These files provide project-specific instructions.
 
 **D3: Prompt templates are markdown files with frontmatter.** Templates live
-in `.forge/prompts/` or `~/.config/forge/prompts/`. They use `$1`, `$@`,
+in `.agent/prompts/` or `~/.config/agent/prompts/`. They use `$1`, `$@`,
 `${@:N}` for argument substitution (bash-style, matching pi).
 
 **D4: Library has no opinion on base prompt content.** The library provides
 the composition machinery. The CLI provides a default base prompt. Embedders
 (DDx) provide their own.
 
-### Package: `forge/prompt`
+### Package: `agent/prompt`
 
 ```go
 // Builder constructs a system prompt from composable sections.
@@ -88,7 +88,7 @@ type Template struct {
 func New(base string) *Builder
 
 // WithTools adds a tools section listing available tool names and descriptions.
-func (b *Builder) WithTools(tools []forge.Tool) *Builder
+func (b *Builder) WithTools(tools []agent.Tool) *Builder
 
 // WithGuidelines adds behavioral guidelines.
 func (b *Builder) WithGuidelines(guidelines ...string) *Builder
@@ -152,11 +152,11 @@ Matching pi exactly:
 
 ## Presets
 
-Forge ships with built-in system prompt presets that track the style and conventions of well-known coding agents:
+DDX Agent ships with built-in system prompt presets that track the style and conventions of well-known coding agents:
 
 | Preset | Description |
 |--------|-------------|
-| `forge` | Forge default — balanced, tool-aware, structured output |
+| `ddx-agent` | DDX Agent default — balanced, tool-aware, structured output |
 | `minimal` | Bare minimum — one sentence, like pi |
 | `claude` | Tracks Claude Code style — thorough, safety-conscious |
 | `codex` | Tracks OpenAI Codex CLI style — pragmatic, direct |
@@ -166,10 +166,10 @@ Forge ships with built-in system prompt presets that track the style and convent
 
 Prompt presets are strictly about system prompt behavior. They do **not**
 select providers, model aliases, tiers/profiles, or canonical model targets.
-Those belong to the forge model catalog and routing/config layer described in
+Those belong to the agent model catalog and routing/config layer described in
 FEAT-004 and SD-005.
 
-This boundary is important because forge already uses `preset` in CLI/config
+This boundary is important because agent already uses `preset` in CLI/config
 surfaces. Future model-policy surfaces must use distinct terms such as
 `model_ref`, `profile`, or `alias`, never `preset`.
 
@@ -186,8 +186,8 @@ preset.WithTools(tools)
 // Build the system prompt
 sysPrompt := preset.Build()
 
-// Use in forge.Request
-req := forge.Request{
+// Use in agent.Request
+req := agent.Request{
     SystemPrompt: sysPrompt,
     // ...
 }
@@ -199,7 +199,7 @@ req := forge.Request{
 // PresetNames returns all available preset names in stable order.
 func PresetNames() []string
 
-// GetPreset returns a preset by name, or the forge default if not found.
+// GetPreset returns a preset by name, or the agent default if not found.
 func GetPreset(name string) Preset
 
 // NewFromPreset creates a Builder initialized from a named preset.

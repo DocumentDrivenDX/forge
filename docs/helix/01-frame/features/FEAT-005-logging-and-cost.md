@@ -11,18 +11,18 @@ ddx:
 **Feature ID**: FEAT-005
 **Status**: Draft
 **Priority**: P0
-**Owner**: Forge Team
+**Owner**: DDX Agent Team
 
 ## Overview
 
-Every LLM interaction and tool call in Forge is logged to a structured session
+Every LLM interaction and tool call in DDX Agent is logged to a structured session
 log. Sessions can be replayed to understand exactly what happened. Cost is
 tracked per-session using a model pricing table. This implements PRD P0
 requirements 10-11.
 
 Patterned on DDx's agent session logging (`SessionEntry` JSONL, `agent.Pricing`
 table, `ddx agent usage` reporting) but with deeper granularity — DDx logs
-one entry per subprocess invocation; Forge logs every turn within the
+one entry per subprocess invocation; DDX Agent logs every turn within the
 conversation loop.
 
 ## Problem Statement
@@ -44,7 +44,7 @@ conversation loop.
 
 #### Session Logging
 
-1. Each `forge.Run()` call creates a session with a unique ID
+1. Each `agent.Run()` call creates a session with a unique ID
 2. The session log captures events in order:
    - `session.start`: timestamp, config (provider, model, working dir, max
      iterations), prompt
@@ -59,13 +59,13 @@ conversation loop.
    `timestamp`, and type-specific fields
 5. Full prompt and response bodies are stored in the event (not external
    files, at least for P0)
-6. Log directory is configurable. Default: `.forge/sessions/`
+6. Log directory is configurable. Default: `.agent/sessions/`
 7. The caller can provide correlation metadata (bead_id, workflow, etc.)
    that is stored on `session.start` and `session.end` events
 
 #### Replay
 
-8. Given a session log file, Forge can reconstruct and display the full
+8. Given a session log file, DDX Agent can reconstruct and display the full
    conversation: system prompt, each user/assistant turn, each tool call
    with inputs and outputs, token counts per turn, cost per turn
 9. Replay is a read-only operation on the log file
@@ -85,7 +85,7 @@ conversation loop.
 
 #### Usage Reporting (P1 — Standalone CLI)
 
-17. `forge usage` aggregates session logs: per-provider/model token counts
+17. `ddx-agent usage` aggregates session logs: per-provider/model token counts
     and cost, with time-window filtering (today, 7d, 30d, date range)
 18. Output formats: table (default), JSON, CSV — patterned on
     `ddx agent usage`
@@ -114,7 +114,7 @@ conversation loop.
 ## Success Metrics
 
 - Every completed session has a log with all events
-- `forge replay <id>` reproduces the conversation accurately
+- `ddx-agent replay <id>` reproduces the conversation accurately
 - Cost estimates for cloud models match actual API billing within 5%
 - Log files are valid JSONL readable by `jq`
 
@@ -123,7 +123,7 @@ conversation loop.
 - P0 uses JSONL as the sole logging format. OTel integration is P1 — if
   span overhead is acceptable, emit OTel spans alongside JSONL. If not,
   JSONL remains the primary observability surface.
-- Log format is Forge-specific but designed to be consumable by DDx's
+- Log format is DDX Agent-specific but designed to be consumable by DDx's
   session inspection tooling with a thin adapter
 - No log rotation or retention policy in P0
 

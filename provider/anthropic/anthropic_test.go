@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
-	"github.com/DocumentDrivenDX/forge/provider/anthropic"
+	"github.com/DocumentDrivenDX/agent"
+	"github.com/DocumentDrivenDX/agent/provider/anthropic"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,11 +83,11 @@ func TestProvider_New(t *testing.T) {
 func TestProvider_ConvertMessages(t *testing.T) {
 	// Test message conversion by using a real provider with a mock server
 	// This exercises the message conversion code paths
-	messages := []forge.Message{
-		{Role: forge.RoleSystem, Content: "You are a helpful assistant."},
-		{Role: forge.RoleUser, Content: "Hello"},
-		{Role: forge.RoleAssistant, Content: "Hi there!"},
-		{Role: forge.RoleTool, Content: "Tool result", ToolCallID: "tool_1"},
+	messages := []agent.Message{
+		{Role: agent.RoleSystem, Content: "You are a helpful assistant."},
+		{Role: agent.RoleUser, Content: "Hello"},
+		{Role: agent.RoleAssistant, Content: "Hi there!"},
+		{Role: agent.RoleTool, Content: "Tool result", ToolCallID: "tool_1"},
 	}
 
 	// We can't easily test the conversion without the SDK,
@@ -99,7 +99,7 @@ func TestProvider_ConvertMessages(t *testing.T) {
 
 func TestProvider_TokenUsage(t *testing.T) {
 	// Test that TokenUsage can be marshaled correctly
-	usage := forge.TokenUsage{
+	usage := agent.TokenUsage{
 		Input:       100,
 		Output:      50,
 		CacheRead:   25,
@@ -110,7 +110,7 @@ func TestProvider_TokenUsage(t *testing.T) {
 	data, err := json.Marshal(usage)
 	require.NoError(t, err)
 
-	var decoded forge.TokenUsage
+	var decoded agent.TokenUsage
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
@@ -121,8 +121,8 @@ func TestProvider_TokenUsage(t *testing.T) {
 }
 
 func TestProvider_TokenUsage_Add(t *testing.T) {
-	usage1 := forge.TokenUsage{Input: 100, Output: 50, CacheRead: 25}
-	usage2 := forge.TokenUsage{Input: 75, Output: 30, CacheWrite: 10}
+	usage1 := agent.TokenUsage{Input: 100, Output: 50, CacheRead: 25}
+	usage2 := agent.TokenUsage{Input: 75, Output: 30, CacheWrite: 10}
 
 	usage1.Add(usage2)
 
@@ -133,11 +133,11 @@ func TestProvider_TokenUsage_Add(t *testing.T) {
 }
 
 func TestProvider_StreamDelta(t *testing.T) {
-	delta := forge.StreamDelta{
+	delta := agent.StreamDelta{
 		Content:   "Hello",
 		Model:    "claude-sonnet-4-20250514",
 		FinishReason: "end_turn",
-		Usage: &forge.TokenUsage{
+		Usage: &agent.TokenUsage{
 			Input:  100,
 			Output: 50,
 		},
@@ -147,7 +147,7 @@ func TestProvider_StreamDelta(t *testing.T) {
 	data, err := json.Marshal(delta)
 	require.NoError(t, err)
 
-	var decoded forge.StreamDelta
+	var decoded agent.StreamDelta
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
@@ -159,7 +159,7 @@ func TestProvider_StreamDelta(t *testing.T) {
 }
 
 func TestProvider_StreamDelta_ToolCall(t *testing.T) {
-	delta := forge.StreamDelta{
+	delta := agent.StreamDelta{
 		ToolCallID:   "tool_123",
 		ToolCallName: "read",
 		ToolCallArgs: `{"path":"main.go"}`,
@@ -168,7 +168,7 @@ func TestProvider_StreamDelta_ToolCall(t *testing.T) {
 	data, err := json.Marshal(delta)
 	require.NoError(t, err)
 
-	var decoded forge.StreamDelta
+	var decoded agent.StreamDelta
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
@@ -178,15 +178,15 @@ func TestProvider_StreamDelta_ToolCall(t *testing.T) {
 }
 
 func TestProvider_Response(t *testing.T) {
-	resp := forge.Response{
+	resp := agent.Response{
 		Content:      "Test response",
 		Model:        "claude-sonnet-4-20250514",
 		FinishReason: "end_turn",
-		Usage: forge.TokenUsage{
+		Usage: agent.TokenUsage{
 			Input:  100,
 			Output: 50,
 		},
-		ToolCalls: []forge.ToolCall{
+		ToolCalls: []agent.ToolCall{
 			{
 				ID:        "tc_1",
 				Name:      "read",
@@ -198,7 +198,7 @@ func TestProvider_Response(t *testing.T) {
 	data, err := json.Marshal(resp)
 	require.NoError(t, err)
 
-	var decoded forge.Response
+	var decoded agent.Response
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 
@@ -208,17 +208,17 @@ func TestProvider_Response(t *testing.T) {
 }
 
 func TestProvider_Messages(t *testing.T) {
-	messages := []forge.Message{
-		{Role: forge.RoleSystem, Content: "System prompt"},
-		{Role: forge.RoleUser, Content: "User message"},
+	messages := []agent.Message{
+		{Role: agent.RoleSystem, Content: "System prompt"},
+		{Role: agent.RoleUser, Content: "User message"},
 		{
-			Role:      forge.RoleAssistant,
+			Role:      agent.RoleAssistant,
 			Content:   "Assistant response",
-			ToolCalls: []forge.ToolCall{
+			ToolCalls: []agent.ToolCall{
 				{ID: "tc1", Name: "read", Arguments: json.RawMessage(`{}`)},
 			},
 		},
-		{Role: forge.RoleTool, Content: "Tool result", ToolCallID: "tc1"},
+		{Role: agent.RoleTool, Content: "Tool result", ToolCallID: "tc1"},
 	}
 
 	// Verify all message types serialize correctly
@@ -238,9 +238,9 @@ func TestProvider_ContextCancellation(t *testing.T) {
 	p := anthropic.New(cfg)
 
 	// This should return quickly due to cancelled context
-	_, err := p.Chat(ctx, []forge.Message{
-		{Role: forge.RoleUser, Content: "test"},
-	}, nil, forge.Options{})
+	_, err := p.Chat(ctx, []agent.Message{
+		{Role: agent.RoleUser, Content: "test"},
+	}, nil, agent.Options{})
 
 	// Should error because context is cancelled
 	assert.Error(t, err)
@@ -252,7 +252,7 @@ func TestProvider_EmptyMessages(t *testing.T) {
 	p := anthropic.New(cfg)
 
 	// Empty message list should not panic
-	_, err := p.Chat(context.Background(), []forge.Message{}, nil, forge.Options{})
+	_, err := p.Chat(context.Background(), []agent.Message{}, nil, agent.Options{})
 	// May error, but should not panic
 	_ = err
 }
@@ -263,7 +263,7 @@ func TestProvider_Options(t *testing.T) {
 
 	// Test with various options
 	temp := 0.7
-	opts := forge.Options{
+	opts := agent.Options{
 		Model:       "override-model",
 		Temperature: &temp,
 		MaxTokens:   1000,
@@ -271,14 +271,14 @@ func TestProvider_Options(t *testing.T) {
 	}
 
 	// Verify options are accepted (will fail at API call, but options are valid)
-	_, _ = p.Chat(context.Background(), []forge.Message{
-		{Role: forge.RoleUser, Content: "test"},
+	_, _ = p.Chat(context.Background(), []agent.Message{
+		{Role: agent.RoleUser, Content: "test"},
 	}, nil, opts)
 }
 
 func TestProvider_ToolDefs(t *testing.T) {
 	// Test tool definition serialization
-	toolDef := forge.ToolDef{
+	toolDef := agent.ToolDef{
 		Name:        "read",
 		Description: "Read a file",
 		Parameters:  json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`),
@@ -287,7 +287,7 @@ func TestProvider_ToolDefs(t *testing.T) {
 	data, err := json.Marshal(toolDef)
 	require.NoError(t, err)
 
-	var decoded forge.ToolDef
+	var decoded agent.ToolDef
 	err = json.Unmarshal(data, &decoded)
 	require.NoError(t, err)
 

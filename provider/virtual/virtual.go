@@ -1,8 +1,8 @@
-// Package virtual implements a forge.Provider that replays recorded responses
+// Package virtual implements a agent.Provider that replays recorded responses
 // from a dictionary. This enables deterministic testing without live LLM calls.
 //
 // Ported from ddx cli/internal/agent/virtual.go with adaptation to the
-// forge.Provider interface — responses are structured (content + tool calls +
+// agent.Provider interface — responses are structured (content + tool calls +
 // token usage) rather than raw text.
 package virtual
 
@@ -18,14 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // Entry is a recorded message→response pair stored on disk.
 type Entry struct {
 	PromptHash string          `json:"prompt_hash"`
-	Messages   []forge.Message `json:"messages,omitempty"`
-	Response   forge.Response  `json:"response"`
+	Messages   []agent.Message `json:"messages,omitempty"`
+	Response   agent.Response  `json:"response"`
 	DelayMS    int             `json:"delay_ms,omitempty"`
 	RecordedAt string          `json:"recorded_at,omitempty"`
 }
@@ -33,7 +33,7 @@ type Entry struct {
 // InlineResponse matches prompts by pattern and returns a fixed response.
 type InlineResponse struct {
 	PromptMatch string         `json:"prompt_match"` // substring or /regex/
-	Response    forge.Response `json:"response"`
+	Response    agent.Response `json:"response"`
 	DelayMS     int            `json:"delay_ms,omitempty"`
 }
 
@@ -67,7 +67,7 @@ func New(cfg Config) *Provider {
 
 // Chat looks up a recorded response matching the messages. It checks inline
 // responses first, then falls back to file-based dictionary lookup by hash.
-func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (forge.Response, error) {
+func (p *Provider) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (agent.Response, error) {
 	prompt := extractPromptText(messages)
 
 	// Check inline responses first (pattern-based matching).
@@ -82,7 +82,7 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 
 	// Fall back to file-based dictionary lookup.
 	if p.cfg.DictDir == "" {
-		return forge.Response{}, fmt.Errorf("virtual: no matching inline response and no dictionary directory configured")
+		return agent.Response{}, fmt.Errorf("virtual: no matching inline response and no dictionary directory configured")
 	}
 
 	normalized := NormalizePrompt(prompt, p.cfg.NormalizePatterns)
@@ -91,15 +91,15 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return forge.Response{}, fmt.Errorf("virtual: no recorded response for prompt (hash %s, dir %s)", hash, p.cfg.DictDir)
+		return agent.Response{}, fmt.Errorf("virtual: no recorded response for prompt (hash %s, dir %s)", hash, p.cfg.DictDir)
 	}
 	if err != nil {
-		return forge.Response{}, fmt.Errorf("virtual: reading dictionary entry: %w", err)
+		return agent.Response{}, fmt.Errorf("virtual: reading dictionary entry: %w", err)
 	}
 
 	var entry Entry
 	if err := json.Unmarshal(data, &entry); err != nil {
-		return forge.Response{}, fmt.Errorf("virtual: parsing dictionary entry %s: %w", path, err)
+		return agent.Response{}, fmt.Errorf("virtual: parsing dictionary entry %s: %w", path, err)
 	}
 
 	if entry.DelayMS > 0 {
@@ -110,7 +110,7 @@ func (p *Provider) Chat(ctx context.Context, messages []forge.Message, tools []f
 }
 
 // RecordEntry saves a message→response pair to the dictionary directory.
-func RecordEntry(dictDir string, messages []forge.Message, response forge.Response, patterns []NormalizePattern) error {
+func RecordEntry(dictDir string, messages []agent.Message, response agent.Response, patterns []NormalizePattern) error {
 	if err := os.MkdirAll(dictDir, 0o755); err != nil {
 		return fmt.Errorf("virtual: creating dictionary dir: %w", err)
 	}
@@ -160,10 +160,10 @@ func NormalizePrompt(prompt string, patterns []NormalizePattern) string {
 }
 
 // extractPromptText concatenates all user message content for matching/hashing.
-func extractPromptText(messages []forge.Message) string {
+func extractPromptText(messages []agent.Message) string {
 	var parts []string
 	for _, m := range messages {
-		if m.Role == forge.RoleUser {
+		if m.Role == agent.RoleUser {
 			parts = append(parts, m.Content)
 		}
 	}
@@ -190,4 +190,4 @@ func sleepWithContext(ctx context.Context, ms int) {
 	}
 }
 
-var _ forge.Provider = (*Provider)(nil)
+var _ agent.Provider = (*Provider)(nil)

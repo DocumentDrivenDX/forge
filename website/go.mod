@@ -1,4 +1,4 @@
-module github.com/DocumentDrivenDX/forge/website
+module github.com/DocumentDrivenDX/agent/website
 
 go 1.26.1
 

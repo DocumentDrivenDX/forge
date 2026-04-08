@@ -6,19 +6,19 @@ import (
 	"fmt"
 	"os"
 
-	forgeConfig "github.com/DocumentDrivenDX/forge/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/config"
 )
 
-// TranslationResult contains the result of translating opencode config to forge config.
+// TranslationResult contains the result of translating opencode config to agent config.
 type TranslationResult struct {
-	Provider forgeConfig.ProviderConfig
+	Provider agentConfig.ProviderConfig
 	Warnings []string
 }
 
-// Translate converts opencode configuration to forge provider config per SD-007.
+// Translate converts opencode configuration to agent provider config per SD-007.
 func Translate(opencodeDir, authKey string) *TranslationResult {
 	result := &TranslationResult{
-		Provider: forgeConfig.ProviderConfig{
+		Provider: agentConfig.ProviderConfig{
 			Type: "openai-compat", // default
 		},
 	}

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -31,7 +31,7 @@ func TestBuilder_BaseOnly(t *testing.T) {
 }
 
 func TestBuilder_WithTools(t *testing.T) {
-	tools := []forge.Tool{
+	tools := []agent.Tool{
 		&stubTool{name: "read", desc: "Read file contents"},
 		&stubTool{name: "bash", desc: "Execute shell commands"},
 	}
@@ -87,16 +87,16 @@ func TestBuilder_WithAppend(t *testing.T) {
 func TestBuilder_WithWorkDirAndMetadata(t *testing.T) {
 	result := New("Base.").
 		WithWorkDir("/home/user/project").
-		WithMetadata("bead_id", "forge-abc123").
+		WithMetadata("bead_id", "agent-abc123").
 		WithDate("2026-04-06").
 		Build()
 
 	assert.Contains(t, result, "Current working directory: /home/user/project")
-	assert.Contains(t, result, "bead_id: forge-abc123")
+	assert.Contains(t, result, "bead_id: agent-abc123")
 }
 
 func TestBuilder_FullComposition(t *testing.T) {
-	tools := []forge.Tool{
+	tools := []agent.Tool{
 		&stubTool{name: "read", desc: "Read files"},
 	}
 	files := []ContextFile{

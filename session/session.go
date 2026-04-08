@@ -1,3 +1,3 @@
 // Package session provides JSONL session logging, cost tracking, and replay
-// for forge agent runs.
+// for agent runs.
 package session

@@ -9,11 +9,11 @@ ddx:
 **Feature ID**: FEAT-004  
 **Status**: Draft  
 **Priority**: P1  
-**Owner**: Forge Team
+**Owner**: DDX Agent Team
 
 ## Overview
 
-Forge provides a robust installation experience with automatic update checking,
+DDX Agent provides a robust installation experience with automatic update checking,
 safe binary replacement, and enhanced installer UX. This implements the ghostty
 pattern — great library proven by a usable CLI app.
 
@@ -23,7 +23,7 @@ pattern — great library proven by a usable CLI app.
   check capability. Users must manually re-run install script to upgrade.
 - **Pain points**: No way to check if running version is outdated. No safe in-place
   binary replacement. Installer lacks colored output and PATH configuration.
-- **Desired outcome**: `forge update` command that checks for updates, prompts user,
+- **Desired outcome**: `ddx-agent update` command that checks for updates, prompts user,
   downloads new binary safely, and replaces old one atomically. Enhanced installer
   with better UX matching DDx patterns.
 
@@ -31,7 +31,7 @@ pattern — great library proven by a usable CLI app.
 
 ### Functional Requirements
 
-#### Update Command (`forge update`)
+#### Update Command (`ddx-agent update`)
 
 1. Check current version against latest GitHub release
 2. Display version comparison: "Current: v0.0.8 | Latest: v0.0.9"
@@ -43,7 +43,7 @@ pattern — great library proven by a usable CLI app.
 8. Preserve permissions and ownership
 9. Show success message with new version
 
-#### Update Check Only (`forge update --check-only`)
+#### Update Check Only (`ddx-agent update --check-only`)
 
 10. Compare versions without downloading
 11. Exit code 0 if up-to-date, exit code 1 if outdated
@@ -54,12 +54,12 @@ pattern — great library proven by a usable CLI app.
 13. Colored output (blue info, green success, yellow warning, red error)
 14. Prerequisites checking (curl/wget availability)
 15. PATH configuration in shell rc files (.bashrc, .zshrc, .config/fish/config.fish)
-16. Installation verification (`forge --version` test)
+16. Installation verification (`ddx-agent --version` test)
 17. Getting started guide with quick commands
 
 #### Version Command Enhancement
 
-18. `forge version` shows current version and whether update is available
+18. `ddx-agent version` shows current version and whether update is available
 19. If outdated: "v0.0.8 (update available: v0.0.9)"
 20. If up-to-date: "v0.0.8 (latest)"
 
@@ -95,7 +95,7 @@ pattern — great library proven by a usable CLI app.
 
 ### Binary Location Detection
 
-The update command must find where forge is installed:
+The update command must find where agent is installed:
 
 ```go
 func findBinaryPath() (string, error) {
@@ -109,15 +109,15 @@ func findBinaryPath() (string, error) {
     dir := filepath.Dir(exe)
     if strings.Contains(dir, ".local/bin") || 
        strings.Contains(dir, "go/bin") ||
-       strings.Contains(dir, "bin/forge") {
+       strings.Contains(dir, "bin/ddx-agent") {
         return exe, nil
     }
     
     // 3. Fall back to which command
-    cmd := exec.Command("which", "forge")
+    cmd := exec.Command("which", "ddx-agent")
     output, err := cmd.Output()
     if err != nil {
-        return "", fmt.Errorf("cannot locate forge binary: %w", err)
+        return "", fmt.Errorf("cannot locate agent binary: %w", err)
     }
     return strings.TrimSpace(string(output)), nil
 }
@@ -225,7 +225,7 @@ func getLatestRelease(repo string) (*GitHubRelease, error) {
 
 ## Success Metrics
 
-- User can run `forge update` and upgrade from v0.0.8 to v0.0.9 in one command
+- User can run `ddx-agent update` and upgrade from v0.0.8 to v0.0.9 in one command
 - Update check completes in < 3 seconds on typical network
 - Binary replacement is atomic — no corrupted binaries after failed updates
 - Installer successfully configures PATH for bash, zsh, and fish shells
@@ -245,7 +245,7 @@ func getLatestRelease(repo string) (*GitHubRelease, error) {
 
 ## Out of Scope
 
-- Automatic background updates (user must explicitly run `forge update`)
+- Automatic background updates (user must explicitly run `ddx-agent update`)
 - Rollback to previous version (would require keeping old binary)
 - Update notifications on startup (could be added later as opt-in feature)
 - Custom release channels (beta, nightly — use GitHub tags directly if needed)

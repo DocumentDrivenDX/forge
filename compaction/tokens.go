@@ -1,4 +1,4 @@
-// Package compaction provides conversation compaction for the forge agent loop.
+// Package compaction provides conversation compaction for the agent loop.
 // When the conversation history approaches the model's context window limit,
 // compaction summarizes older messages and replaces them with a structured summary.
 package compaction
@@ -6,7 +6,7 @@ package compaction
 import (
 	"encoding/json"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 const (
@@ -27,7 +27,7 @@ func EstimateTokens(s string) int {
 
 // EstimateMessageTokens estimates the token count for a single message,
 // including role, content, tool calls, and tool call arguments.
-func EstimateMessageTokens(msg forge.Message) int {
+func EstimateMessageTokens(msg agent.Message) int {
 	tokens := EstimateTokens(string(msg.Role))
 	tokens += EstimateTokens(msg.Content)
 	for _, tc := range msg.ToolCalls {
@@ -41,7 +41,7 @@ func EstimateMessageTokens(msg forge.Message) int {
 }
 
 // EstimateConversationTokens estimates the total tokens for a slice of messages.
-func EstimateConversationTokens(messages []forge.Message) int {
+func EstimateConversationTokens(messages []agent.Message) int {
 	total := 0
 	for _, msg := range messages {
 		total += EstimateMessageTokens(msg)
@@ -52,7 +52,7 @@ func EstimateConversationTokens(messages []forge.Message) int {
 // EffectiveTokenCount computes the effective context consumption from
 // provider-reported token usage. Includes all four components since they
 // all contribute to context window consumption.
-func EffectiveTokenCount(usage forge.TokenUsage) int {
+func EffectiveTokenCount(usage agent.TokenUsage) int {
 	return usage.Input + usage.Output + usage.CacheRead + usage.CacheWrite
 }
 

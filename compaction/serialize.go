@@ -5,24 +5,24 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // SerializeConversation renders a message history as compact text suitable
 // for the summarization LLM. Tool calls are rendered inline as
 // [Assistant → toolName(args)]: result. Tool results are truncated to maxChars.
-func SerializeConversation(messages []forge.Message, maxToolResultChars int) string {
+func SerializeConversation(messages []agent.Message, maxToolResultChars int) string {
 	var lines []string
 
 	for _, msg := range messages {
 		switch msg.Role {
-		case forge.RoleSystem:
+		case agent.RoleSystem:
 			lines = append(lines, fmt.Sprintf("[System]: %s", msg.Content))
 
-		case forge.RoleUser:
+		case agent.RoleUser:
 			lines = append(lines, fmt.Sprintf("[User]: %s", msg.Content))
 
-		case forge.RoleAssistant:
+		case agent.RoleAssistant:
 			if len(msg.ToolCalls) > 0 {
 				for _, tc := range msg.ToolCalls {
 					argsStr := formatToolArgs(tc.Arguments)
@@ -35,7 +35,7 @@ func SerializeConversation(messages []forge.Message, maxToolResultChars int) str
 				lines = append(lines, fmt.Sprintf("[Assistant]: %s", msg.Content))
 			}
 
-		case forge.RoleTool:
+		case agent.RoleTool:
 			truncated := TruncateToolResult(msg.Content, maxToolResultChars)
 			lines = append(lines, fmt.Sprintf("[Tool Result]: %s", truncated))
 		}
@@ -78,7 +78,7 @@ func NewFileOps() *FileOps {
 }
 
 // ExtractFileOps scans tool call logs for file operations.
-func ExtractFileOps(toolCalls []forge.ToolCallLog) *FileOps {
+func ExtractFileOps(toolCalls []agent.ToolCallLog) *FileOps {
 	ops := NewFileOps()
 	for _, tc := range toolCalls {
 		var args struct {

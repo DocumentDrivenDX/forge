@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ func TestReplay(t *testing.T) {
 
 	// Write a test session log
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Provider:      "openai-compat",
 		Model:         "qwen3.5-7b",
 		WorkDir:       "/tmp/test",
@@ -26,29 +26,29 @@ func TestReplay(t *testing.T) {
 		Prompt:        "Read main.go",
 		SystemPrompt:  "You are a helpful assistant.",
 	})
-	logger.Emit(forge.EventLLMResponse, LLMResponseData{
+	logger.Emit(agent.EventLLMResponse, LLMResponseData{
 		Content:   "",
-		ToolCalls: []forge.ToolCall{{ID: "tc1", Name: "read"}},
-		Usage:     forge.TokenUsage{Input: 100, Output: 20, Total: 120},
+		ToolCalls: []agent.ToolCall{{ID: "tc1", Name: "read"}},
+		Usage:     agent.TokenUsage{Input: 100, Output: 20, Total: 120},
 		LatencyMs: 500,
 		Model:     "qwen3.5-7b",
 	})
-	logger.Emit(forge.EventToolCall, ToolCallData{
+	logger.Emit(agent.EventToolCall, ToolCallData{
 		Tool:       "read",
 		Input:      []byte(`{"path":"main.go"}`),
 		Output:     "package main\n\nfunc main() {}\n",
 		DurationMs: 1,
 	})
-	logger.Emit(forge.EventLLMResponse, LLMResponseData{
+	logger.Emit(agent.EventLLMResponse, LLMResponseData{
 		Content:   "The package is main.",
-		Usage:     forge.TokenUsage{Input: 200, Output: 30, Total: 230},
+		Usage:     agent.TokenUsage{Input: 200, Output: 30, Total: 230},
 		LatencyMs: 800,
 		Model:     "qwen3.5-7b",
 	})
-	logger.Emit(forge.EventSessionEnd, SessionEndData{
-		Status:     forge.StatusSuccess,
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status:     agent.StatusSuccess,
 		Output:     "The package is main.",
-		Tokens:     forge.TokenUsage{Input: 300, Output: 50, Total: 350},
+		Tokens:     agent.TokenUsage{Input: 300, Output: 50, Total: 350},
 		CostUSD:    0,
 		DurationMs: 1500,
 	})
@@ -110,7 +110,7 @@ func TestReplay_TruncatedOutput(t *testing.T) {
 
 	logger := NewLogger(dir, sessionID)
 	longOutput := strings.Repeat("x", 300) // Longer than 200 char limit
-	logger.Emit(forge.EventToolCall, ToolCallData{
+	logger.Emit(agent.EventToolCall, ToolCallData{
 		Tool:   "bash",
 		Input:  []byte(`{"cmd":"echo test"}`),
 		Output: longOutput,
@@ -130,20 +130,20 @@ func TestReplay_WithCost(t *testing.T) {
 	sessionID := "cost-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Provider:      "anthropic",
 		Model:         "claude-sonnet-4-20250514",
 		Prompt:        "Test with cost",
 	})
-	logger.Emit(forge.EventLLMResponse, LLMResponseData{
+	logger.Emit(agent.EventLLMResponse, LLMResponseData{
 		Content:   "Hello",
-		Usage:     forge.TokenUsage{Input: 1000, Output: 500},
+		Usage:     agent.TokenUsage{Input: 1000, Output: 500},
 		CostUSD:   0.0234,
 		LatencyMs: 1000,
 	})
-	logger.Emit(forge.EventSessionEnd, SessionEndData{
-		Status:     forge.StatusSuccess,
-		Tokens:     forge.TokenUsage{Input: 1000, Output: 500},
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status:     agent.StatusSuccess,
+		Tokens:     agent.TokenUsage{Input: 1000, Output: 500},
 		CostUSD:    0.0234,
 		DurationMs: 1000,
 	})
@@ -162,11 +162,11 @@ func TestReplay_ErrorStatus(t *testing.T) {
 	sessionID := "error-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Prompt: "Test error",
 	})
-	logger.Emit(forge.EventSessionEnd, SessionEndData{
-		Status: forge.StatusError,
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status: agent.StatusError,
 		Error:  "Connection timeout",
 	})
 	require.NoError(t, logger.Close())
@@ -185,12 +185,12 @@ func TestReplay_ToolCallWithArgs(t *testing.T) {
 	sessionID := "tool-args-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventLLMRequest, LLMRequestData{
-		Messages: []forge.Message{
-			{Role: forge.RoleUser, Content: "Read the file"},
+	logger.Emit(agent.EventLLMRequest, LLMRequestData{
+		Messages: []agent.Message{
+			{Role: agent.RoleUser, Content: "Read the file"},
 		},
 	})
-	logger.Emit(forge.EventToolCall, ToolCallData{
+	logger.Emit(agent.EventToolCall, ToolCallData{
 		Tool:   "read",
 		Input:  []byte(`{"path":"config.yaml","limit":10}`),
 		Output: "content here",
@@ -211,9 +211,9 @@ func TestReplay_MultipleToolCalls(t *testing.T) {
 	sessionID := "multi-tool-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventLLMResponse, LLMResponseData{
+	logger.Emit(agent.EventLLMResponse, LLMResponseData{
 		Content: "",
-		ToolCalls: []forge.ToolCall{
+		ToolCalls: []agent.ToolCall{
 			{ID: "tc1", Name: "read"},
 			{ID: "tc2", Name: "write"},
 			{ID: "tc3", Name: "bash"},
@@ -234,12 +234,12 @@ func TestReplay_MultipleMessages(t *testing.T) {
 	sessionID := "multi-msg-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventLLMRequest, LLMRequestData{
-		Messages: []forge.Message{
-			{Role: forge.RoleSystem, Content: "You are helpful."},
-			{Role: forge.RoleUser, Content: "Hello"},
-			{Role: forge.RoleAssistant, Content: "Hi there!"},
-			{Role: forge.RoleTool, Content: "tool result", ToolCallID: "tc1"},
+	logger.Emit(agent.EventLLMRequest, LLMRequestData{
+		Messages: []agent.Message{
+			{Role: agent.RoleSystem, Content: "You are helpful."},
+			{Role: agent.RoleUser, Content: "Hello"},
+			{Role: agent.RoleAssistant, Content: "Hi there!"},
+			{Role: agent.RoleTool, Content: "tool result", ToolCallID: "tc1"},
 		},
 	})
 	require.NoError(t, logger.Close())
@@ -260,8 +260,8 @@ func TestReplay_WithMetadata(t *testing.T) {
 	sessionID := "metadata-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionEnd, SessionEndData{
-		Status: forge.StatusSuccess,
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status: agent.StatusSuccess,
 		Metadata: map[string]string{
 			"branch":    "main",
 			"commit":    "abc123",
@@ -286,7 +286,7 @@ func TestReplay_NewlinesInOutput(t *testing.T) {
 
 	logger := NewLogger(dir, sessionID)
 	multilineOutput := "line1\nline2\nline3\nline4"
-	logger.Emit(forge.EventToolCall, ToolCallData{
+	logger.Emit(agent.EventToolCall, ToolCallData{
 		Tool:   "bash",
 		Input:  []byte(`{"cmd":"ls -la"}`),
 		Output: multilineOutput,
@@ -308,7 +308,7 @@ func TestReplay_UnknownEventType(t *testing.T) {
 
 	logger := NewLogger(dir, sessionID)
 	// Emit an event type that replay doesn't handle (e.g., EventCompactionStart)
-	logger.Emit(forge.EventCompactionStart, nil)
+	logger.Emit(agent.EventCompactionStart, nil)
 	require.NoError(t, logger.Close())
 
 	var buf bytes.Buffer
@@ -323,7 +323,7 @@ func TestReplay_LatencyDisplay(t *testing.T) {
 	sessionID := "latency-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventLLMResponse, LLMResponseData{
+	logger.Emit(agent.EventLLMResponse, LLMResponseData{
 		Content:   "response",
 		LatencyMs: 1234, // Should show as 1234ms
 	})
@@ -342,9 +342,9 @@ func TestReplay_TokenDisplay(t *testing.T) {
 	sessionID := "tokens-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventLLMResponse, LLMResponseData{
+	logger.Emit(agent.EventLLMResponse, LLMResponseData{
 		Content: "response",
-		Usage:   forge.TokenUsage{Input: 1234, Output: 567},
+		Usage:   agent.TokenUsage{Input: 1234, Output: 567},
 	})
 	require.NoError(t, logger.Close())
 
@@ -362,7 +362,7 @@ func TestReplay_ModelName(t *testing.T) {
 	sessionID := "model-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Model: "gpt-4o-mini",
 	})
 	require.NoError(t, logger.Close())
@@ -380,7 +380,7 @@ func TestReplay_WorkDir(t *testing.T) {
 	sessionID := "workdir-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		WorkDir: "/home/user/project/src",
 	})
 	require.NoError(t, logger.Close())
@@ -398,7 +398,7 @@ func TestReplay_MaxIterations(t *testing.T) {
 	sessionID := "maxiter-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		MaxIterations: 50,
 	})
 	require.NoError(t, logger.Close())
@@ -416,7 +416,7 @@ func TestReplay_ProviderName(t *testing.T) {
 	sessionID := "provider-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Provider: "openrouter",
 	})
 	require.NoError(t, logger.Close())
@@ -434,7 +434,7 @@ func TestReplay_TimestampFormat(t *testing.T) {
 	sessionID := "timestamp-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Prompt: "Test",
 	})
 	require.NoError(t, logger.Close())
@@ -452,12 +452,12 @@ func TestReplay_IterationLimitStatus(t *testing.T) {
 	sessionID := "iteration-limit-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Prompt:          "Test",
 		MaxIterations:  20,
 	})
-	logger.Emit(forge.EventSessionEnd, SessionEndData{
-		Status: forge.StatusIterationLimit,
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status: agent.StatusIterationLimit,
 		Output: "Hit iteration limit",
 	})
 	require.NoError(t, logger.Close())
@@ -475,11 +475,11 @@ func TestReplay_CancelledStatus(t *testing.T) {
 	sessionID := "cancelled-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Prompt: "Test",
 	})
-	logger.Emit(forge.EventSessionEnd, SessionEndData{
-		Status: forge.StatusCancelled,
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status: agent.StatusCancelled,
 		Output: "User cancelled",
 	})
 	require.NoError(t, logger.Close())
@@ -497,7 +497,7 @@ func TestReplay_ToolError(t *testing.T) {
 	sessionID := "tool-error-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventToolCall, ToolCallData{
+	logger.Emit(agent.EventToolCall, ToolCallData{
 		Tool:  "bash",
 		Input: []byte(`{"cmd":"invalid command"}`),
 		Error: "command not found: invalid",
@@ -519,11 +519,11 @@ func TestReplay_LLMRequestDisplay(t *testing.T) {
 	sessionID := "llm-request-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventLLMRequest, LLMRequestData{
-		Messages: []forge.Message{
-			{Role: forge.RoleUser, Content: "Hello"},
+	logger.Emit(agent.EventLLMRequest, LLMRequestData{
+		Messages: []agent.Message{
+			{Role: agent.RoleUser, Content: "Hello"},
 		},
-		Tools: []forge.ToolDef{
+		Tools: []agent.ToolDef{
 			{Name: "read", Description: "Read a file"},
 			{Name: "write", Description: "Write a file"},
 		},
@@ -546,7 +546,7 @@ func TestReplay_CompactJSON(t *testing.T) {
 	sessionID := "compact-json-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventToolCall, ToolCallData{
+	logger.Emit(agent.EventToolCall, ToolCallData{
 		Tool:  "read",
 		Input: []byte(`{"path":"file.go","offset":10,"limit":20}`), // Pretty-printed JSON
 	})
@@ -566,7 +566,7 @@ func TestReplay_NoSystemPrompt(t *testing.T) {
 	sessionID := "no-system-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Prompt: "Just a user prompt",
 	})
 	require.NoError(t, logger.Close())
@@ -585,12 +585,12 @@ func TestReplay_AssistantToolCallInRequest(t *testing.T) {
 	sessionID := "assistant-tool-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventLLMRequest, LLMRequestData{
-		Messages: []forge.Message{
+	logger.Emit(agent.EventLLMRequest, LLMRequestData{
+		Messages: []agent.Message{
 			{
-				Role:      forge.RoleAssistant,
+				Role:      agent.RoleAssistant,
 				Content:   "",
-				ToolCalls: []forge.ToolCall{{ID: "tc1", Name: "read"}},
+				ToolCalls: []agent.ToolCall{{ID: "tc1", Name: "read"}},
 			},
 		},
 	})
@@ -609,11 +609,11 @@ func TestReplay_SuccessStatus(t *testing.T) {
 	sessionID := "success-test"
 
 	logger := NewLogger(dir, sessionID)
-	logger.Emit(forge.EventSessionStart, SessionStartData{
+	logger.Emit(agent.EventSessionStart, SessionStartData{
 		Prompt: "Test",
 	})
-	logger.Emit(forge.EventSessionEnd, SessionEndData{
-		Status: forge.StatusSuccess,
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status: agent.StatusSuccess,
 		Output: "Completed successfully",
 	})
 	require.NoError(t, logger.Close())

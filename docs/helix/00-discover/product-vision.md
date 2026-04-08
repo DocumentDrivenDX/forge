@@ -2,7 +2,7 @@
 
 ## Mission Statement
 
-Forge is an embeddable Go agent runtime that gives build orchestrators like
+DDX Agent is an embeddable Go agent runtime that gives build orchestrators like
 DDx/HELIX a native, in-process coding agent — optimized for local models via
 LM Studio, cost-efficient use of cloud models, and the tight feedback loops
 that specification-driven development demands.
@@ -11,10 +11,10 @@ that specification-driven development demands.
 
 For **build-loop orchestrators and CI systems** that need an AI coding agent
 without the overhead of shelling out to standalone CLIs,
-**Forge** is an **embeddable agent runtime library** that provides a
+**DDX Agent** is an **embeddable agent runtime library** that provides a
 pi-style tool-calling agent loop as a Go package.
 Unlike Claude Code, Codex, pi, or Aider — which are standalone processes
-invoked via subprocess — Forge runs in-process with direct access to the
+invoked via subprocess — DDX Agent runs in-process with direct access to the
 host's state, native multi-provider support (LM Studio, Ollama, cloud APIs),
 and model routing that picks the cheapest capable model for each task.
 
@@ -33,17 +33,17 @@ interaction and tool call is logged, replayable, and cost-tracked.
 
 ## Design Philosophy
 
-Forge follows the ghostty model: build a great library, then prove it works
-with a usable standalone app. The library (`forge` Go package) is the product.
-The CLI (`forge` binary) is the showcase — a thin porcelain that demonstrates
+DDX Agent follows the ghostty model: build a great library, then prove it works
+with a usable standalone app. The library (`ddx-agent` Go package) is the product.
+The CLI (`ddx-agent` binary) is the showcase — a thin porcelain that demonstrates
 the library works end-to-end and serves as the DDx harness backend.
 
 ## User Experience
 
 A developer runs `helix run` on a project with detailed specs. HELIX claims
-a bead, reads the acceptance criteria, and calls Forge in-process. Forge
+a bead, reads the acceptance criteria, and calls DDX Agent in-process. DDX Agent
 selects a local Qwen 3.5 model via LM Studio for the implementation pass —
-reading files, editing code, running tests. When tests pass, Forge switches
+reading files, editing code, running tests. When tests pass, DDX Agent switches
 to Claude Sonnet for a review pass. The whole cycle takes 90 seconds, costs
 $0.02, and the developer sees a clean commit with passing tests. No agent
 CLI was spawned. No context was lost between steps.
@@ -86,5 +86,5 @@ test fixes, and scaffolding with tool calling. LM Studio's headless daemon
 (`lms daemon up`) makes local inference a stable platform service. Meanwhile,
 cloud model costs remain high enough that running every agent task through
 Claude or GPT-4 is wasteful when 70% of tasks are mechanical. The DDx agent
-service (FEAT-006) already defines the harness abstraction — Forge fills the
+service (FEAT-006) already defines the harness abstraction — DDX Agent fills the
 gap between "shell out to a CLI" and "run the agent loop natively."

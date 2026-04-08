@@ -13,15 +13,15 @@ Measures line coverage percentage for Go packages using `go test -cover`.
 
 ```bash
 go test -coverprofile=coverage.out ./... 2>/dev/null
-go tool cover -func=coverage.out | grep -E '^github.com/DocumentDrivenDX/forge'
+go tool cover -func=coverage.out | grep -E '^github.com/DocumentDrivenDX/agent'
 ```
 
 ## Output Format
 
 Per-package coverage lines:
 ```
-github.com/DocumentDrivenDX/forge    82.1%
-github.com/DocumentDrivenDX/forge/compaction    93.5%
+github.com/DocumentDrivenDX/agent    82.1%
+github.com/DocumentDrivenDX/agent/compaction    93.5%
 ...
 ```
 
@@ -29,7 +29,7 @@ github.com/DocumentDrivenDX/forge/compaction    93.5%
 
 | Package Pattern | Floor | Tolerance | Auto-bump Threshold |
 |-----------------|-------|-----------|---------------------|
-| `forge` (root) | 75% | 2% | 85% |
+| `ddx-agent` (root) | 75% | 2% | 85% |
 | `*/compaction` | 80% | 2% | 90% |
 | `*/prompt` | 80% | 2% | 90% |
 | `*/tool` | 75% | 2% | 85% |

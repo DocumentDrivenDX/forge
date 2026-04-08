@@ -17,8 +17,8 @@ targets:
       - sonnet
     status: active
     surfaces:
-      forge.anthropic: claude-sonnet-4-20250514
-      forge.openai: anthropic/claude-sonnet-4
+      agent.anthropic: claude-sonnet-4-20250514
+      agent.openai: anthropic/claude-sonnet-4
       claude-code: sonnet
 
   qwen3-coder-next:
@@ -28,7 +28,7 @@ targets:
       - qwen3-coder
     status: active
     surfaces:
-      forge.openai: qwen/qwen3-coder-next
+      agent.openai: qwen/qwen3-coder-next
 
   claude-sonnet-3.7:
     family: claude-sonnet
@@ -36,4 +36,4 @@ targets:
     replacement: claude-sonnet-4
     deprecated_at: 2026-04-08
     surfaces:
-      forge.anthropic: claude-3-7-sonnet-20250219
+      agent.anthropic: claude-3-7-sonnet-20250219

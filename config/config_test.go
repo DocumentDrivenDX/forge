@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/modelcatalog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +18,7 @@ func isolateHome(t *testing.T) {
 func TestLoad_NewFormat(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".forge")
+	cfgDir := filepath.Join(dir, ".agent")
 	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
@@ -59,7 +59,7 @@ max_iterations: 30
 func TestLoad_LegacyMigration(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".forge")
+	cfgDir := filepath.Join(dir, ".agent")
 	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
@@ -85,16 +85,16 @@ max_iterations: 15
 func TestLoad_EnvExpansion(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".forge")
+	cfgDir := filepath.Join(dir, ".agent")
 	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 
-	t.Setenv("TEST_FORGE_KEY", "secret-key-123")
+	t.Setenv("TEST_AGENT_KEY", "secret-key-123")
 
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
 providers:
   test:
     type: anthropic
-    api_key: ${TEST_FORGE_KEY}
+    api_key: ${TEST_AGENT_KEY}
     model: claude-sonnet-4-20250514
 `), 0o644))
 
@@ -109,7 +109,7 @@ providers:
 func TestLoad_EnvExpansion_Unset(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".forge")
+	cfgDir := filepath.Join(dir, ".agent")
 	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
@@ -133,14 +133,14 @@ func TestLoad_MissingFile(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, 20, cfg.MaxIterations)
-	assert.Equal(t, ".forge/sessions", cfg.SessionLogDir)
+	assert.Equal(t, ".agent/sessions", cfg.SessionLogDir)
 }
 
 func TestLoad_EnvOverrides(t *testing.T) {
 	isolateHome(t)
-	t.Setenv("FORGE_PROVIDER", "anthropic")
-	t.Setenv("FORGE_API_KEY", "env-key")
-	t.Setenv("FORGE_MODEL", "env-model")
+	t.Setenv("AGENT_PROVIDER", "anthropic")
+	t.Setenv("AGENT_API_KEY", "env-key")
+	t.Setenv("AGENT_MODEL", "env-model")
 
 	cfg, err := Load(t.TempDir())
 	require.NoError(t, err)
@@ -226,7 +226,7 @@ func TestBuildProvider_WithHeaders(t *testing.T) {
 				Model:   "test",
 				Headers: map[string]string{
 					"HTTP-Referer": "https://example.com",
-					"X-Title":      "Forge",
+					"X-Title":      "DDX Agent",
 				},
 			},
 		},
@@ -311,7 +311,7 @@ targets:
     family: gpt
     aliases: [gpt-smart]
     surfaces:
-      forge.openai: gpt-4.1
+      agent.openai: gpt-4.1
 `), 0o644))
 
 	cfg := Config{
@@ -351,7 +351,7 @@ func TestResolveProviderConfig_MissingSurface(t *testing.T) {
 
 	var missingSurfaceErr *modelcatalog.MissingSurfaceError
 	require.ErrorAs(t, err, &missingSurfaceErr)
-	assert.Equal(t, modelcatalog.SurfaceForgeAnthropic, missingSurfaceErr.Surface)
+	assert.Equal(t, modelcatalog.SurfaceAgentAnthropic, missingSurfaceErr.Surface)
 }
 
 func TestBuildProviderWithOverrides(t *testing.T) {
@@ -402,7 +402,7 @@ func TestResolveProviderConfig_AllowDeprecated(t *testing.T) {
 func TestLoad_LegacySaveRoundTripDoesNotReemitLegacyFields(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
-	cfgDir := filepath.Join(dir, ".forge")
+	cfgDir := filepath.Join(dir, ".agent")
 	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 
 	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
@@ -426,7 +426,7 @@ model: qwen3.5-7b
 
 func TestLoad_EnvOverridesCreateDeterministicDefaultProvider(t *testing.T) {
 	isolateHome(t)
-	t.Setenv("FORGE_MODEL", "env-model")
+	t.Setenv("AGENT_MODEL", "env-model")
 
 	cfg := Defaults()
 	cfg.Providers = map[string]ProviderConfig{

@@ -4,23 +4,23 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSerializeConversation(t *testing.T) {
-	msgs := []forge.Message{
-		{Role: forge.RoleSystem, Content: "You are helpful."},
-		{Role: forge.RoleUser, Content: "Read main.go"},
+	msgs := []agent.Message{
+		{Role: agent.RoleSystem, Content: "You are helpful."},
+		{Role: agent.RoleUser, Content: "Read main.go"},
 		{
-			Role: forge.RoleAssistant,
-			ToolCalls: []forge.ToolCall{
+			Role: agent.RoleAssistant,
+			ToolCalls: []agent.ToolCall{
 				{Name: "read", Arguments: json.RawMessage(`{"path":"main.go"}`)},
 			},
 		},
-		{Role: forge.RoleTool, Content: "package main\n\nfunc main() {}\n", ToolCallID: "tc1"},
-		{Role: forge.RoleAssistant, Content: "The package is main."},
+		{Role: agent.RoleTool, Content: "package main\n\nfunc main() {}\n", ToolCallID: "tc1"},
+		{Role: agent.RoleAssistant, Content: "The package is main."},
 	}
 
 	result := SerializeConversation(msgs, 2000)
@@ -34,8 +34,8 @@ func TestSerializeConversation(t *testing.T) {
 
 func TestSerializeConversation_TruncatesToolResults(t *testing.T) {
 	longResult := string(make([]byte, 5000))
-	msgs := []forge.Message{
-		{Role: forge.RoleTool, Content: longResult, ToolCallID: "tc1"},
+	msgs := []agent.Message{
+		{Role: agent.RoleTool, Content: longResult, ToolCallID: "tc1"},
 	}
 
 	result := SerializeConversation(msgs, 100)
@@ -43,7 +43,7 @@ func TestSerializeConversation_TruncatesToolResults(t *testing.T) {
 }
 
 func TestExtractFileOps(t *testing.T) {
-	calls := []forge.ToolCallLog{
+	calls := []agent.ToolCallLog{
 		{Tool: "read", Input: json.RawMessage(`{"path":"main.go"}`)},
 		{Tool: "read", Input: json.RawMessage(`{"path":"go.mod"}`)},
 		{Tool: "edit", Input: json.RawMessage(`{"path":"main.go","old_string":"a","new_string":"b"}`)},

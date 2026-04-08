@@ -10,7 +10,7 @@ import (
 func TestPresetNames(t *testing.T) {
 	names := PresetNames()
 	require.Len(t, names, 5)
-	assert.Equal(t, "forge", names[0]) // default first
+	assert.Equal(t, "agent", names[0]) // default first
 }
 
 func TestGetPreset(t *testing.T) {
@@ -21,9 +21,9 @@ func TestGetPreset(t *testing.T) {
 		assert.NotEmpty(t, p.Guidelines)
 	})
 
-	t.Run("unknown falls back to forge", func(t *testing.T) {
+	t.Run("unknown falls back to agent", func(t *testing.T) {
 		p := GetPreset("nonexistent")
-		assert.Equal(t, "forge", p.Name)
+		assert.Equal(t, "agent", p.Name)
 	})
 }
 

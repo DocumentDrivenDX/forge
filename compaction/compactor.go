@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // state tracks compaction state across invocations.
@@ -14,12 +14,12 @@ type state struct {
 	previousFileOps *FileOps
 }
 
-// NewCompactor creates a Compactor function suitable for forge.Request.Compactor.
+// NewCompactor creates a Compactor function suitable for agent.Request.Compactor.
 // It uses the provided config to determine when and how to compact.
-func NewCompactor(cfg Config) func(ctx context.Context, messages []forge.Message, provider forge.Provider, toolCalls []forge.ToolCallLog) ([]forge.Message, *forge.CompactionResult, error) {
+func NewCompactor(cfg Config) func(ctx context.Context, messages []agent.Message, provider agent.Provider, toolCalls []agent.ToolCallLog) ([]agent.Message, *agent.CompactionResult, error) {
 	s := &state{}
 
-	return func(ctx context.Context, messages []forge.Message, provider forge.Provider, toolCalls []forge.ToolCallLog) ([]forge.Message, *forge.CompactionResult, error) {
+	return func(ctx context.Context, messages []agent.Message, provider agent.Provider, toolCalls []agent.ToolCallLog) ([]agent.Message, *agent.CompactionResult, error) {
 		if !cfg.Enabled {
 			return messages, nil, nil
 		}
@@ -57,20 +57,20 @@ func NewCompactor(cfg Config) func(ctx context.Context, messages []forge.Message
 		s.previousFileOps = result.FileOps
 		s.mu.Unlock()
 
-		// Convert to forge.CompactionResult
-		forgeResult := &forge.CompactionResult{
+		// Convert to agent.CompactionResult
+		agentResult := &agent.CompactionResult{
 			Summary:      result.Summary,
 			TokensBefore: result.TokensBefore,
 			TokensAfter:  result.TokensAfter,
 			Warning:      result.Warning,
 		}
 		if result.FileOps != nil {
-			forgeResult.FileOps = map[string]any{
+			agentResult.FileOps = map[string]any{
 				"read":     result.FileOps.Read,
 				"modified": result.FileOps.Modified,
 			}
 		}
 
-		return newMessages, forgeResult, nil
+		return newMessages, agentResult, nil
 	}
 }

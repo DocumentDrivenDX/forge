@@ -1,4 +1,4 @@
-package forge
+package agent
 
 import (
 	"context"
@@ -18,7 +18,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	}
 
 	if req.Provider == nil {
-		return result, fmt.Errorf("forge: provider is required")
+		return result, fmt.Errorf("agent: provider is required")
 	}
 
 	// Build tool definitions for the provider
@@ -86,8 +86,8 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				Type:      EventCompactionEnd,
 				Timestamp: time.Now().UTC(),
 				Data: mustMarshal(map[string]any{
-					"error":    compErr.Error(),
-					"success":  false,
+					"error":   compErr.Error(),
+					"success": false,
 				}),
 			})
 			seq++
@@ -102,7 +102,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				Type:      EventCompactionEnd,
 				Timestamp: time.Now().UTC(),
 				Data: mustMarshal(map[string]any{
-					"success":         true,
+					"success":        true,
 					"summary":        compResult.Summary,
 					"file_ops":       compResult.FileOps,
 					"tokens_before":  compResult.TokensBefore,
@@ -172,7 +172,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				return result, nil
 			}
 			result.Status = StatusError
-			result.Error = fmt.Errorf("forge: provider error: %w", err)
+			result.Error = fmt.Errorf("agent: provider error: %w", err)
 			result.Duration = time.Since(start)
 			emitSessionEnd(req.Callback, sessionID, &seq, result, req.Metadata)
 			return result, result.Error

@@ -11,7 +11,7 @@ type Settings struct {
 	DefaultProvider string `json:"defaultProvider,omitempty"`
 	DefaultModel    string `json:"defaultModel,omitempty"`
 	MaxIterations   int    `json:"max_iterations,omitempty"`
-	// Other fields we don't care about for forge import
+	// Other fields we don't care about for agent import
 }
 
 // LoadSettings reads the pi settings.json file.

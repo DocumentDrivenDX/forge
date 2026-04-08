@@ -1,4 +1,4 @@
-package forge
+package agent
 
 // ModelPricing holds per-million-token costs for a model.
 type ModelPricing struct {

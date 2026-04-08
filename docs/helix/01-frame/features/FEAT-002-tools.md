@@ -9,11 +9,11 @@ ddx:
 **Feature ID**: FEAT-002
 **Status**: Draft
 **Priority**: P0
-**Owner**: Forge Team
+**Owner**: DDX Agent Team
 
 ## Overview
 
-Forge provides a minimal, pi-style tool set — read, write, edit, bash — that
+DDX Agent provides a minimal, pi-style tool set — read, write, edit, bash — that
 the LLM uses to interact with the filesystem and shell. Tools are the agent's
 hands. This implements PRD P0 requirement 2.
 
@@ -24,7 +24,7 @@ hands. This implements PRD P0 requirement 2.
 - **Pain points**: Tool behavior varies across agents. DDx can't predict what
   file operations an agent will perform or constrain them.
 - **Desired outcome**: A small, well-defined tool set with consistent behavior
-  that Forge controls and DDx can audit.
+  that DDX Agent controls and DDx can audit.
 
 ## Requirements
 
@@ -72,7 +72,7 @@ hands. This implements PRD P0 requirement 2.
 
 ### Non-Functional Requirements
 
-- **Security**: Forge assumes it runs in a sandbox. File paths outside the
+- **Security**: DDX Agent assumes it runs in a sandbox. File paths outside the
   working directory are allowed but logged. No path validation boundary.
 - **Performance**: File operations complete in <10ms for files under 1MB.
   Bash tool adds <5ms overhead beyond the command's own execution time.

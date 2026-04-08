@@ -6,57 +6,57 @@ weight: 1
 ## Install
 
 ```bash
-go install github.com/anthropics/forge/cmd/forge@latest
+go install github.com/DocumentDrivenDX/agent/cmd/ddx-agent@latest
 ```
 
 ## Quick Start with LM Studio
 
 1. Start [LM Studio](https://lmstudio.ai/) and load a model with tool-calling support (e.g., Qwen 3.5).
 
-2. Run forge:
+2. Run `ddx-agent`:
 
 ```bash
-forge -p "Read main.go and tell me the package name"
+ddx-agent -p "Read main.go and tell me the package name"
 ```
 
-Forge connects to LM Studio at `localhost:1234` by default.
+DDX Agent connects to LM Studio at `localhost:1234` by default.
 
 ## Quick Start with Anthropic
 
 ```bash
-export FORGE_PROVIDER=anthropic
-export FORGE_API_KEY=sk-ant-...
-export FORGE_MODEL=claude-sonnet-4-20250514
+export AGENT_PROVIDER=anthropic
+export AGENT_API_KEY=sk-ant-...
+export AGENT_MODEL=claude-sonnet-4-20250514
 
-forge -p "Read main.go and tell me the package name"
+ddx-agent -p "Read main.go and tell me the package name"
 ```
 
 ## Configuration
 
-Create `.forge/config.yaml` in your project:
+Create `.agent/config.yaml` in your project:
 
 ```yaml
 provider: openai-compat
 base_url: http://localhost:1234/v1
 model: qwen3.5-7b
 max_iterations: 20
-session_log_dir: .forge/sessions
+session_log_dir: .agent/sessions
 ```
 
 Environment variables override the config file:
-- `FORGE_PROVIDER` — `openai-compat` or `anthropic`
-- `FORGE_BASE_URL` — provider base URL
-- `FORGE_API_KEY` — API key
-- `FORGE_MODEL` — model name
+- `AGENT_PROVIDER` — `openai-compat` or `anthropic`
+- `AGENT_BASE_URL` — provider base URL
+- `AGENT_API_KEY` — API key
+- `AGENT_MODEL` — model name
 
 ## As a Library
 
 ```go
 import (
     "context"
-    "github.com/anthropics/forge"
-    "github.com/anthropics/forge/provider/openai"
-    "github.com/anthropics/forge/tool"
+    "github.com/DocumentDrivenDX/agent"
+    "github.com/DocumentDrivenDX/agent/provider/openai"
+    "github.com/DocumentDrivenDX/agent/tool"
 )
 
 func main() {
@@ -65,10 +65,10 @@ func main() {
         Model:   "qwen3.5-7b",
     })
 
-    result, err := forge.Run(context.Background(), forge.Request{
+    result, err := agent.Run(context.Background(), agent.Request{
         Prompt:   "Read main.go and tell me the package name",
         Provider: p,
-        Tools: []forge.Tool{
+        Tools: []agent.Tool{
             &tool.ReadTool{WorkDir: "."},
             &tool.BashTool{WorkDir: "."},
         },
@@ -83,6 +83,6 @@ func main() {
 Every run is logged. Replay past sessions:
 
 ```bash
-forge log                    # list sessions
-forge replay <session-id>   # human-readable replay
+ddx-agent log                  # list sessions
+ddx-agent replay <session-id>  # human-readable replay
 ```

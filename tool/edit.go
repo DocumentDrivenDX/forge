@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // EditEntry is a single oldText→newText replacement.
@@ -156,4 +156,4 @@ func (t *EditTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	return fmt.Sprintf("Applied %d edits to %s", len(edits), resolved), nil
 }
 
-var _ forge.Tool = (*EditTool)(nil)
+var _ agent.Tool = (*EditTool)(nil)

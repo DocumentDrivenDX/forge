@@ -3,7 +3,7 @@
 **Review Date**: 2026-04-07
 **Scope**: SD-007 config import from pi and opencode
 **Status**: draft
-**Review Epic**: forge-600a7be2
+**Review Epic**: agent-600a7be2
 **Primary Governing Artifact**: docs/helix/02-design/solution-designs/SD-007-provider-import.md
 
 ## Scope and Governing Artifacts
@@ -12,7 +12,7 @@
 
 - picompat package (pi config readers)
 - occompat package (opencode config readers)
-- forge import CLI command
+- ddx-agent import CLI command
 - imported_from metadata and drift detection
 - zero-config discovery notice
 
@@ -23,10 +23,10 @@
 
 ## Intent Summary
 
-- **Vision**: Users of pi and opencode should be able to import their existing LLM provider configurations into forge without duplication.
+- **Vision**: Users of pi and opencode should be able to import their existing LLM provider configurations into agent without duplication.
 - **Requirements**: Import from pi (~/.pi/agent/auth.json, settings.json, models.json) and opencode (~/.local/share/opencode/auth.json, opencode.json). Support diff/merge modes, secret redaction, drift detection, and zero-config discovery.
 - **Features / Stories**: Per SD-007 — import CLI commands, two-source merge for pi, secret handling to user config, drift detection with hash tracking.
-- **Architecture / ADRs**: Uses existing config.Load() pattern, writes to ~/.config/forge/config.yaml by default.
+- **Architecture / ADRs**: Uses existing config.Load() pattern, writes to ~/.config/agent/config.yaml by default.
 - **Technical Design**: SD-007 fully specifies the design including package structure, CLI commands, metadata schema, and implementation plan.
 - **Test Plans**: Not yet specified for this feature.
 - **Implementation Plan**: 8 tasks in SD-007, tasks 1-4 (readers), task 5 (CLI), task 6 (discovery), task 7 (drift), task 8 (env var fallback already exists in config.Load()).
@@ -40,8 +40,8 @@
 
 ## Implementation Map
 
-- **Topology**: No packages exist yet. Target: `forge/picompat/`, `forge/occompat/`.
-- **Entry Points**: New subcommands in `cmd/forge/main.go`: `forge import pi`, `forge import opencode`.
+- **Topology**: No packages exist yet. Target: `agent/picompat/`, `agent/occompat/`.
+- **Entry Points**: New subcommands in `cmd/ddx-agent/main.go`: `ddx-agent import pi`, `ddx-agent import opencode`.
 - **Test Surfaces**: No tests exist yet. Need unit tests for each reader and translator.
 - **Unplanned Areas**: None — SD-007 covers the full scope.
 
@@ -53,7 +53,7 @@
 | SD-007 Task 2 | Pi models.json reader | none | UNIMPLEMENTED | No picompat/models.go |
 | SD-007 Task 3 | Pi settings.json reader + translate | none | UNIMPLEMENTED | No picompat/settings.go, picompat/translate.go |
 | SD-007 Task 4 | OpenCode auth + config reader | none | UNIMPLEMENTED | No occompat/ |
-| SD-007 Task 5 | forge import CLI command | none | UNIMPLEMENTED | No import subcommand in main.go |
+| SD-007 Task 5 | ddx-agent import CLI command | none | UNIMPLEMENTED | No import subcommand in main.go |
 | SD-007 Task 6 | Zero-config discovery notice | none | UNIMPLEMENTED | No discovery logic |
 | SD-007 Task 7 | Drift detection | none | UNIMPLEMENTED | No ImportMetadata, no hash tracking |
 | SD-007 Task 8 | Standard env var fallback | none | IMPLEMENTED | config.Load() has applyEnvOverrides() |
@@ -62,14 +62,14 @@
 
 | Area | Classification | Planning Evidence | Implementation Evidence | Resolution Direction | Issue |
 |------|----------------|-------------------|------------------------|----------------------|-------|
-| picompat/auth.go | NOT_IMPLEMENTED | SD-007 task 1 | No file exists | code-to-plan | forge-640ef3be |
-| picompat/models.go | NOT_IMPLEMENTED | SD-007 task 2 | No file exists | code-to-plan | forge-640ef3be |
-| picompat/settings.go + translate.go | NOT_IMPLEMENTED | SD-007 task 3 | No files exist | code-to-plan | forge-640ef3be |
-| occompat/ package | NOT_IMPLEMENTED | SD-007 task 4 | No package exists | code-to-plan | forge-c8d7eb45 |
-| forge import CLI | NOT_IMPLEMENTED | SD-007 task 5 | No subcommand in main.go | code-to-plan | forge-bc840f36 |
-| imported_from metadata | NOT_IMPLEMENTED | SD-007 Config Schema Additions | Config struct missing ImportMetadata | code-to-plan | forge-a8e99614 |
-| drift detection | NOT_IMPLEMENTED | SD-007 Drift Detection section | No hash tracking, no notice | code-to-plan | forge-a8e99614 |
-| zero-config discovery | NOT_IMPLEMENTED | SD-007 Zero-Config Discovery | No discovery logic | code-to-plan | forge-5bc78ae2 |
+| picompat/auth.go | NOT_IMPLEMENTED | SD-007 task 1 | No file exists | code-to-plan | agent-640ef3be |
+| picompat/models.go | NOT_IMPLEMENTED | SD-007 task 2 | No file exists | code-to-plan | agent-640ef3be |
+| picompat/settings.go + translate.go | NOT_IMPLEMENTED | SD-007 task 3 | No files exist | code-to-plan | agent-640ef3be |
+| occompat/ package | NOT_IMPLEMENTED | SD-007 task 4 | No package exists | code-to-plan | agent-c8d7eb45 |
+| ddx-agent import CLI | NOT_IMPLEMENTED | SD-007 task 5 | No subcommand in main.go | code-to-plan | agent-bc840f36 |
+| imported_from metadata | NOT_IMPLEMENTED | SD-007 Config Schema Additions | Config struct missing ImportMetadata | code-to-plan | agent-a8e99614 |
+| drift detection | NOT_IMPLEMENTED | SD-007 Drift Detection section | No hash tracking, no notice | code-to-plan | agent-a8e99614 |
+| zero-config discovery | NOT_IMPLEMENTED | SD-007 Zero-Config Discovery | No discovery logic | code-to-plan | agent-5bc78ae2 |
 | standard env var fallback | ALIGNED | SD-007 Standard Env Var Fallback | config.Load() has applyEnvOverrides() | N/A | N/A |
 
 ### Quality Findings
@@ -86,43 +86,43 @@ None — feature not yet implemented.
 
 | Issue ID | Area | Classification |
 |----------|------|---------------|
-| forge-640ef3be | picompat package | NOT_IMPLEMENTED |
-| forge-c8d7eb45 | occompat package | NOT_IMPLEMENTED |
-| forge-bc840f36 | forge import CLI | NOT_IMPLEMENTED |
-| forge-a8e99614 | imported_from + drift | NOT_IMPLEMENTED |
-| forge-5bc78ae2 | zero-config discovery | NOT_IMPLEMENTED |
+| agent-640ef3be | picompat package | NOT_IMPLEMENTED |
+| agent-c8d7eb45 | occompat package | NOT_IMPLEMENTED |
+| agent-bc840f36 | ddx-agent import CLI | NOT_IMPLEMENTED |
+| agent-a8e99614 | imported_from + drift | NOT_IMPLEMENTED |
+| agent-5bc78ae2 | zero-config discovery | NOT_IMPLEMENTED |
 
 ## Execution Issues Generated
 
 | Issue ID | Type | Labels | Goal | Dependencies | Verification |
 |----------|------|--------|------|--------------|-------------|
-| forge-NEW | task | helix,area:lib,phase:build | Implement picompat package (auth, models, settings, translate) | — | Unit tests pass |
-| forge-NEW | task | helix,area:lib,phase:build | Implement occompat package (auth, config, translate) | — | Unit tests pass |
-| forge-NEW | task | helix,area:cli,phase:build | Implement forge import CLI command | picompat, occompat | Functional tests pass |
-| forge-NEW | chore | helix,area:lib,phase:build | Add ImportMetadata to config.Config | picompat | Config round-trips correctly |
-| forge-NEW | task | helix,area:lib,phase:build | Implement drift detection (hash tracking, notice) | ImportMetadata | Manual verification |
-| forge-NEW | task | helix,area:cli,phase:build | Implement zero-config discovery notice | forge import | Manual verification |
+| agent-NEW | task | helix,area:lib,phase:build | Implement picompat package (auth, models, settings, translate) | — | Unit tests pass |
+| agent-NEW | task | helix,area:lib,phase:build | Implement occompat package (auth, config, translate) | — | Unit tests pass |
+| agent-NEW | task | helix,area:cli,phase:build | Implement ddx-agent import CLI command | picompat, occompat | Functional tests pass |
+| agent-NEW | chore | helix,area:lib,phase:build | Add ImportMetadata to config.Config | picompat | Config round-trips correctly |
+| agent-NEW | task | helix,area:lib,phase:build | Implement drift detection (hash tracking, notice) | ImportMetadata | Manual verification |
+| agent-NEW | task | helix,area:cli,phase:build | Implement zero-config discovery notice | ddx-agent import | Manual verification |
 
 ## Issue Coverage
 
 | Gap / Criterion | Covering Issue | Status |
 |-----------------|----------------|--------|
-| picompat package | forge-NEW | covered |
-| occompat package | forge-NEW | covered |
-| forge import CLI | forge-NEW | covered |
-| imported_from metadata | forge-NEW | covered |
-| drift detection | forge-NEW | covered |
-| zero-config discovery | forge-NEW | covered |
+| picompat package | agent-NEW | covered |
+| occompat package | agent-NEW | covered |
+| ddx-agent import CLI | agent-NEW | covered |
+| imported_from metadata | agent-NEW | covered |
+| drift detection | agent-NEW | covered |
+| zero-config discovery | agent-NEW | covered |
 | standard env var fallback | N/A | ALIGNED |
 
 ## Execution Order
 
-1. **forge-picompat** — picompat package (auth, models, settings, translate)
-2. **forge-occompat** — occompat package (auth, config, translate)
-3. **forge-import-cli** — forge import CLI command
-4. **forge-import-metadata** — Add ImportMetadata to config.Config
-5. **forge-drift** — Implement drift detection
-6. **forge-discovery** — Implement zero-config discovery
+1. **agent-picompat** — picompat package (auth, models, settings, translate)
+2. **agent-occompat** — occompat package (auth, config, translate)
+3. **agent-import-cli** — ddx-agent import CLI command
+4. **agent-import-metadata** — Add ImportMetadata to config.Config
+5. **agent-drift** — Implement drift detection
+6. **agent-discovery** — Implement zero-config discovery
 
 **Critical Path**: picompat → occompat → import-cli → metadata → drift → discovery
 **Parallel**: picompat and occompat can be implemented in parallel
@@ -159,5 +159,5 @@ ALIGN_STATUS: COMPLETE
 GAPS_FOUND: 6
 EXECUTION_ISSUES_CREATED: 6
 MEASURE_STATUS: PASS
-BEAD_ID: forge-600a7be2
+BEAD_ID: agent-600a7be2
 FOLLOW_ON_CREATED: 0

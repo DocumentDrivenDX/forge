@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -14,18 +14,18 @@ type mockSummarizer struct {
 	response string
 }
 
-func (m *mockSummarizer) Chat(ctx context.Context, messages []forge.Message, tools []forge.ToolDef, opts forge.Options) (forge.Response, error) {
-	return forge.Response{Content: m.response}, nil
+func (m *mockSummarizer) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (agent.Response, error) {
+	return agent.Response{Content: m.response}, nil
 }
 
 func TestSummarize(t *testing.T) {
 	provider := &mockSummarizer{response: "## Goal\nFix the bug\n\n## Progress\n### Done\n- [x] Read main.go"}
 
-	msgs := []forge.Message{
-		{Role: forge.RoleUser, Content: "Fix the bug in main.go"},
-		{Role: forge.RoleAssistant, Content: "I'll read the file."},
+	msgs := []agent.Message{
+		{Role: agent.RoleUser, Content: "Fix the bug in main.go"},
+		{Role: agent.RoleAssistant, Content: "I'll read the file."},
 	}
-	toolCalls := []forge.ToolCallLog{
+	toolCalls := []agent.ToolCallLog{
 		{Tool: "read", Input: json.RawMessage(`{"path":"main.go"}`)},
 	}
 
@@ -43,8 +43,8 @@ func TestSummarize(t *testing.T) {
 func TestSummarize_UpdateMode(t *testing.T) {
 	provider := &mockSummarizer{response: "## Goal\nFix the bug\n\n## Progress\n### Done\n- [x] Read main.go\n- [x] Applied fix"}
 
-	msgs := []forge.Message{
-		{Role: forge.RoleUser, Content: "Now run the tests"},
+	msgs := []agent.Message{
+		{Role: agent.RoleUser, Content: "Now run the tests"},
 	}
 
 	summary, _, err := Summarize(context.Background(), provider, msgs, nil, "previous summary here", DefaultConfig())
@@ -55,8 +55,8 @@ func TestSummarize_UpdateMode(t *testing.T) {
 func TestSummarize_EmptyResponse(t *testing.T) {
 	provider := &mockSummarizer{response: ""}
 
-	summary, _, err := Summarize(context.Background(), provider, []forge.Message{
-		{Role: forge.RoleUser, Content: "test"},
+	summary, _, err := Summarize(context.Background(), provider, []agent.Message{
+		{Role: agent.RoleUser, Content: "test"},
 	}, nil, "", DefaultConfig())
 	require.NoError(t, err)
 	assert.Contains(t, summary, NoSummaryFallback)
@@ -64,7 +64,7 @@ func TestSummarize_EmptyResponse(t *testing.T) {
 
 func TestInjectSummary(t *testing.T) {
 	msg := InjectSummary("## Goal\nDo stuff")
-	assert.Equal(t, forge.RoleUser, msg.Role)
+	assert.Equal(t, agent.RoleUser, msg.Role)
 	assert.Contains(t, msg.Content, "<summary>")
 	assert.Contains(t, msg.Content, "## Goal")
 	assert.Contains(t, msg.Content, "</summary>")
@@ -75,11 +75,11 @@ func TestCompactMessages(t *testing.T) {
 	provider := &mockSummarizer{response: "## Goal\nTest compaction"}
 
 	// Create a long conversation
-	var msgs []forge.Message
-	msgs = append(msgs, forge.Message{Role: forge.RoleUser, Content: "Start working on the project"})
+	var msgs []agent.Message
+	msgs = append(msgs, agent.Message{Role: agent.RoleUser, Content: "Start working on the project"})
 	for i := 0; i < 20; i++ {
-		msgs = append(msgs, forge.Message{Role: forge.RoleAssistant, Content: "Working on step " + string(rune('A'+i)) + "... " + string(make([]byte, 500))})
-		msgs = append(msgs, forge.Message{Role: forge.RoleUser, Content: "Continue with next step"})
+		msgs = append(msgs, agent.Message{Role: agent.RoleAssistant, Content: "Working on step " + string(rune('A'+i)) + "... " + string(make([]byte, 500))})
+		msgs = append(msgs, agent.Message{Role: agent.RoleUser, Content: "Continue with next step"})
 	}
 
 	cfg := DefaultConfig()
@@ -103,11 +103,11 @@ func TestCompactMessages(t *testing.T) {
 func TestCompactMessages_SummaryIsLast(t *testing.T) {
 	provider := &mockSummarizer{response: "## Goal\nVerify ordering"}
 
-	var msgs []forge.Message
-	msgs = append(msgs, forge.Message{Role: forge.RoleUser, Content: "Start"})
+	var msgs []agent.Message
+	msgs = append(msgs, agent.Message{Role: agent.RoleUser, Content: "Start"})
 	for i := 0; i < 20; i++ {
-		msgs = append(msgs, forge.Message{Role: forge.RoleAssistant, Content: "Step " + string(rune('A'+i)) + string(make([]byte, 500))})
-		msgs = append(msgs, forge.Message{Role: forge.RoleUser, Content: "Continue"})
+		msgs = append(msgs, agent.Message{Role: agent.RoleAssistant, Content: "Step " + string(rune('A'+i)) + string(make([]byte, 500))})
+		msgs = append(msgs, agent.Message{Role: agent.RoleUser, Content: "Continue"})
 	}
 
 	cfg := DefaultConfig()
@@ -130,8 +130,8 @@ func TestCompactMessages_SummaryIsLast(t *testing.T) {
 func TestCompactMessages_NothingToCompact(t *testing.T) {
 	provider := &mockSummarizer{response: "should not be called"}
 
-	msgs := []forge.Message{
-		{Role: forge.RoleUser, Content: "short message"},
+	msgs := []agent.Message{
+		{Role: agent.RoleUser, Content: "short message"},
 	}
 
 	cfg := DefaultConfig()
@@ -148,11 +148,11 @@ func TestCompactMessages_ExcludesPreviousSummaries(t *testing.T) {
 	provider := &mockSummarizer{response: "## Goal\nContinued work"}
 
 	// Simulate a conversation with a previous compaction summary
-	msgs := []forge.Message{
+	msgs := []agent.Message{
 		InjectSummary("previous compaction summary"),
-		{Role: forge.RoleUser, Content: "do more work " + string(make([]byte, 2000))},
-		{Role: forge.RoleAssistant, Content: "doing it " + string(make([]byte, 2000))},
-		{Role: forge.RoleUser, Content: "and more " + string(make([]byte, 2000))},
+		{Role: agent.RoleUser, Content: "do more work " + string(make([]byte, 2000))},
+		{Role: agent.RoleAssistant, Content: "doing it " + string(make([]byte, 2000))},
+		{Role: agent.RoleUser, Content: "and more " + string(make([]byte, 2000))},
 	}
 	_ = callCount
 

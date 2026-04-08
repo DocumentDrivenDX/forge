@@ -5,17 +5,17 @@ beads:
     title: "Add version command with update availability check"
     spec_ref: docs/helix/01-frame/features/FEAT-004-self-update.md
     acceptance_criteria:
-      - "forge version shows current version (e.g., v0.0.8)"
+      - "ddx-agent version shows current version (e.g., v0.0.8)"
       - "If outdated, shows 'update available: vX.Y.Z'"
       - "If up-to-date, shows '(latest)'"
       - "Version check completes in < 3 seconds"
     depends_on: []
 
   - id: BEAD-FEAT-004-02
-    title: "Implement forge update command with safe binary replacement"
+    title: "Implement ddx-agent update command with safe binary replacement"
     spec_ref: docs/helix/01-frame/features/FEAT-004-self-update.md
     acceptance_criteria:
-      - "forge update checks for latest release via GitHub API"
+      - "ddx-agent update checks for latest release via GitHub API"
       - "Shows version comparison and changelog summary"
       - "Prompts user before downloading (y/N)"
       - "Downloads to temp location, verifies, then atomically replaces"
@@ -28,7 +28,7 @@ beads:
     title: "Add --check-only flag for scripting support"
     spec_ref: docs/helix/01-frame/features/FEAT-004-self-update.md
     acceptance_criteria:
-      - "forge update --check-only compares versions without downloading"
+      - "ddx-agent update --check-only compares versions without downloading"
       - "Exit code 0 if up-to-date, exit code 1 if outdated"
       - "Prints version comparison to stdout for scripting"
     depends_on:
@@ -41,7 +41,7 @@ beads:
       - "Colored output (blue info, green success, yellow warning, red error)"
       - "Prerequisites checking (curl/wget availability)"
       - "PATH configuration in .bashrc, .zshrc, or config.fish"
-      - "Installation verification with forge --version test"
+      - "Installation verification with agent --version test"
       - "Getting started guide with quick commands"
     depends_on: []
 

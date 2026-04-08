@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // ReadParams are the parameters for the read tool.
@@ -74,5 +74,5 @@ func (t *ReadTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	return content, nil
 }
 
-// Verify ReadTool implements forge.Tool at compile time.
-var _ forge.Tool = (*ReadTool)(nil)
+// Verify ReadTool implements agent.Tool at compile time.
+var _ agent.Tool = (*ReadTool)(nil)

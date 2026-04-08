@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 )
 
 // Summarization system prompt — prevents the model from continuing the conversation.
@@ -82,9 +82,9 @@ type CompactionResult struct {
 // appends file tracking XML.
 func Summarize(
 	ctx context.Context,
-	provider forge.Provider,
-	messages []forge.Message,
-	toolCalls []forge.ToolCallLog,
+	provider agent.Provider,
+	messages []agent.Message,
+	toolCalls []agent.ToolCallLog,
 	previousSummary string,
 	cfg Config,
 ) (string, *FileOps, error) {
@@ -125,10 +125,10 @@ func Summarize(
 	}
 
 	// Call the LLM
-	resp, err := p.Chat(ctx, []forge.Message{
-		{Role: forge.RoleSystem, Content: SummarizationSystemPrompt},
-		{Role: forge.RoleUser, Content: promptBuilder.String()},
-	}, nil, forge.Options{
+	resp, err := p.Chat(ctx, []agent.Message{
+		{Role: agent.RoleSystem, Content: SummarizationSystemPrompt},
+		{Role: agent.RoleUser, Content: promptBuilder.String()},
+	}, nil, agent.Options{
 		Model:     model,
 		MaxTokens: maxTokens,
 	})
@@ -149,9 +149,9 @@ func Summarize(
 }
 
 // InjectSummary creates a user message containing the compaction summary.
-func InjectSummary(summary string) forge.Message {
-	return forge.Message{
-		Role:    forge.RoleUser,
+func InjectSummary(summary string) agent.Message {
+	return agent.Message{
+		Role:    agent.RoleUser,
 		Content: SummaryInjectionPrefix + summary + SummaryInjectionSuffix,
 	}
 }
@@ -160,13 +160,13 @@ func InjectSummary(summary string) forge.Message {
 // Returns the new message list with older messages replaced by a summary.
 func CompactMessages(
 	ctx context.Context,
-	provider forge.Provider,
-	messages []forge.Message,
-	toolCalls []forge.ToolCallLog,
+	provider agent.Provider,
+	messages []agent.Message,
+	toolCalls []agent.ToolCallLog,
 	previousSummary string,
 	previousFileOps *FileOps,
 	cfg Config,
-) ([]forge.Message, *CompactionResult, error) {
+) ([]agent.Message, *CompactionResult, error) {
 	tokensBefore := EstimateConversationTokens(messages)
 
 	// Find cut point
@@ -177,7 +177,7 @@ func CompactMessages(
 	}
 
 	// Filter out previous compaction summaries from messages-to-summarize
-	var toSummarize []forge.Message
+	var toSummarize []agent.Message
 	for _, msg := range messages[:cutIndex] {
 		if !IsCompactionSummary(msg) {
 			toSummarize = append(toSummarize, msg)
@@ -196,7 +196,7 @@ func CompactMessages(
 	}
 
 	// Build new message list: kept messages + summary LAST (per SD-006 for prompt cache optimization)
-	var newMessages []forge.Message
+	var newMessages []agent.Message
 	newMessages = append(newMessages, messages[cutIndex:]...)
 	newMessages = append(newMessages, InjectSummary(summary))
 

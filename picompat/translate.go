@@ -6,21 +6,21 @@ import (
 	"fmt"
 	"os"
 
-	forgeConfig "github.com/DocumentDrivenDX/forge/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/config"
 )
 
-// ProviderMapping maps pi provider names to forge configurations.
+// ProviderMapping maps pi provider names to agent configurations.
 type ProviderMapping struct {
-	ForgeName  string // name in forge config
-	Type      string // forge type: "anthropic" or "openai-compat"
+	AgentName string // name in agent config
+	Type      string // agent type: "anthropic" or "openai-compat"
 	BaseURL   string // default URL if not specified in pi
 }
 
 // Known mappings per SD-007
 var knownMappings = map[string]ProviderMapping{
-	"anthropic":     {ForgeName: "anthropic", Type: "anthropic"},
-	"openai-codex":  {ForgeName: "openai", Type: "openai-compat", BaseURL: "https://api.openai.com/v1"},
-	"openrouter":     {ForgeName: "openrouter", Type: "openai-compat", BaseURL: "https://openrouter.ai/api/v1"},
+	"anthropic":    {AgentName: "anthropic", Type: "anthropic"},
+	"openai-codex": {AgentName: "openai", Type: "openai-compat", BaseURL: "https://api.openai.com/v1"},
+	"openrouter":   {AgentName: "openrouter", Type: "openai-compat", BaseURL: "https://openrouter.ai/api/v1"},
 }
 
 // Warnings collects import warnings.
@@ -31,18 +31,18 @@ func (w *Warnings) Add(format string, args ...interface{}) {
 	*w = append(*w, fmt.Sprintf(format, args...))
 }
 
-// TranslationResult contains the result of translating pi config to forge config.
+// TranslationResult contains the result of translating pi config to agent config.
 type TranslationResult struct {
-	Providers map[string]forgeConfig.ProviderConfig
-	Default  string
-	Warnings Warnings
+	Providers map[string]agentConfig.ProviderConfig
+	Default   string
+	Warnings  Warnings
 }
 
-// Translate merges pi auth, models, and settings into forge provider configs.
+// Translate merges pi auth, models, and settings into agent provider configs.
 // It implements the two-source merge algorithm from SD-007.
 func Translate(piDir string) (*TranslationResult, error) {
 	result := &TranslationResult{
-		Providers: make(map[string]forgeConfig.ProviderConfig),
+		Providers: make(map[string]agentConfig.ProviderConfig),
 	}
 
 	// Load all three sources
@@ -66,7 +66,7 @@ func Translate(piDir string) (*TranslationResult, error) {
 	}
 
 	// Step 2 & 3: For auth.json entries with NO matching models.json provider,
-	// create forge providers using well-known defaults
+	// create agent providers using well-known defaults
 	for name, cred := range auth {
 		// Skip if already added from models
 		if _, exists := result.Providers[name]; exists {
@@ -81,13 +81,13 @@ func Translate(piDir string) (*TranslationResult, error) {
 
 		// Check for !command API key
 		if len(cred.APIKey) > 0 && cred.APIKey[0] == '!' {
-			result.Warnings.Add("provider %q uses shell-resolved key, set FORGE_API_KEY or add api_key manually", name)
+			result.Warnings.Add("provider %q uses shell-resolved key, set AGENT_API_KEY or add api_key manually", name)
 			continue
 		}
 
 		// Try known mappings
 		if mapping, known := knownMappings[name]; known {
-			pc := forgeConfig.ProviderConfig{
+			pc := agentConfig.ProviderConfig{
 				Type:   mapping.Type,
 				APIKey: cred.APIKey,
 			}
@@ -97,7 +97,7 @@ func Translate(piDir string) (*TranslationResult, error) {
 			if mapping.BaseURL != "" {
 				pc.BaseURL = mapping.BaseURL
 			}
-			result.Providers[mapping.ForgeName] = pc
+			result.Providers[mapping.AgentName] = pc
 			continue
 		}
 
@@ -107,17 +107,17 @@ func Translate(piDir string) (*TranslationResult, error) {
 
 	// Step 4: Apply settings.json defaultProvider/defaultModel
 	if settings != nil && settings.DefaultProvider != "" {
-		// Map pi provider name to forge name
-		forgeName := settings.DefaultProvider
+		// Map pi provider name to agent name
+		agentName := settings.DefaultProvider
 		if mapping, known := knownMappings[settings.DefaultProvider]; known {
-			forgeName = mapping.ForgeName
+			agentName = mapping.AgentName
 		}
 		// Check if this provider exists
-		if pc, exists := result.Providers[forgeName]; exists {
-			result.Default = forgeName
+		if pc, exists := result.Providers[agentName]; exists {
+			result.Default = agentName
 			if settings.DefaultModel != "" {
 				pc.Model = settings.DefaultModel
-				result.Providers[forgeName] = pc
+				result.Providers[agentName] = pc
 			}
 		} else if settings.DefaultProvider != "" {
 			result.Warnings.Add("default provider %q not found in config", settings.DefaultProvider)
@@ -127,10 +127,10 @@ func Translate(piDir string) (*TranslationResult, error) {
 	return result, nil
 }
 
-// translatedProvider holds both the forge name and config.
+// translatedProvider holds both the agent name and config.
 type translatedProvider struct {
 	Name   string
-	Config forgeConfig.ProviderConfig
+	Config agentConfig.ProviderConfig
 }
 
 func translateProvider(def ProviderDefinition, cred AuthEntry) translatedProvider {
@@ -139,7 +139,7 @@ func translateProvider(def ProviderDefinition, cred AuthEntry) translatedProvide
 		name = def.Provider
 	}
 
-	pc := forgeConfig.ProviderConfig{}
+	pc := agentConfig.ProviderConfig{}
 
 	// Determine type from api field or default
 	switch def.API {

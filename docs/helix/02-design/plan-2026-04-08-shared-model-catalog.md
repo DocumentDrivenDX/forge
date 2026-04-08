@@ -6,7 +6,7 @@
 
 ## Problem Statement
 
-Forge now owns prompt presets, but model policy is still duplicated outside the
+DDX Agent now owns prompt presets, but model policy is still duplicated outside the
 repo in DDx and HELIX-adjacent tooling. That creates three problems:
 
 - rapidly changing model release data is copied into multiple repos
@@ -14,8 +14,8 @@ repo in DDx and HELIX-adjacent tooling. That creates three problems:
 - downstream tools cannot share one authoritative source for aliases,
   tiers/profiles, canonical targets, and deprecations
 
-The goal is to make forge the reusable owner of model policy while keeping
-runtime orchestration responsibilities separate: forge owns catalog data and
+The goal is to make agent the reusable owner of model policy while keeping
+runtime orchestration responsibilities separate: agent owns catalog data and
 resolution rules, DDx owns harness/provider orchestration and guardrails, and
 HELIX owns only stage intent.
 
@@ -23,16 +23,16 @@ HELIX owns only stage intent.
 
 ### Functional
 
-- Provide a forge-owned Go package for loading and resolving a shared model
+- Provide a agent-owned Go package for loading and resolving a shared model
   catalog.
 - Store model policy in a structured manifest maintained separately from Go
-  logic inside the forge repo.
+  logic inside the agent repo.
 - Represent aliases, model families, tiers/profiles, canonical current targets,
   and deprecated/stale entries.
 - Support consumer-specific surface mappings so one canonical target can resolve
-  to different concrete strings for forge OpenAI-compatible providers, forge
+  to different concrete strings for agent OpenAI-compatible providers, agent
   Anthropic providers, Codex, Claude Code, or future consumers.
-- Ship an embedded manifest snapshot with forge releases and allow an optional
+- Ship an embedded manifest snapshot with agent releases and allow an optional
   external manifest override path.
 - Allow direct pinned model strings to bypass the catalog when a caller needs
   exact control.
@@ -50,18 +50,18 @@ HELIX owns only stage intent.
 
 ### Constraints
 
-- Forge remains an embeddable library; `forge.Run()` still accepts one concrete
+- DDX Agent remains an embeddable library; `agent.Run()` still accepts one concrete
   `Provider`.
 - Backward compatibility with today's provider config and `--model` override
   path must be preserved.
-- DDx and non-forge harnesses need catalog data without pulling forge runtime
+- DDx and non-agent harnesses need catalog data without pulling agent runtime
   orchestration into their own execution loops.
 
 ## Architecture Decisions
 
 ### Decision 1: Separate package and manifest from provider config
 
-- **Question**: Where should forge model policy live?
+- **Question**: Where should agent model policy live?
 - **Alternatives**:
   - keep hardcoded Go maps in provider/config packages
   - let each downstream repo keep its own tables
@@ -83,11 +83,11 @@ HELIX owns only stage intent.
   external override path
 - **Rationale**: embedded data keeps the library self-contained and deterministic
   by default; an override path lets DDx or operators update model policy on a
-  faster cadence than forge code releases
+  faster cadence than agent code releases
 
 ### Decision 3: Canonical targets plus surface mappings
 
-- **Question**: How does one catalog serve forge and non-forge consumers?
+- **Question**: How does one catalog serve agent and non-agent consumers?
 - **Alternatives**:
   - store only raw model IDs
   - duplicate per-consumer aliases with no shared canonical layer
@@ -100,13 +100,13 @@ HELIX owns only stage intent.
 
 - **Question**: Who maps `smart` / `fast` / `cheap` into a concrete run?
 - **Alternatives**:
-  - forge runtime chooses automatically
+  - agent runtime chooses automatically
   - HELIX chooses concrete models directly
-  - forge defines the shared profile references and DDx resolves them during
+  - agent defines the shared profile references and DDx resolves them during
     harness orchestration
-- **Chosen**: forge defines shared profile references; DDx resolves them while
+- **Chosen**: agent defines shared profile references; DDx resolves them while
   selecting harness/provider/model details
-- **Rationale**: this preserves forge as policy owner without dragging harness
+- **Rationale**: this preserves agent as policy owner without dragging harness
   orchestration into the runtime
 
 ### Decision 5: Deprecation metadata is part of the catalog contract
@@ -130,8 +130,8 @@ package modelcatalog
 type Surface string
 
 const (
-    SurfaceForgeOpenAI    Surface = "forge.openai"
-    SurfaceForgeAnthropic Surface = "forge.anthropic"
+    SurfaceAgentOpenAI    Surface = "agent.openai"
+    SurfaceAgentAnthropic Surface = "agent.anthropic"
     SurfaceCodex          Surface = "codex"
     SurfaceClaudeCode     Surface = "claude-code"
 )
@@ -172,15 +172,15 @@ func (c *Catalog) Current(profile string, opts ResolveOptions) (ResolvedTarget, 
 
 ```yaml
 model_catalog:
-  manifest: ~/.config/forge/models.yaml
+  manifest: ~/.config/agent/models.yaml
 ```
 
 - CLI gains a catalog-oriented selector separate from prompt presets:
 
 ```bash
-forge -p "review this diff" --model-ref code-smart
-forge -p "summarize" --backend review-smart
-forge -p "use exact pin" --model claude-sonnet-4-20250514
+ddx-agent -p "review this diff" --model-ref code-smart
+ddx-agent -p "summarize" --backend review-smart
+ddx-agent -p "use exact pin" --model claude-sonnet-4-20250514
 ```
 
 - `--model` remains a concrete override and bypasses catalog policy.
@@ -188,7 +188,7 @@ forge -p "use exact pin" --model claude-sonnet-4-20250514
 
 ### Consumer Boundary
 
-- Forge CLI uses the catalog to resolve `--model-ref` or backend config.
+- DDX Agent CLI uses the catalog to resolve `--model-ref` or backend config.
 - DDx uses the catalog as a library dependency for harness/model resolution and
   warnings/guardrails.
 - HELIX does not depend on the catalog at runtime; it emits stage intent such as
@@ -216,8 +216,8 @@ targets:
     aliases: [claude-sonnet, sonnet]
     status: active
     surfaces:
-      forge.anthropic: claude-sonnet-4-20250514
-      forge.openai: anthropic/claude-sonnet-4
+      agent.anthropic: claude-sonnet-4-20250514
+      agent.openai: anthropic/claude-sonnet-4
       claude-code: sonnet
 
   qwen3-coder-next:
@@ -225,7 +225,7 @@ targets:
     aliases: [qwen-coder-next, qwen3-coder]
     status: active
     surfaces:
-      forge.openai: qwen/qwen3-coder-next
+      agent.openai: qwen/qwen3-coder-next
 
   claude-sonnet-3.7:
     family: claude-sonnet
@@ -234,7 +234,7 @@ targets:
     replacement: claude-sonnet-4
     deprecated_at: 2026-04-08
     surfaces:
-      forge.anthropic: claude-3-7-sonnet-20250219
+      agent.anthropic: claude-3-7-sonnet-20250219
 ```
 
 ### Resolution Rules
@@ -250,7 +250,7 @@ targets:
 
 - Canonical source file: `catalog/models.yaml`
 - Embedded release snapshot: bundled from that file into `modelcatalog/`
-- Optional override file: configured by path in `.forge/config.yaml` or by a
+- Optional override file: configured by path in `.agent/config.yaml` or by a
   downstream consumer such as DDx
 - Update workflow:
   1. edit `catalog/models.yaml`
@@ -276,7 +276,7 @@ targets:
 ## Security
 
 - The manifest contains no secrets; credentials remain in provider config.
-- Forge should not fetch manifests over the network at runtime.
+- DDX Agent should not fetch manifests over the network at runtime.
 - External manifest paths must be explicit and local to avoid surprising policy
   changes from implicit remote sources.
 
@@ -286,7 +286,7 @@ targets:
   lookup, deprecation handling, embedded-fallback behavior
 - **Integration**: config/CLI resolution from `--model-ref` or backend pools
   into one concrete provider/model pair
-- **E2E**: DDx consumes forge catalog data without its own duplicate model table
+- **E2E**: DDx consumes agent catalog data without its own duplicate model table
 
 ## Implementation Plan
 
@@ -295,15 +295,15 @@ targets:
 1. Evolve governing docs and ownership language.
 2. Implement `modelcatalog/` and manifest validation/loading.
 3. Add config/CLI plumbing for `model_ref` and optional manifest override.
-4. Add DDx consumer integration after forge API stabilizes.
+4. Add DDx consumer integration after agent API stabilizes.
 
 ### Issue Breakdown
 
-- `forge-63ba2a0f`: evolve PRD, FEAT-004, SD-005, SD-003, and architecture to
+- `agent-63ba2a0f`: evolve PRD, FEAT-004, SD-005, SD-003, and architecture to
   authorize the shared catalog
-- `forge-94b5d420`: capture the converged design in this plan document and
+- `agent-94b5d420`: capture the converged design in this plan document and
   linked artifacts
-- `forge-66eef6fe`: build the package, manifest loader, and tests
+- `agent-66eef6fe`: build the package, manifest loader, and tests
 
 ## Risk Register
 

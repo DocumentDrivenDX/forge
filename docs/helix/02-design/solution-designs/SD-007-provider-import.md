@@ -9,42 +9,42 @@ ddx:
 ## Problem
 
 Users of pi and opencode have already configured their LLM providers — API
-keys, LM Studio endpoints, custom model definitions. Forge shouldn't require
+keys, LM Studio endpoints, custom model definitions. DDX Agent shouldn't require
 them to duplicate this work. But runtime coupling to other tools' config
 formats creates fragile dependencies and maintenance burden.
 
 ## Design: Import-Time Translation
 
-Forge reads other tools' configs at **import time** (explicit user action),
-translates them to forge-native `.forge/config.yaml` (per SD-005 schema),
+DDX Agent reads other tools' configs at **import time** (explicit user action),
+translates them to agent-native `.agent/config.yaml` (per SD-005 schema),
 and records the import source so it can detect drift later.
 
 ### CLI Commands
 
 ```
-forge import pi              # import from ~/.pi/agent/{auth,settings,models}.json
-forge import opencode         # import from ~/.local/share/opencode/auth.json + opencode.json
-forge import pi --diff        # show what pi has that forge doesn't (dry run)
-forge import opencode --diff  # same for opencode
-forge import pi --merge       # merge new providers without overwriting existing
+ddx-agent import pi              # import from ~/.pi/agent/{auth,settings,models}.json
+ddx-agent import opencode         # import from ~/.local/share/opencode/auth.json + opencode.json
+ddx-agent import pi --diff        # show what pi has that agent doesn't (dry run)
+ddx-agent import opencode --diff  # same for opencode
+ddx-agent import pi --merge       # merge new providers without overwriting existing
 ```
 
 ### Zero-Config Discovery
 
-When forge starts with no providers configured (no `.forge/config.yaml`, no
-`~/.config/forge/config.yaml`, no `FORGE_*` env vars, no standard API key env
+When agent starts with no providers configured (no `.agent/config.yaml`, no
+`~/.config/agent/config.yaml`, no `AGENT_*` env vars, no standard API key env
 vars), it checks for importable configs and shows a notice:
 
 ```
-forge: no providers configured. Found pi config at ~/.pi/agent/ — run 'forge import pi' to import.
+agent: no providers configured. Found pi config at ~/.pi/agent/ — run 'ddx-agent import pi' to import.
 ```
 
-This is a one-line stderr notice, not an error. Forge still runs if env vars
+This is a one-line stderr notice, not an error. DDX Agent still runs if env vars
 provide a usable provider.
 
 ### Import Sources
 
-#### Pi (`forge import pi`)
+#### Pi (`ddx-agent import pi`)
 
 **Reads:**
 - `~/.pi/agent/auth.json` — OAuth tokens and API keys per provider
@@ -61,14 +61,14 @@ The import merges them:
    credentials. If models.json has its own `apiKey`, use that (local providers
    like LM Studio use placeholder keys like `"lmstudio"`)
 3. For auth.json entries with NO matching models.json provider (e.g.,
-   `anthropic`, `openai-codex`, `openrouter`), create forge providers using
+   `anthropic`, `openai-codex`, `openrouter`), create ddx-agent providers using
    well-known defaults (built-in URL, type mapping)
 4. Apply settings.json `defaultProvider` + `defaultModel` for the `default:`
-   field, mapping pi provider names to the forge provider name
+   field, mapping pi provider names to the agent provider name
 
-**Pi provider name → forge provider mapping:**
+**Pi provider name → agent provider mapping:**
 
-| Pi auth name | Forge name | Type | Default URL | Notes |
+| Pi auth name | DDX Agent name | Type | Default URL | Notes |
 |-------------|------------|------|-------------|-------|
 | `anthropic` | `anthropic` | `anthropic` | (SDK default) | OAuth access token as API key |
 | `openai-codex` | `openai` | `openai-compat` | `https://api.openai.com/v1` | OAuth access token as bearer |
@@ -97,16 +97,16 @@ default: anthropic
 
 **What gets skipped with warnings:**
 - `!command` API key values → warning: "provider X uses shell-resolved key,
-  set FORGE_API_KEY or add api_key manually"
+  set AGENT_API_KEY or add api_key manually"
 - Providers with `api` field that doesn't map to `openai-compat` or `anthropic`
 - `headers` values that use `!command` resolution
 
 **Empty model lists:** When models.json has `models: []`, the import queries
 the provider's `/v1/models` endpoint to discover available models. If
-unreachable, omits the `model` field (forge will use whatever the provider
+unreachable, omits the `model` field (agent will use whatever the provider
 defaults to).
 
-#### OpenCode (`forge import opencode`)
+#### OpenCode (`ddx-agent import opencode`)
 
 **Reads:**
 - `~/.local/share/opencode/auth.json` — `{type: "api", key: "..."}`
@@ -122,14 +122,14 @@ defaults to).
 
 **Secrets go to user config, not project config.**
 
-The import writes to `~/.config/forge/config.yaml` (user-global) by default,
-NOT `.forge/config.yaml` (project-level). This prevents accidental commits of
-API keys. The `--project` flag writes to `.forge/config.yaml` but requires
+The import writes to `~/.config/agent/config.yaml` (user-global) by default,
+NOT `.agent/config.yaml` (project-level). This prevents accidental commits of
+API keys. The `--project` flag writes to `.agent/config.yaml` but requires
 explicit confirmation and warns:
 
 ```
-forge: warning: writing API keys to project config (.forge/config.yaml)
-forge: ensure .forge/config.yaml is in .gitignore before committing
+agent: warning: writing API keys to project config (.agent/config.yaml)
+agent: ensure .agent/config.yaml is in .gitignore before committing
 Proceed? [y/N]
 ```
 
@@ -158,31 +158,31 @@ because the hash is one-way and truncated — it detects "something changed"
 without revealing what.
 
 **Check logic:**
-- On `forge providers` or `forge -p`, if `imported_from` exists and source
+- On `ddx-agent providers` or `ddx-agent -p`, if `imported_from` exists and source
   files have a different hash, emit once per day:
   ```
-  forge: pi config changed since import — run 'forge import pi --diff' to review
+  agent: pi config changed since import — run 'ddx-agent import pi --diff' to review
   ```
-- Debounced by checking mtime of `~/.config/forge/.import-check-{source}`
+- Debounced by checking mtime of `~/.config/agent/.import-check-{source}`
 - Per-source, so pi and opencode drift are tracked independently
 
 **Token expiry:** OAuth tokens have an `expires` field in epoch milliseconds.
 On import, if a token expires within 24 hours, warn:
 ```
-forge: warning: anthropic token expires in 3h — use pi to refresh, then re-import
+agent: warning: anthropic token expires in 3h — use pi to refresh, then re-import
 ```
 If already expired, warn but still import (the token might still work briefly,
 or the user may want the endpoint config without the token).
 
 ### Merge Mode
 
-`forge import pi --merge`:
-- Adds new providers that don't exist in forge config
+`ddx-agent import pi --merge`:
+- Adds new providers that don't exist in agent config
 - For existing providers: updates `api_key` only (credentials refresh)
 - Never overwrites `base_url`, `model`, `headers` (user may have customized)
 - Reports what was added, what was updated, what was skipped
 
-`forge import pi` (no `--merge`):
+`ddx-agent import pi` (no `--merge`):
 - Replaces the entire `providers:` section
 - Preserves non-provider config (`max_iterations`, `session_log_dir`, `preset`)
 - Preserves `imported_from` metadata
@@ -202,7 +202,7 @@ type is configured):
 
 These implicit providers have lower precedence than any explicit config.
 They don't create a `default:` — the user must specify `--provider` or set
-`FORGE_PROVIDER` to use them.
+`AGENT_PROVIDER` to use them.
 
 ### Config Schema Additions to SD-005
 
@@ -231,9 +231,9 @@ The config loader ignores `imported_from` — it's metadata, not provider config
 |---|------|---------|
 | 1 | Pi auth.json reader (picompat/auth.go) | — |
 | 2 | Pi models.json reader (picompat/models.go) | — |
-| 3 | Pi settings.json reader + translate to forge config | 1, 2 |
+| 3 | Pi settings.json reader + translate to agent config | 1, 2 |
 | 4 | OpenCode auth + config reader (occompat/) | — |
-| 5 | `forge import` CLI command with diff/merge/redaction | 3, 4 |
+| 5 | `ddx-agent import` CLI command with diff/merge/redaction | 3, 4 |
 | 6 | Zero-config discovery notice in CLI startup | 5 |
 | 7 | Drift detection (hash check + daily debounce) | 5 |
 | 8 | Standard env var fallback in config.Load() | — |
@@ -241,7 +241,7 @@ The config loader ignores `imported_from` — it's metadata, not provider config
 ## Package Structure
 
 ```
-forge/
+agent/
   picompat/           # pi config readers
     auth.go           # reads auth.json → map[provider]credential
     models.go         # reads models.json → map[provider]providerDef
@@ -252,7 +252,7 @@ forge/
   occompat/           # opencode config readers
     auth.go           # reads auth.json
     config.go         # reads opencode.json
-    translate.go      # translates to forge config
+    translate.go      # translates to agent config
     occompat_test.go
 ```
 

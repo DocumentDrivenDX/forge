@@ -13,24 +13,24 @@ ddx:
 **Feature ID**: FEAT-006
 **Status**: Draft
 **Priority**: P0
-**Owner**: Forge Team
+**Owner**: DDX Agent Team
 
 ## Overview
 
-The `forge` CLI is a thin binary wrapping the Forge library. Following the
+The `ddx-agent` CLI is a thin binary wrapping the DDX Agent library. Following the
 ghostty model, it proves the library works end-to-end and serves as the DDx
 harness backend. It is not the product — the library is. But a usable CLI
 validates the design and provides a concrete integration target.
 
 Patterned on pi's CLI interface (`pi -p "prompt"`) and DDx's config conventions
-(`.ddx/config.yaml` → `.forge/config.yaml`).
+(`.ddx/config.yaml` → `.agent/config.yaml`).
 
 ## Problem Statement
 
-- **Current situation**: The Forge library has no way to be exercised outside
+- **Current situation**: The DDX Agent library has no way to be exercised outside
   of Go test code or a DDx integration.
 - **Pain points**: Can't validate the library without building an embedder
-  first. Can't use Forge standalone for testing or experimentation.
+  first. Can't use DDX Agent standalone for testing or experimentation.
 - **Desired outcome**: A single binary that reads config, accepts a prompt,
   runs the agent loop, logs the session, and prints the result.
 
@@ -40,17 +40,17 @@ Patterned on pi's CLI interface (`pi -p "prompt"`) and DDx's config conventions
 
 #### Core CLI
 
-1. `forge -p "prompt"` — non-interactive mode: run prompt, print result, exit
-2. `forge -p @file.md` — read prompt from file
-3. Prompt from stdin when not a TTY: `echo "prompt" | forge`
+1. `ddx-agent -p "prompt"` — non-interactive mode: run prompt, print result, exit
+2. `ddx-agent -p @file.md` — read prompt from file
+3. Prompt from stdin when not a TTY: `echo "prompt" | ddx-agent`
 4. Exit code: 0 on success, 1 on agent failure, 2 on config/usage error
 5. Output: final agent text to stdout. Structured JSON with `--json` flag.
 6. Stderr: progress/status messages (tool calls in progress, etc.)
 
 #### Configuration
 
-7. Config file: `.forge/config.yaml` in the working directory, or
-   `~/.config/forge/config.yaml` for global defaults
+7. Config file: `.agent/config.yaml` in the working directory, or
+   `~/.config/agent/config.yaml` for global defaults
 8. Config structure mirrors the library `Config` struct:
    ```yaml
    provider: openai-compat  # or anthropic
@@ -58,23 +58,23 @@ Patterned on pi's CLI interface (`pi -p "prompt"`) and DDx's config conventions
    api_key: ""               # optional for local
    model: qwen3.5-7b
    max_iterations: 20
-   session_log_dir: .forge/sessions
+   session_log_dir: .agent/sessions
    ```
-9. Environment variable overrides: `FORGE_BASE_URL`, `FORGE_API_KEY`,
-   `FORGE_MODEL`, `FORGE_PROVIDER`
+9. Environment variable overrides: `AGENT_BASE_URL`, `AGENT_API_KEY`,
+   `AGENT_MODEL`, `AGENT_PROVIDER`
 10. CLI flags override config file and env vars
 
 #### Session Commands
 
-11. `forge log` — list recent sessions (patterned on `ddx agent log`)
-12. `forge log <session-id>` — show full session detail
-13. `forge replay <session-id>` — human-readable conversation replay
-14. `forge usage` — per-model token and cost summary (patterned on
+11. `ddx-agent log` — list recent sessions (patterned on `ddx agent log`)
+12. `ddx-agent log <session-id>` — show full session detail
+13. `ddx-agent replay <session-id>` — human-readable conversation replay
+14. `ddx-agent usage` — per-model token and cost summary (patterned on
     `ddx agent usage`)
 
 #### DDx Harness Integration
 
-15. When invoked as `forge` by DDx (`ddx agent run --harness=forge`), the CLI
+15. When invoked as `ddx-agent` by DDx (`ddx agent run --harness=agent`), the CLI
     accepts prompt via stdin or final argument (matching DDx's `PromptMode`)
 16. Output includes structured JSON with token usage for DDx to parse
 
@@ -94,11 +94,11 @@ Patterned on pi's CLI interface (`pi -p "prompt"`) and DDx's config conventions
 
 ## Success Metrics
 
-- `forge -p "Read main.go and tell me the package name"` works end-to-end
+- `ddx-agent -p "Read main.go and tell me the package name"` works end-to-end
   with LM Studio
-- `forge replay` accurately reproduces any completed session
-- `forge usage` produces correct cost summary
-- DDx can invoke `forge` as a harness and parse the result
+- `ddx-agent replay` accurately reproduces any completed session
+- `ddx-agent usage` produces correct cost summary
+- DDx can invoke `ddx-agent` as a harness and parse the result
 
 ## Constraints and Assumptions
 

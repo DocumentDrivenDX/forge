@@ -1,4 +1,4 @@
-# Project Concerns — Forge
+# Project Concerns — DDX Agent
 
 ## Area Labels
 
@@ -17,7 +17,7 @@
 
 ### go-std
 
-- **CLI framework**: None. Forge CLI is minimal enough for `flag` stdlib. Cobra
+- **CLI framework**: None. DDX Agent CLI is minimal enough for `flag` stdlib. Cobra
   is not needed.
 - **Test framework**: Use `testing` stdlib + `testify/assert` for assertions.
   No external test runner.

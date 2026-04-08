@@ -42,13 +42,13 @@ jobs:
           BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           GIT_COMMIT=$(git rev-parse --short HEAD)
           go build -ldflags "-X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
-            -o forge-${GOOS}-${GOARCH} ./cmd/forge
+            -o ddx-agent-${GOOS}-${GOARCH} ./cmd/ddx-agent
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: forge-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: forge-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ddx-agent-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ddx-agent-${{ matrix.goos }}-${{ matrix.goarch }}
 
   publish:
     needs: release
@@ -67,15 +67,15 @@ jobs:
         run: |
           # Flatten artifacts — each is in a subdirectory
           mkdir -p release/
-          for dir in dist/forge-*/; do
-            cp "$dir"forge-* release/ 2>/dev/null || true
+          for dir in dist/ddx-agent-*/; do
+            cp "$dir"ddx-agent-* release/ 2>/dev/null || true
           done
 
           # Make binaries executable
-          chmod +x release/forge-*
+          chmod +x release/ddx-agent-*
 
           ls -la release/
 
-          gh release create ${GITHUB_REF_NAME} release/forge-* \
+          gh release create ${GITHUB_REF_NAME} release/ddx-agent-* \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes

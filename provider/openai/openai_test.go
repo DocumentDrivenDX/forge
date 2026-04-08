@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
-	"github.com/DocumentDrivenDX/forge/provider/openai"
+	"github.com/DocumentDrivenDX/agent"
+	"github.com/DocumentDrivenDX/agent/provider/openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -59,9 +59,9 @@ func TestChatStream_ToolCallIndexIDMapping(t *testing.T) {
 		Model:   "gpt-4o",
 	})
 
-	ch, err := p.ChatStream(context.Background(), []forge.Message{
-		{Role: forge.RoleUser, Content: "call the read tool"},
-	}, nil, forge.Options{})
+	ch, err := p.ChatStream(context.Background(), []agent.Message{
+		{Role: agent.RoleUser, Content: "call the read tool"},
+	}, nil, agent.Options{})
 	require.NoError(t, err)
 
 	// Drain the channel and collect all ToolCallArgs by ID

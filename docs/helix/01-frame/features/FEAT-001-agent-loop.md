@@ -9,11 +9,11 @@ ddx:
 **Feature ID**: FEAT-001
 **Status**: Draft
 **Priority**: P0
-**Owner**: Forge Team
+**Owner**: DDX Agent Team
 
 ## Overview
 
-The agent loop is Forge's core — a tool-calling LLM conversation loop that
+The agent loop is DDX Agent's core — a tool-calling LLM conversation loop that
 sends a prompt, executes tool calls from the model's response, feeds results
 back, and repeats until the model produces a final text response or limits are
 reached. This implements PRD P0 requirements 1, 8, 10, and 11.
@@ -31,7 +31,7 @@ reached. This implements PRD P0 requirements 1, 8, 10, and 11.
 
 ### Functional Requirements
 
-1. `forge.Run(ctx, Request) (Result, error)` is the primary entry point
+1. `agent.Run(ctx, Request) (Result, error)` is the primary entry point
 2. Request contains: prompt (string), system prompt (string), provider config,
    tool set, max iterations, working directory, callback (optional)
 3. The loop sends messages to the configured LLM provider and processes the
@@ -55,7 +55,7 @@ reached. This implements PRD P0 requirements 1, 8, 10, and 11.
   < 1ms per iteration
 - **Memory**: Conversation history is bounded by max_iterations × typical
   response size — no unbounded growth
-- **Concurrency**: Multiple `forge.Run` calls can execute concurrently with
+- **Concurrency**: Multiple `agent.Run` calls can execute concurrently with
   independent state
 - **Testability**: Provider interface is mockable for unit tests
 
@@ -79,7 +79,7 @@ reached. This implements PRD P0 requirements 1, 8, 10, and 11.
 
 ## Constraints and Assumptions
 
-- The caller provides a fully configured provider — Forge does not manage API
+- The caller provides a fully configured provider — DDX Agent does not manage API
   keys or provider selection (that's model routing, FEAT-004)
 - Tool set is fixed at compile time for P0; extensible tool registration is P2
 

@@ -6,7 +6,7 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT)"
 
 build:
-	go build $(LDFLAGS) ./cmd/forge
+	go build $(LDFLAGS) ./cmd/ddx-agent
 
 test:
 	go test -race ./...
@@ -63,5 +63,5 @@ coverage-trend: coverage-ratchet
 	@go run scripts/coverage-ratchet.go --trend
 
 clean:
-	rm -f forge
+	rm -f ddx-agent
 	go clean ./...

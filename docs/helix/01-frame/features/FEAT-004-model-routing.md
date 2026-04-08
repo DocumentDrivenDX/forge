@@ -10,18 +10,18 @@ ddx:
 **Feature ID**: FEAT-004
 **Status**: Draft
 **Priority**: P0 (named providers), P1 (shared catalog), P2 (backend pools)
-**Owner**: Forge Team
+**Owner**: DDX Agent Team
 
 ## Overview
 
-Forge keeps the runtime boundary deliberately simple: `forge.Run()` receives one
+DDX Agent keeps the runtime boundary deliberately simple: `agent.Run()` receives one
 resolved `Provider`. Model policy and routing happen above that boundary in the
-config/CLI layer and in a reusable forge-owned model catalog.
+config/CLI layer and in a reusable agent-owned model catalog.
 
 This feature therefore has three related but separate responsibilities:
 
 - **Providers** — concrete transport/auth definitions
-- **Shared model catalog** — forge-owned aliases, tiers/profiles, canonical
+- **Shared model catalog** — agent-owned aliases, tiers/profiles, canonical
   targets, and deprecation metadata
 - **Backend pools** — optional routing targets that choose one provider before
   a run
@@ -33,7 +33,7 @@ prompt behavior and must not be reused for model policy or backend routing.
 
 - **Provider** — a concrete backend configuration: type, credentials, base URL,
   headers, and an optional default pinned model
-- **Model catalog** — forge-owned policy/data describing model families,
+- **Model catalog** — agent-owned policy/data describing model families,
   aliases, tiers/profiles, canonical targets, and deprecation/staleness status
 - **Manifest** — the structured model-catalog data file maintained separately
   from Go logic and consumed by the catalog package
@@ -48,13 +48,13 @@ prompt behavior and must not be reused for model policy or backend routing.
 
 ## Problem Statement
 
-- **Current situation**: Forge can select one named provider directly, while
-  DDx and HELIX still carry duplicated model policy outside forge.
+- **Current situation**: DDX Agent can select one named provider directly, while
+  DDx and HELIX still carry duplicated model policy outside agent.
 - **Pain points**: Prompt presets already occupy the `preset` naming surface,
   provider configs currently mix transport and model concerns, and rapidly
   changing model release data is too volatile to live only in hardcoded Go
   tables.
-- **Desired outcome**: Forge becomes the reusable source of truth for model
+- **Desired outcome**: DDX Agent becomes the reusable source of truth for model
   aliases, tiers/profiles, canonical targets, and deprecations, while keeping
   harness orchestration in DDx and stage intent in HELIX.
 
@@ -76,7 +76,7 @@ prompt behavior and must not be reused for model policy or backend routing.
 
 #### Phase 1B (P1): Shared Model Catalog and Manifest
 
-7. Forge owns a reusable shared model catalog separate from provider configs
+7. DDX Agent owns a reusable shared model catalog separate from provider configs
    and prompt presets.
 8. The catalog represents:
    - model families
@@ -87,16 +87,16 @@ prompt behavior and must not be reused for model policy or backend routing.
    - consumer-surface mappings where a canonical target needs different concrete
      strings for different downstream integrations
 9. Catalog data is stored in a structured manifest maintained separately from
-   Go logic inside the forge repo.
-10. Forge ships an embedded snapshot of that manifest and may also load an
+   Go logic inside the agent repo.
+10. DDX Agent ships an embedded snapshot of that manifest and may also load an
     external manifest override so policy/data can update independently of code
     releases where practical.
-11. Forge CLI and DDx can resolve a model reference through the catalog to a
+11. DDX Agent CLI and DDx can resolve a model reference through the catalog to a
     concrete model string appropriate for the chosen consumer surface.
 12. Explicit concrete model pins remain supported and intentionally bypass the
     catalog when a caller wants exact control.
 13. Ownership split is explicit:
-    - forge owns model catalog data/policy
+    - agent owns model catalog data/policy
     - DDx owns harness/provider orchestration and guardrails
     - HELIX owns stage intent only
 
@@ -110,7 +110,7 @@ prompt behavior and must not be reused for model policy or backend routing.
 16. Supported phase-2A strategies are:
     - `round-robin` — rotate across providers between requests
     - `first-available` — always pick the first configured provider
-17. Backend-pool resolution happens in the config/CLI layer. `forge.Run()`
+17. Backend-pool resolution happens in the config/CLI layer. `agent.Run()`
     still receives one concrete `Provider`.
 18. The selected concrete provider, resolved model reference, and resolved
     concrete model are recorded in the `Result`.
@@ -119,16 +119,16 @@ prompt behavior and must not be reused for model policy or backend routing.
 
 #### Phase 2B (P2, later): Failover and Health Tracking
 
-20. Forge may add request-level failover for backend pools after phase 2A is
+20. DDX Agent may add request-level failover for backend pools after phase 2A is
     in use and measured.
 21. If enabled, a failed provider may be skipped for the current request and a
     later provider attempted.
-22. Forge may track recent failures and temporarily back off unhealthy
+22. DDX Agent may track recent failures and temporarily back off unhealthy
     providers, but this is explicitly deferred until after phase 2A.
 
 ### Non-Functional Requirements
 
-- **Simplicity**: library users can still pass a concrete `forge.Provider`
+- **Simplicity**: library users can still pass a concrete `agent.Provider`
   directly with no YAML, catalog, or routing machinery.
 - **Clarity**: prompt presets, provider config, model policy, and backend
   routing each use distinct terminology.
@@ -161,7 +161,7 @@ prompt behavior and must not be reused for model policy or backend routing.
 
 - Named-provider config works with LM Studio, Ollama, OpenRouter, and
   Anthropic.
-- DDx can consume forge-owned catalog data without maintaining duplicate alias
+- DDx can consume agent-owned catalog data without maintaining duplicate alias
   and profile tables.
 - Prompt preset docs and model-policy docs stay terminology-safe and do not
   overload `preset`.

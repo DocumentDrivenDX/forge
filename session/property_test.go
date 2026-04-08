@@ -4,27 +4,27 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/DocumentDrivenDX/forge"
+	"github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
 
-func genTokenUsage() *rapid.Generator[forge.TokenUsage] {
-	return rapid.Custom(func(t *rapid.T) forge.TokenUsage {
+func genTokenUsage() *rapid.Generator[agent.TokenUsage] {
+	return rapid.Custom(func(t *rapid.T) agent.TokenUsage {
 		input := rapid.IntRange(0, 1_000_000).Draw(t, "input")
 		output := rapid.IntRange(0, 1_000_000).Draw(t, "output")
-		return forge.TokenUsage{Input: input, Output: output, Total: input + output}
+		return agent.TokenUsage{Input: input, Output: output, Total: input + output}
 	})
 }
 
-func genEvent() *rapid.Generator[forge.Event] {
-	return rapid.Custom(func(t *rapid.T) forge.Event {
-		eventTypes := []forge.EventType{
-			forge.EventSessionStart, forge.EventLLMRequest,
-			forge.EventLLMResponse, forge.EventToolCall, forge.EventSessionEnd,
+func genEvent() *rapid.Generator[agent.Event] {
+	return rapid.Custom(func(t *rapid.T) agent.Event {
+		eventTypes := []agent.EventType{
+			agent.EventSessionStart, agent.EventLLMRequest,
+			agent.EventLLMResponse, agent.EventToolCall, agent.EventSessionEnd,
 		}
-		return forge.Event{
+		return agent.Event{
 			SessionID: rapid.StringMatching(`s-[a-z0-9]{8}`).Draw(t, "sid"),
 			Seq:       rapid.IntRange(0, 10000).Draw(t, "seq"),
 			Type:      eventTypes[rapid.IntRange(0, len(eventTypes)-1).Draw(t, "type_idx")],
@@ -40,7 +40,7 @@ func TestProperty_EventMarshalRoundTrip(t *testing.T) {
 		data, err := json.Marshal(event)
 		require.NoError(t, err)
 
-		var decoded forge.Event
+		var decoded agent.Event
 		err = json.Unmarshal(data, &decoded)
 		require.NoError(t, err)
 
@@ -118,7 +118,7 @@ func TestProperty_SessionLogRoundTrip(t *testing.T) {
 
 		logger := NewLogger(dir, sessionID)
 		for i := range nEvents {
-			logger.Emit(forge.EventToolCall, ToolCallData{
+			logger.Emit(agent.EventToolCall, ToolCallData{
 				Tool:       "read",
 				Input:      json.RawMessage(`{"path":"test.go"}`),
 				Output:     rapid.String().Draw(t, "output"),
@@ -134,7 +134,7 @@ func TestProperty_SessionLogRoundTrip(t *testing.T) {
 		for i, e := range events {
 			assert.Equal(t, sessionID, e.SessionID)
 			assert.Equal(t, i, e.Seq)
-			assert.Equal(t, forge.EventToolCall, e.Type)
+			assert.Equal(t, agent.EventToolCall, e.Type)
 		}
 	})
 }

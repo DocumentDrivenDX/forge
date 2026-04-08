@@ -1,9 +1,9 @@
 ---
-title: Forge
+title: DDX Agent
 layout: hextra-home
 ---
 
-{{< hextra/hero-badge link="https://github.com/anthropics/forge" >}}
+{{< hextra/hero-badge link="https://github.com/DocumentDrivenDX/agent" >}}
   {{< icon name="github" attributes="height=14" >}}
   GitHub
 {{< /hextra/hero-badge >}}
@@ -29,7 +29,7 @@ layout: hextra-home
 {{< hextra/feature-grid >}}
   {{< hextra/feature-card
     title="Embeddable Library"
-    subtitle="forge.Run(ctx, request) — no subprocess overhead, direct state sharing with the host."
+    subtitle="agent.Run(ctx, request) — no subprocess overhead, direct state sharing with the host."
   >}}
   {{< hextra/feature-card
     title="Local-Model-First"
@@ -49,6 +49,6 @@ layout: hextra-home
   >}}
   {{< hextra/feature-card
     title="Standalone CLI"
-    subtitle="forge -p 'prompt' proves the library works. Config, session logs, replay, usage reporting."
+    subtitle="ddx-agent -p 'prompt' proves the library works. Config, session logs, replay, usage reporting."
   >}}
 {{< /hextra/feature-grid >}}
