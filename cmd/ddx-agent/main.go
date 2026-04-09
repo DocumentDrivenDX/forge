@@ -72,6 +72,8 @@ func run() int {
 			return cmdLog(wd, args[1:])
 		case "replay":
 			return cmdReplay(wd, args[1:])
+		case "usage":
+			return cmdUsage(wd, args[1:])
 		case "models":
 			return cmdModels(wd, *providerFlag, args[1:])
 		case "check":
@@ -581,9 +583,10 @@ func cmdLog(workDir string, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
 	}
+	logDir := sessionLogDir(workDir, cfg)
 
 	if len(args) > 0 {
-		path := filepath.Join(cfg.SessionLogDir, args[0]+".jsonl")
+		path := filepath.Join(logDir, args[0]+".jsonl")
 		events, err := session.ReadEvents(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %s\n", err)
@@ -596,7 +599,7 @@ func cmdLog(workDir string, args []string) int {
 		return 0
 	}
 
-	entries, err := os.ReadDir(cfg.SessionLogDir)
+	entries, err := os.ReadDir(logDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -625,12 +628,94 @@ func cmdReplay(workDir string, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
 	}
-	path := filepath.Join(cfg.SessionLogDir, args[0]+".jsonl")
+	path := filepath.Join(sessionLogDir(workDir, cfg), args[0]+".jsonl")
 	if err := session.Replay(path, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
 	}
 	return 0
+}
+
+func cmdUsage(workDir string, args []string) int {
+	fs := flag.NewFlagSet("usage", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	since := fs.String("since", "", "Time window: today, 7d, 30d, YYYY-MM-DD, or YYYY-MM-DD..YYYY-MM-DD")
+	jsonOutput := fs.Bool("json", false, "Output JSON")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	cfg, err := agentConfig.Load(workDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	report, err := session.AggregateUsage(sessionLogDir(workDir, cfg), session.UsageOptions{
+		Since: *since,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	if *jsonOutput {
+		data, _ := json.MarshalIndent(report, "", "  ")
+		fmt.Println(string(data))
+		return 0
+	}
+
+	printUsageReport(report, *since)
+	return 0
+}
+
+func sessionLogDir(workDir string, cfg *agentConfig.Config) string {
+	if cfg == nil || cfg.SessionLogDir == "" {
+		return filepath.Join(workDir, ".agent", "sessions")
+	}
+	if filepath.IsAbs(cfg.SessionLogDir) {
+		return cfg.SessionLogDir
+	}
+	return filepath.Join(workDir, cfg.SessionLogDir)
+}
+
+func printUsageReport(report *session.UsageReport, since string) {
+	if report.Window != nil {
+		fmt.Printf("Window: %s .. %s\n", formatUsageWindowBound(report.Window.Start), formatUsageWindowBound(report.Window.End))
+	} else if since != "" {
+		fmt.Printf("Window: %s\n", since)
+	}
+
+	fmt.Printf("%-16s %-24s %8s %10s %10s %10s %14s %10s %12s %12s\n",
+		"PROVIDER", "MODEL", "SESSIONS", "INPUT", "OUTPUT", "TOTAL", "KNOWN COST", "UNKNOWN", "IN tok/s", "OUT tok/s")
+	for _, row := range report.Rows {
+		printUsageRow(row)
+	}
+	total := report.Totals
+	total.Provider = "TOTAL"
+	printUsageRow(total)
+}
+
+func formatUsageWindowBound(ts time.Time) string {
+	if ts.IsZero() {
+		return "(open)"
+	}
+	return ts.UTC().Format("2006-01-02")
+}
+
+func printUsageRow(row session.UsageRow) {
+	fmt.Printf("%-16s %-24s %8d %10d %10d %10d %14s %10d %12.1f %12.1f\n",
+		row.Provider,
+		row.Model,
+		row.Sessions,
+		row.InputTokens,
+		row.OutputTokens,
+		row.TotalTokens,
+		fmt.Sprintf("$%.4f", row.KnownCostUSD),
+		row.UnknownCostSessions,
+		row.InputTokensPerSecond(),
+		row.OutputTokensPerSecond(),
+	)
 }
 
 func checkProviderStatus(pc agentConfig.ProviderConfig) string {
