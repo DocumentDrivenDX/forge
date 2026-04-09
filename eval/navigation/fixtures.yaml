@@ -1,0 +1,112 @@
+# Navigation micro-eval fixtures for ddx-agent
+# See docs/helix/02-design/solution-designs/SD-009-benchmark-mode.md §6
+#
+# These fixtures define the committed task/fixture set and scoring rules
+# for the navigation anti-pattern micro-evals. Each fixture specifies:
+#   - workspace: files to create in a temp directory
+#   - task: the instruction given to the agent
+#   - scoring: what to check in the agent trajectory
+#
+# Run via: go test ./eval/... -v
+---
+schema_version: "1"
+captured: "2026-04-08"
+
+# Thresholds from SD-009 §5 (grounded in 2026-04-08 baseline):
+#   shell_antipatter_rate_floor: 0.30  (< 30% of bash calls are navigation anti-patterns)
+#   structured_nav_tool_rate_floor: 0.70  (>= 70% of file nav uses structured tools)
+thresholds:
+  shell_antpattern_rate_floor: 0.30
+  structured_nav_tool_rate_floor: 0.70
+
+fixtures:
+  # --- no-bash file read ---
+  - id: nav-001-no-bash-read
+    category: no_bash_read
+    description: Agent must use the read tool (not bash) to inspect a known file.
+    workspace:
+      "hello.go": |
+        package main
+
+        import "fmt"
+
+        func Greet(name string) string {
+            return fmt.Sprintf("Hello, %s!", name)
+        }
+    task: "Read the file hello.go and tell me what function it exports."
+    scoring:
+      require_tools: [read]
+      forbid_bash_commands: ["cat ", "head ", "tail "]
+      passing_criterion: "0 bash calls that read file content"
+
+  # --- glob instead of find ---
+  - id: nav-002-glob-not-find
+    category: structured_nav
+    description: Agent must use glob to find files instead of bash find/ls.
+    workspace:
+      "src/auth/login.go": "package auth\n"
+      "src/auth/logout.go": "package auth\n"
+      "src/user/profile.go": "package user\n"
+      "main.go": "package main\n"
+    task: "List all .go files in the src/ directory."
+    scoring:
+      require_tools: [glob]
+      forbid_bash_commands: ["find ", "ls "]
+      passing_criterion: "glob tool called with pattern matching *.go or **/*.go"
+
+  # --- grep instead of bash grep ---
+  - id: nav-003-grep-not-bash
+    category: structured_nav
+    description: Agent must use the grep tool instead of bash grep/rg.
+    workspace:
+      "main.go": "package main\n\nfunc main() {\n\t// entry point\n}\n"
+      "util.go": "package main\n\nfunc helper() {}\n"
+      "config.go": "package main\n\nconst defaultTimeout = 30\n"
+    task: "Find all files that contain the word 'timeout'."
+    scoring:
+      require_tools: [grep]
+      forbid_bash_commands: ["grep ", "rg ", "ripgrep"]
+      passing_criterion: "grep tool called with pattern 'timeout'"
+
+  # --- ls instead of bash ls ---
+  - id: nav-004-ls-not-bash
+    category: structured_nav
+    description: Agent must use the ls tool to inspect a directory.
+    workspace:
+      "cmd/server/main.go": "package main\n"
+      "cmd/server/config.go": "package main\n"
+      "cmd/client/main.go": "package main\n"
+    task: "What files are in the cmd/server directory?"
+    scoring:
+      require_tools: [ls]
+      forbid_bash_commands: ["ls ", "find ", "dir "]
+      passing_criterion: "ls tool called with path 'cmd/server'"
+
+  # --- combined navigation task ---
+  - id: nav-005-combined-nav
+    category: compound_nav
+    description: Multi-step task requiring glob + read without bash navigation.
+    workspace:
+      "handlers/auth.go": |
+        package handlers
+
+        // Login handles user login.
+        func Login() {}
+
+        // Logout handles user logout.
+        func Logout() {}
+      "handlers/user.go": |
+        package handlers
+
+        // GetUser returns a user by ID.
+        func GetUser() {}
+      "handlers/health.go": |
+        package handlers
+
+        // Health returns server health status.
+        func Health() {}
+    task: "List all Go files in the handlers directory and then report which functions each file exports."
+    scoring:
+      require_tools: [glob, read]
+      forbid_bash_commands: ["find ", "ls ", "cat "]
+      passing_criterion: "glob + read used; no bash navigation anti-patterns"

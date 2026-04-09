@@ -135,6 +135,9 @@ func run() int {
 		&tool.WriteTool{WorkDir: wd},
 		&tool.EditTool{WorkDir: wd},
 		&tool.BashTool{WorkDir: wd},
+		&tool.GlobTool{WorkDir: wd},
+		&tool.GrepTool{WorkDir: wd},
+		&tool.LsTool{WorkDir: wd},
 	}
 
 	// Build system prompt
