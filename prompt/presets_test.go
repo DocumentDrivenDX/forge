@@ -9,8 +9,9 @@ import (
 
 func TestPresetNames(t *testing.T) {
 	names := PresetNames()
-	require.Len(t, names, 5)
+	require.Len(t, names, 6)
 	assert.Equal(t, "agent", names[0]) // default first
+	assert.Contains(t, names, "benchmark")
 }
 
 func TestGetPreset(t *testing.T) {

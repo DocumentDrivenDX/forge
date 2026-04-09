@@ -49,7 +49,7 @@ func run() int {
 	workDir := flag.String("work-dir", "", "Working directory")
 	version := flag.Bool("version", false, "Print version")
 	sysPromptFlag := flag.String("system", "", "System prompt (appended to preset)")
-	presetFlag := flag.String("preset", "", "System prompt preset (agent, claude, codex, cursor, minimal)")
+	presetFlag := flag.String("preset", "", "System prompt preset (agent, benchmark, claude, codex, cursor, minimal)")
 
 	flag.Parse()
 
