@@ -79,6 +79,14 @@ func findResponseAttempt(t *testing.T, data []byte) map[string]any {
 	return attempt
 }
 
+func findResponsePayload(t *testing.T, data []byte) map[string]any {
+	t.Helper()
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(data, &payload))
+	return payload
+}
+
 func TestRun_SimpleTextResponse(t *testing.T) {
 	provider := &mockProvider{
 		responses: []Response{
@@ -344,10 +352,9 @@ func TestRun_MultipleToolCalls(t *testing.T) {
 }
 
 func TestRun_CostAccumulation(t *testing.T) {
-	// gpt-4o is in DefaultPricing: $2.50/MTok input, $10.00/MTok output
-	// iteration 1: 1000 input, 500 output -> $0.0025 + $0.005 = $0.0075
-	// iteration 2: 2000 input, 1000 output -> $0.005 + $0.010 = $0.015
-	// total: $0.0225
+	firstCost := 0.0075
+	secondCost := 0.015
+
 	provider := &mockProvider{
 		responses: []Response{
 			{
@@ -355,53 +362,129 @@ func TestRun_CostAccumulation(t *testing.T) {
 					{ID: "tc1", Name: "read", Arguments: json.RawMessage(`{}`)},
 				},
 				Usage: TokenUsage{Input: 1000, Output: 500, Total: 1500},
-				Model: "gpt-4o",
+				Model: "unknown-model-xyz",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "gateway",
+					ProviderSystem: "gateway",
+					RequestedModel: "unknown-model-xyz",
+					ResponseModel:  "unknown-model-xyz",
+					ResolvedModel:  "unknown-model-xyz",
+					Cost: &CostAttribution{
+						Source:   CostSourceConfigured,
+						Amount:   &firstCost,
+						Currency: "USD",
+					},
+				},
 			},
 			{
 				Content: "done",
 				Usage:   TokenUsage{Input: 2000, Output: 1000, Total: 3000},
-				Model:   "gpt-4o",
+				Model:   "unknown-model-xyz",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "gateway",
+					ProviderSystem: "gateway",
+					RequestedModel: "unknown-model-xyz",
+					ResponseModel:  "unknown-model-xyz",
+					ResolvedModel:  "unknown-model-xyz",
+					Cost: &CostAttribution{
+						Source:   CostSourceProviderReported,
+						Amount:   &secondCost,
+						Currency: "USD",
+					},
+				},
 			},
 		},
 	}
 
 	readTool := &mockTool{name: "read", result: "content"}
 
+	var responseCosts []float64
+
 	result, err := Run(context.Background(), Request{
 		Prompt:   "test cost",
 		Provider: provider,
 		Tools:    []Tool{readTool},
+		Callback: func(e Event) {
+			if e.Type != EventLLMResponse {
+				return
+			}
+			payload := findResponsePayload(t, e.Data)
+			if costVal, ok := payload["cost_usd"].(float64); ok {
+				responseCosts = append(responseCosts, costVal)
+			}
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, StatusSuccess, result.Status)
 
-	expected := DefaultPricing.EstimateCost("gpt-4o", 1000, 500) +
-		DefaultPricing.EstimateCost("gpt-4o", 2000, 1000)
+	expected := firstCost + secondCost
 	assert.InDelta(t, expected, result.CostUSD, 1e-9)
 	assert.Greater(t, result.CostUSD, 0.0)
+	require.Len(t, responseCosts, 2)
+	assert.InDelta(t, firstCost, responseCosts[0], 1e-9)
+	assert.InDelta(t, secondCost, responseCosts[1], 1e-9)
 }
 
-func TestRun_CostUnknownModel(t *testing.T) {
-	// Unknown model should result in CostUSD == -1
+func TestRun_UnknownCostDoesNotUseDefaultPricing(t *testing.T) {
 	provider := &mockProvider{
 		responses: []Response{
-			{Content: "done", Usage: TokenUsage{Input: 100, Output: 50, Total: 150}, Model: "unknown-model-xyz"},
+			{
+				Content: "done",
+				Usage:   TokenUsage{Input: 100, Output: 50, Total: 150},
+				Model:   "gpt-4o",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "openai",
+					ProviderSystem: "openai",
+					RequestedModel: "gpt-4o",
+					ResponseModel:  "gpt-4o",
+					ResolvedModel:  "gpt-4o",
+					Cost: &CostAttribution{
+						Source: CostSourceUnknown,
+					},
+				},
+			},
 		},
 	}
 
+	var responsePayload map[string]any
 	result, err := Run(context.Background(), Request{
 		Prompt:   "test",
 		Provider: provider,
+		Callback: func(e Event) {
+			if e.Type == EventLLMResponse {
+				responsePayload = findResponsePayload(t, e.Data)
+			}
+		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, StatusSuccess, result.Status)
 	assert.Equal(t, -1.0, result.CostUSD)
+	require.NotNil(t, responsePayload)
+	_, ok := responsePayload["cost_usd"]
+	assert.False(t, ok, "unknown-cost llm.response must omit cost_usd")
 }
 
 func TestRun_SessionEndEventIncludesCost(t *testing.T) {
+	sessionCost := 0.0234
 	provider := &mockProvider{
 		responses: []Response{
-			{Content: "done", Usage: TokenUsage{Input: 1000, Output: 500, Total: 1500}, Model: "gpt-4o"},
+			{
+				Content: "done",
+				Usage:   TokenUsage{Input: 1000, Output: 500, Total: 1500},
+				Model:   "claude-sonnet-4-20250514",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "anthropic",
+					ProviderSystem: "anthropic",
+					RequestedModel: "claude-sonnet-4-20250514",
+					ResponseModel:  "claude-sonnet-4-20250514",
+					ResolvedModel:  "claude-sonnet-4-20250514",
+					Cost: &CostAttribution{
+						Source:   CostSourceGatewayReported,
+						Amount:   &sessionCost,
+						Currency: "USD",
+					},
+				},
+			},
 		},
 	}
 
@@ -418,9 +501,9 @@ func TestRun_SessionEndEventIncludesCost(t *testing.T) {
 		Callback: cb,
 	})
 	require.NoError(t, err)
-	assert.Greater(t, result.CostUSD, 0.0)
+	assert.InDelta(t, sessionCost, result.CostUSD, 1e-9)
 	require.NotNil(t, sessionEndData)
 	costVal, ok := sessionEndData["cost_usd"]
 	require.True(t, ok, "session.end event must include cost_usd")
-	assert.Greater(t, costVal.(float64), 0.0)
+	assert.InDelta(t, sessionCost, costVal.(float64), 1e-9)
 }

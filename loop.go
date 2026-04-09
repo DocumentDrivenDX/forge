@@ -57,6 +57,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 
 	seq := 1
 	opts := Options{}
+	sessionCostKnown := true
 
 	// runCompaction handles the compaction logic and event emission.
 	// Returns true if compaction occurred.
@@ -216,34 +217,37 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			result.Tokens.Add(resp.Usage)
 			result.Model = resp.Model
 
-			// Accumulate cost
-			iterCost := DefaultPricing.EstimateCost(resp.Model, resp.Usage.Input, resp.Usage.Output)
-			if iterCost < 0 {
-				// Unknown model — mark total cost as unknown if not already set
-				if result.CostUSD == 0 {
-					result.CostUSD = -1
+			// Accumulate cost only when the attempt provides known provenance.
+			iterCost, costKnown := attemptCostUSD(resp.Attempt)
+			if costKnown {
+				if sessionCostKnown {
+					result.CostUSD += iterCost
 				}
-			} else if result.CostUSD >= 0 {
-				result.CostUSD += iterCost
+			} else {
+				sessionCostKnown = false
+				result.CostUSD = -1
 			}
 
 			// Emit LLM response event with full tool call bodies.
+			responseData := map[string]any{
+				"attempt_index": attempt,
+				"content":       resp.Content,
+				"tool_calls":    resp.ToolCalls,
+				"usage":         resp.Usage,
+				"latency_ms":    llmDuration.Milliseconds(),
+				"model":         resp.Model,
+				"finish_reason": resp.FinishReason,
+				"attempt":       resp.Attempt,
+			}
+			if costKnown {
+				responseData["cost_usd"] = iterCost
+			}
 			emitCallback(req.Callback, Event{
 				SessionID: sessionID,
 				Seq:       seq,
 				Type:      EventLLMResponse,
 				Timestamp: time.Now().UTC(),
-				Data: mustMarshal(map[string]any{
-					"attempt_index": attempt,
-					"content":       resp.Content,
-					"tool_calls":    resp.ToolCalls,
-					"usage":         resp.Usage,
-					"cost_usd":      iterCost,
-					"latency_ms":    llmDuration.Milliseconds(),
-					"model":         resp.Model,
-					"finish_reason": resp.FinishReason,
-					"attempt":       resp.Attempt,
-				}),
+				Data:      mustMarshal(responseData),
 			})
 			seq++
 
@@ -366,6 +370,19 @@ func emitSessionEnd(cb EventCallback, sessionID string, seq *int, result Result,
 func mustMarshal(v any) json.RawMessage {
 	data, _ := json.Marshal(v)
 	return data
+}
+
+func attemptCostUSD(attempt *AttemptMetadata) (float64, bool) {
+	if attempt == nil || attempt.Cost == nil || attempt.Cost.Amount == nil {
+		return 0, false
+	}
+
+	switch attempt.Cost.Source {
+	case CostSourceProviderReported, CostSourceGatewayReported, CostSourceConfigured:
+		return *attempt.Cost.Amount, true
+	default:
+		return 0, false
+	}
 }
 
 func truncateForLog(s string, maxLen int) string {
