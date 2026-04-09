@@ -12,6 +12,8 @@ import (
 	"github.com/DocumentDrivenDX/agent"
 )
 
+const maxGlobResults = 500
+
 // skipDirs are directories that WalkDir skips unconditionally.
 var skipDirs = map[string]bool{
 	".git":         true,
@@ -64,6 +66,7 @@ func (t *GlobTool) Execute(_ context.Context, params json.RawMessage) (string, e
 	patParts := strings.Split(filepath.ToSlash(p.Pattern), "/")
 
 	var matches []string
+	truncated := false
 	err := filepath.WalkDir(baseDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // skip unreadable entries
@@ -84,6 +87,10 @@ func (t *GlobTool) Execute(_ context.Context, params json.RawMessage) (string, e
 			return matchErr
 		}
 		if ok {
+			if len(matches) >= maxGlobResults {
+				truncated = true
+				return filepath.SkipAll
+			}
 			matches = append(matches, rel)
 		}
 		return nil
@@ -96,7 +103,11 @@ func (t *GlobTool) Execute(_ context.Context, params json.RawMessage) (string, e
 	if len(matches) == 0 {
 		return "(no matches)", nil
 	}
-	return strings.Join(matches, "\n"), nil
+	result := strings.Join(matches, "\n")
+	if truncated {
+		result += fmt.Sprintf("\n(results truncated at %d matches)", maxGlobResults)
+	}
+	return result, nil
 }
 
 // matchParts matches path segments nameParts against pattern segments patParts.

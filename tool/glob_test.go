@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -119,6 +120,22 @@ func TestGlobTool_Execute(t *testing.T) {
 		copy(sorted, lines)
 		assert.Equal(t, sorted, lines, "output should already be sorted")
 	})
+}
+
+func TestGlobTool_Truncation(t *testing.T) {
+	dir := t.TempDir()
+	// Create more files than maxGlobResults.
+	for i := 0; i < maxGlobResults+10; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("file%04d.txt", i))
+		require.NoError(t, os.WriteFile(name, []byte("x"), 0o644))
+	}
+	g := &GlobTool{WorkDir: dir}
+	result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "*.txt"}))
+	require.NoError(t, err)
+	assert.Contains(t, result, fmt.Sprintf("(results truncated at %d matches)", maxGlobResults))
+	lines := strings.Split(strings.TrimSpace(result), "\n")
+	// maxGlobResults file lines + 1 truncation line
+	assert.Equal(t, maxGlobResults+1, len(lines))
 }
 
 func TestMatchParts(t *testing.T) {
