@@ -105,12 +105,12 @@ func Replay(path string, w io.Writer) error {
 			}
 			fmt.Fprintf(w, "Duration: %dms | Tokens: %d in / %d out",
 				data.DurationMs, data.Tokens.Input, data.Tokens.Output)
-			if data.CostUSD > 0 {
-				fmt.Fprintf(w, " | Cost: $%.4f", data.CostUSD)
-			} else if data.CostUSD == 0 {
-				fmt.Fprintf(w, " | Cost: $0 (local)")
-			} else {
+			if data.CostUSD == nil {
 				fmt.Fprintf(w, " | Cost: unknown")
+			} else if *data.CostUSD > 0 {
+				fmt.Fprintf(w, " | Cost: $%.4f", *data.CostUSD)
+			} else {
+				fmt.Fprintf(w, " | Cost: $0 (local)")
 			}
 			fmt.Fprintln(w)
 			if len(data.Metadata) > 0 {

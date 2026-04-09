@@ -464,7 +464,7 @@ func TestRun_UnknownCostDoesNotUseDefaultPricing(t *testing.T) {
 	assert.False(t, ok, "unknown-cost llm.response must omit cost_usd")
 }
 
-func TestRun_SessionEndEventIncludesCost(t *testing.T) {
+func TestRun_SessionEndEventIncludesKnownCost(t *testing.T) {
 	sessionCost := 0.0234
 	provider := &mockProvider{
 		responses: []Response{
@@ -506,4 +506,44 @@ func TestRun_SessionEndEventIncludesCost(t *testing.T) {
 	costVal, ok := sessionEndData["cost_usd"]
 	require.True(t, ok, "session.end event must include cost_usd")
 	assert.InDelta(t, sessionCost, costVal.(float64), 1e-9)
+}
+
+func TestRun_SessionEndEventOmitsUnknownCost(t *testing.T) {
+	provider := &mockProvider{
+		responses: []Response{
+			{
+				Content: "done",
+				Usage:   TokenUsage{Input: 100, Output: 50, Total: 150},
+				Model:   "gpt-4o",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "openai",
+					ProviderSystem: "openai",
+					RequestedModel: "gpt-4o",
+					ResponseModel:  "gpt-4o",
+					ResolvedModel:  "gpt-4o",
+					Cost: &CostAttribution{
+						Source: CostSourceUnknown,
+					},
+				},
+			},
+		},
+	}
+
+	var sessionEndData map[string]any
+	cb := func(e Event) {
+		if e.Type == EventSessionEnd {
+			_ = json.Unmarshal(e.Data, &sessionEndData)
+		}
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:   "test",
+		Provider: provider,
+		Callback: cb,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, -1.0, result.CostUSD)
+	require.NotNil(t, sessionEndData)
+	_, ok := sessionEndData["cost_usd"]
+	assert.False(t, ok, "session.end event must omit cost_usd when unknown")
 }

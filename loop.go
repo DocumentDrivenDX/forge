@@ -348,21 +348,24 @@ func emitSessionEnd(cb EventCallback, sessionID string, seq *int, result Result,
 	if result.Error != nil {
 		errStr = result.Error.Error()
 	}
+	data := map[string]any{
+		"status":      result.Status,
+		"output":      result.Output,
+		"tokens":      result.Tokens,
+		"duration_ms": result.Duration.Milliseconds(),
+		"model":       result.Model,
+		"metadata":    metadata,
+		"error":       errStr,
+	}
+	if result.CostUSD >= 0 {
+		data["cost_usd"] = result.CostUSD
+	}
 	emitCallback(cb, Event{
 		SessionID: sessionID,
 		Seq:       *seq,
 		Type:      EventSessionEnd,
 		Timestamp: time.Now().UTC(),
-		Data: mustMarshal(map[string]any{
-			"status":      result.Status,
-			"output":      result.Output,
-			"tokens":      result.Tokens,
-			"cost_usd":    result.CostUSD,
-			"duration_ms": result.Duration.Milliseconds(),
-			"model":       result.Model,
-			"metadata":    metadata,
-			"error":       errStr,
-		}),
+		Data:      mustMarshal(data),
 	})
 	*seq++
 }

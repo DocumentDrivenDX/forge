@@ -12,6 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func float64Ptr(v float64) *float64 {
+	return &v
+}
+
 func TestReplay(t *testing.T) {
 	dir := t.TempDir()
 	sessionID := "replay-test"
@@ -49,7 +53,7 @@ func TestReplay(t *testing.T) {
 		Status:     agent.StatusSuccess,
 		Output:     "The package is main.",
 		Tokens:     agent.TokenUsage{Input: 300, Output: 50, Total: 350},
-		CostUSD:    0,
+		CostUSD:    float64Ptr(0),
 		DurationMs: 1500,
 	})
 	require.NoError(t, logger.Close())
@@ -71,6 +75,27 @@ func TestReplay(t *testing.T) {
 	assert.Contains(t, output, "The package is main.")
 	assert.Contains(t, output, "End (success)")
 	assert.Contains(t, output, "$0 (local)")
+}
+
+func TestReplay_UnknownSessionCost(t *testing.T) {
+	dir := t.TempDir()
+	sessionID := "unknown-cost-test"
+
+	logger := NewLogger(dir, sessionID)
+	logger.Emit(agent.EventSessionEnd, SessionEndData{
+		Status:     agent.StatusSuccess,
+		Output:     "Done",
+		Tokens:     agent.TokenUsage{Input: 10, Output: 5, Total: 15},
+		DurationMs: 250,
+	})
+	require.NoError(t, logger.Close())
+
+	var buf bytes.Buffer
+	err := Replay(filepath.Join(dir, sessionID+".jsonl"), &buf)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Cost: unknown")
 }
 
 func TestReplay_MissingFile(t *testing.T) {
@@ -144,7 +169,7 @@ func TestReplay_WithCost(t *testing.T) {
 	logger.Emit(agent.EventSessionEnd, SessionEndData{
 		Status:     agent.StatusSuccess,
 		Tokens:     agent.TokenUsage{Input: 1000, Output: 500},
-		CostUSD:    0.0234,
+		CostUSD:    float64Ptr(0.0234),
 		DurationMs: 1000,
 	})
 	require.NoError(t, logger.Close())

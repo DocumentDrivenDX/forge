@@ -49,7 +49,7 @@ type SessionEndData struct {
 	Status     agent.Status      `json:"status"`
 	Output     string            `json:"output"`
 	Tokens     agent.TokenUsage  `json:"tokens"`
-	CostUSD    float64           `json:"cost_usd"`
+	CostUSD    *float64          `json:"cost_usd,omitempty"`
 	DurationMs int64             `json:"duration_ms"`
 	Model      string            `json:"model,omitempty"`
 	Metadata   map[string]string `json:"metadata,omitempty"`

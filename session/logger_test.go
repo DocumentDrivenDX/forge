@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -81,6 +82,34 @@ func TestLogger_Emit(t *testing.T) {
 	assert.Equal(t, 0, events[0].Seq)
 	assert.Equal(t, 1, events[1].Seq)
 	assert.Equal(t, 2, events[2].Seq)
+}
+
+func TestSessionEndData_CostDistinction(t *testing.T) {
+	dir := t.TempDir()
+	l := NewLogger(dir, "cost-distinction-test")
+
+	l.Emit(agent.EventSessionEnd, SessionEndData{
+		Status: agent.StatusSuccess,
+	})
+	zero := 0.0
+	l.Emit(agent.EventSessionEnd, SessionEndData{
+		Status:  agent.StatusSuccess,
+		CostUSD: &zero,
+	})
+	require.NoError(t, l.Close())
+
+	events, err := ReadEvents(filepath.Join(dir, "cost-distinction-test.jsonl"))
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+
+	var unknown SessionEndData
+	require.NoError(t, json.Unmarshal(events[0].Data, &unknown))
+	assert.Nil(t, unknown.CostUSD)
+
+	var local SessionEndData
+	require.NoError(t, json.Unmarshal(events[1].Data, &local))
+	require.NotNil(t, local.CostUSD)
+	assert.Equal(t, 0.0, *local.CostUSD)
 }
 
 func TestLogger_Write_NilFile(t *testing.T) {
