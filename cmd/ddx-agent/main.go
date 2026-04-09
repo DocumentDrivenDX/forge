@@ -130,6 +130,7 @@ func run() int {
 	}
 
 	// Build tools
+	taskStore := tool.NewTaskStore()
 	tools := []agent.Tool{
 		&tool.ReadTool{WorkDir: wd},
 		&tool.WriteTool{WorkDir: wd},
@@ -139,6 +140,7 @@ func run() int {
 		&tool.GrepTool{WorkDir: wd},
 		&tool.LsTool{WorkDir: wd},
 		&tool.PatchTool{WorkDir: wd},
+		&tool.TaskTool{Store: taskStore},
 	}
 
 	// Build system prompt

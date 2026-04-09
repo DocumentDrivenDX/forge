@@ -1,0 +1,189 @@
+# Task-tracking micro-eval fixtures for ddx-agent
+# See docs/helix/02-design/solution-designs/SD-009-benchmark-mode.md §6
+# and bead agent-77d95bdc (Add task-tracking tools and multi-step planning compliance evals)
+#
+# These fixtures define the committed task/fixture set for evaluating whether
+# ddx-agent uses task-tracking tools appropriately on multi-step work. The goal
+# is to reduce planning-state loss across multiple turns, not merely to force
+# visible checklist output.
+#
+# Run via: go test ./eval/tasktracking/... -v
+---
+schema_version: "1"
+captured: "2026-04-09"
+
+# Thresholds grounded in SD-009 §5 and the 2026-04-08 baseline:
+#   task_tracking_usage_rate_floor: 0.70 (>= 70% of multi-step tasks use task tool)
+#   task_completion_rate_floor: 0.80 (>= 80% of created tasks are marked completed)
+thresholds:
+  task_tracking_usage_rate_floor: 0.70
+  task_completion_rate_floor: 0.80
+
+fixtures:
+  # --- simple multi-step task requiring planning ---
+  - id: task-001-simple-multi-step
+    category: simple_planning
+    description: A straightforward multi-step task where the agent should create and track subtasks.
+    workspace:
+      "main.go": |
+        package main
+
+        import "fmt"
+
+        func main() {
+            fmt.Println("Hello")
+        }
+    task: |
+      Refactor this Go program to:
+      1. Add a greeting function that takes a name parameter
+      2. Update main to call the greeting function with "World"
+      3. Verify the output is correct
+
+      Use the task tool to track your progress through these steps.
+
+    scoring:
+      require_tools: [task, edit]
+      require_task_operations: ["create", "update"]
+      passing_criterion: "At least one task created and at least one status update to completed"
+
+  # --- compound refactor with multiple files ---
+  - id: task-002-compound-refactor
+    category: compound_planning
+    description: Multi-file refactor requiring explicit task decomposition.
+    workspace:
+      "handlers/user.go": |
+        package handlers
+
+        func GetUser() string {
+            return "user"
+        }
+      "handlers/auth.go": |
+        package handlers
+
+        func Login() string {
+            return "logged in"
+        }
+      "main.go": |
+        package main
+
+        import (
+            "fmt"
+            "github.com/example/app/handlers"
+        )
+
+        func main() {
+            fmt.Println(handlers.GetUser())
+        }
+    task: |
+      Add error handling to this application:
+      1. Update GetUser to return (string, error) and add a nil check in the handler
+      2. Update Login to return (string, error) with simulated auth failure on empty input
+      3. Update main.go to handle errors from both functions
+
+      Use the task tool to track each step of this refactor.
+
+    scoring:
+      require_tools: [task, edit]
+      require_task_operations: ["create", "update"]
+      min_tasks_created: 2
+      passing_criterion: "Multiple tasks created for multi-file changes; all marked completed"
+
+  # --- test-driven development workflow ---
+  - id: task-003-tdd-workflow
+    category: tdd_planning
+    description: TDD-style workflow where tests should be written before implementation.
+    workspace:
+      "calculator.go": |
+        package calculator
+
+        func Add(a, b int) int {
+            return a + b
+        }
+    task: |
+      Implement a Subtract function using test-driven development:
+      1. First write tests for Subtract (including edge cases like negative results)
+      2. Then implement the Subtract function to make tests pass
+      3. Verify all tests pass
+
+      Use the task tool to track this TDD workflow.
+
+    scoring:
+      require_tools: [task, write, edit]
+      require_task_operations: ["create", "update"]
+      min_tasks_created: 2
+      passing_criterion: "Tasks created for test-writing and implementation phases"
+
+  # --- debugging multi-step investigation ---
+  - id: task-004-debug-investigation
+    category: debug_planning
+    description: Debugging workflow requiring systematic investigation steps.
+    workspace:
+      "service.go": |
+        package service
+
+        func Process(input string) string {
+            if input == "" {
+                return "empty"
+            }
+            return input + "-processed"
+        }
+      "main.go": |
+        package main
+
+        import (
+            "fmt"
+            "github.com/example/app/service"
+        )
+
+        func main() {
+            result := service.Process("test")
+            fmt.Println(result)
+        }
+    task: |
+      The Process function has a bug where it doesn't handle whitespace-only input correctly.
+      
+      Debug and fix this issue:
+      1. Analyze the current behavior with whitespace input
+      2. Write a test case that exposes the bug
+      3. Fix the Process function to trim whitespace before processing
+      4. Verify the fix works
+
+      Use the task tool to track your debugging steps.
+
+    scoring:
+      require_tools: [task, edit]
+      require_task_operations: ["create", "update"]
+      min_tasks_created: 3
+      passing_criterion: "Tasks created for analysis, test-writing, and fixing phases"
+
+  # --- feature implementation with dependencies ---
+  - id: task-005-feature-with-deps
+    category: dependency_planning
+    description: Feature implementation where tasks have explicit dependencies.
+    workspace:
+      "api/server.go": |
+        package api
+
+        type Server struct{}
+
+        func (s *Server) Start() error {
+            return nil
+        }
+    task: |
+      Add a health check endpoint to the server:
+      
+      Prerequisites:
+      - Create a HealthChecker interface in a new file
+      
+      Implementation:
+      - Implement the health check logic
+      - Wire it into the Server struct
+      - Add a method to expose the health endpoint
+
+      Use the task tool to track these dependent steps. Mark tasks as completed only when their prerequisites are done.
+
+    scoring:
+      require_tools: [task, write, edit]
+      require_task_operations: ["create", "update"]
+      min_tasks_created: 3
+      passing_criterion: "Tasks created reflecting dependency order; sequential completion"
