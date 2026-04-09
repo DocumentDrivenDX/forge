@@ -98,6 +98,23 @@ func TestReplay_UnknownSessionCost(t *testing.T) {
 	assert.Contains(t, output, "Cost: unknown")
 }
 
+func TestReplay_LegacyUnknownSessionCost(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy-unknown-cost.jsonl")
+
+	legacyLog := `{"session_id":"legacy-unknown-cost","seq":0,"type":"session.end","ts":"2026-04-09T00:00:00Z","data":{"status":"success","output":"Done","tokens":{"input":10,"output":5,"total":15},"cost_usd":-1,"duration_ms":250}}
+`
+	require.NoError(t, os.WriteFile(path, []byte(legacyLog), 0o644))
+
+	var buf bytes.Buffer
+	err := Replay(path, &buf)
+	require.NoError(t, err)
+
+	output := buf.String()
+	assert.Contains(t, output, "Cost: unknown")
+	assert.NotContains(t, output, "$0 (local)")
+}
+
 func TestReplay_MissingFile(t *testing.T) {
 	var buf bytes.Buffer
 	err := Replay("/nonexistent/file.jsonl", &buf)
