@@ -16,11 +16,27 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install quality tools
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
       - name: Build
         run: go build ./...
 
       - name: Vet
         run: go vet ./...
+
+      - name: Lint
+        run: make lint
+
+      - name: Security scan
+        run: make gosec
+
+      - name: Vulnerability scan
+        run: make govulncheck
 
       - name: Format check
         run: |
