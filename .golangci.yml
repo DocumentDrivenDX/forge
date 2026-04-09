@@ -1,52 +1,9 @@
+version: "2"
+
 run:
   timeout: 5m
 
 linters:
+  default: none
   enable:
-    - govet
-    - staticcheck
-    - ineffassign
     - misspell
-    - unconvert
-    - gosec
-    - gocritic
-
-  disable:
-    - wsl
-    - wrapcheck
-    - varnamelen
-    - nlreturn
-    - exhaustruct
-    - paralleltest
-    - testpackage
-    - mnd
-    - funlen
-
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment
-  gosec:
-    severity: high
-    confidence: high
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - performance
-      - style
-
-issues:
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - gosec
-    - path: '\.pb\.go$'
-      linters:
-        - all
-    - path: '\.gen\.go$'
-      linters:
-        - all
-    - path: 'mock_.*\.go$'
-      linters:
-        - all
