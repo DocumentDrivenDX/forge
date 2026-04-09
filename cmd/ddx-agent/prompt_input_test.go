@@ -81,6 +81,16 @@ func TestResolvePromptEnvelopeInvalid(t *testing.T) {
 	assert.Contains(t, err.Error(), "prompt envelope")
 }
 
+func TestResolvePromptEnvelopeMissingIDInline(t *testing.T) {
+	raw := `{"kind":"prompt","prompt":"Read main.go"}`
+
+	promptText, metadata, err := resolvePrompt(raw)
+	require.Error(t, err)
+	assert.Empty(t, promptText)
+	assert.Nil(t, metadata)
+	assert.Contains(t, err.Error(), "invalid prompt envelope")
+}
+
 func TestResolvePromptEnvelopeInvalidFromStdin(t *testing.T) {
 	raw := `{"kind":"prompt","id":"task-42","inputs":{"paths":["main.go"]}}`
 	oldStdin := os.Stdin
@@ -102,6 +112,27 @@ func TestResolvePromptEnvelopeInvalidFromStdin(t *testing.T) {
 	assert.Contains(t, err.Error(), "prompt envelope")
 }
 
+func TestResolvePromptEnvelopeMissingIDFromStdin(t *testing.T) {
+	raw := `{"kind":"prompt","prompt":"Read main.go"}`
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	})
+	_, err = w.WriteString(raw)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	os.Stdin = r
+
+	promptText, metadata, err := resolvePrompt("")
+	require.Error(t, err)
+	assert.Empty(t, promptText)
+	assert.Nil(t, metadata)
+	assert.Contains(t, err.Error(), "invalid prompt envelope")
+}
+
 func TestResolvePromptEnvelopeInvalidFromFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "prompt.json")
@@ -113,4 +144,17 @@ func TestResolvePromptEnvelopeInvalidFromFile(t *testing.T) {
 	assert.Empty(t, promptText)
 	assert.Nil(t, metadata)
 	assert.Contains(t, err.Error(), "prompt envelope")
+}
+
+func TestResolvePromptEnvelopeMissingIDFromFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "prompt.json")
+	raw := `{"kind":"prompt","prompt":"Read main.go"}`
+	require.NoError(t, os.WriteFile(path, []byte(raw), 0o600))
+
+	promptText, metadata, err := resolvePrompt("@" + path)
+	require.Error(t, err)
+	assert.Empty(t, promptText)
+	assert.Nil(t, metadata)
+	assert.Contains(t, err.Error(), "invalid prompt envelope")
 }

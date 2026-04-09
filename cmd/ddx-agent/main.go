@@ -379,11 +379,12 @@ func isPromptEnvelopeProbe(probe map[string]json.RawMessage) bool {
 	}
 
 	_, idOK := probe["id"]
+	_, promptOK := probe["prompt"]
 	_, inputsOK := probe["inputs"]
 	_, responseSchemaOK := probe["response_schema"]
 	_, callbackOK := probe["callback"]
 
-	return idOK || inputsOK || responseSchemaOK || callbackOK
+	return promptOK || idOK || inputsOK || responseSchemaOK || callbackOK
 }
 
 func canonicalPromptJSON(raw json.RawMessage) (string, error) {
