@@ -74,6 +74,10 @@ func consumeStream(
 		if delta.Model != "" {
 			resp.Model = delta.Model
 		}
+		if delta.Attempt != nil {
+			attempt := *delta.Attempt
+			resp.Attempt = &attempt
+		}
 		if delta.FinishReason != "" {
 			resp.FinishReason = delta.FinishReason
 		}

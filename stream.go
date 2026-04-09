@@ -23,6 +23,9 @@ type StreamDelta struct {
 	// Model is set on the first or final delta.
 	Model string `json:"model,omitempty"`
 
+	// Attempt carries provider identity and attribution metadata when known.
+	Attempt *AttemptMetadata `json:"attempt,omitempty"`
+
 	// Done signals the end of the stream.
 	Done bool `json:"done,omitempty"`
 

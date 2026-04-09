@@ -222,6 +222,7 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 		// Track current tool use block being streamed
 		var currentToolID string
 		var currentToolName string
+		responseModel := model
 
 		for stream.Next() {
 			event := stream.Current()
@@ -229,8 +230,11 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 			switch event.Type {
 			case "message_start":
 				// Capture input tokens from message_start
+				if event.Message.Model != "" {
+					responseModel = string(event.Message.Model)
+				}
 				ch <- agent.StreamDelta{
-					Model: string(event.Message.Model),
+					Model: responseModel,
 					Usage: &agent.TokenUsage{
 						Input: int(event.Usage.InputTokens),
 					},
@@ -284,7 +288,24 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 				ch <- delta
 
 			case "message_stop":
-				ch <- agent.StreamDelta{Done: true}
+				if err := stream.Err(); err != nil {
+					ch <- agent.StreamDelta{Err: err}
+					return
+				}
+				ch <- agent.StreamDelta{
+					Model: responseModel,
+					Attempt: &agent.AttemptMetadata{
+						ProviderName:   "anthropic",
+						ProviderSystem: "anthropic",
+						RequestedModel: model,
+						ResponseModel:  responseModel,
+						ResolvedModel:  responseModel,
+						Cost: &agent.CostAttribution{
+							Source: agent.CostSourceUnknown,
+						},
+					},
+					Done: true,
+				}
 				return
 			}
 		}
@@ -294,7 +315,20 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 			ch <- agent.StreamDelta{Err: err}
 			return
 		}
-		ch <- agent.StreamDelta{Done: true}
+		ch <- agent.StreamDelta{
+			Model: responseModel,
+			Attempt: &agent.AttemptMetadata{
+				ProviderName:   "anthropic",
+				ProviderSystem: "anthropic",
+				RequestedModel: model,
+				ResponseModel:  responseModel,
+				ResolvedModel:  responseModel,
+				Cost: &agent.CostAttribution{
+					Source: agent.CostSourceUnknown,
+				},
+			},
+			Done: true,
+		}
 	}()
 
 	return ch, nil

@@ -179,6 +179,53 @@ func TestRun_StreamingProvider(t *testing.T) {
 	assert.Equal(t, 3, deltaCount)
 }
 
+func TestRun_StreamingProviderPreservesAttemptMetadata(t *testing.T) {
+	sp := &mockStreamingProvider{
+		deltas: []StreamDelta{
+			{Content: "streamed ", Model: "gpt-4o"},
+			{
+				Content: "response",
+				Model:   "gpt-4o",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "openai",
+					ProviderSystem: "openai",
+					RequestedModel: "gpt-4o",
+					ResponseModel:  "gpt-4o",
+					ResolvedModel:  "gpt-4o",
+					Cost: &CostAttribution{
+						Source: CostSourceUnknown,
+					},
+				},
+				Done: true,
+			},
+		},
+	}
+
+	var responseEvent Event
+	result, err := Run(context.Background(), Request{
+		Prompt:   "test",
+		Provider: sp,
+		Callback: func(e Event) {
+			if e.Type == EventLLMResponse {
+				responseEvent = e
+			}
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StatusSuccess, result.Status)
+
+	attempt := findResponseAttempt(t, responseEvent.Data)
+	assert.Equal(t, "openai", attempt["provider_name"])
+	assert.Equal(t, "openai", attempt["provider_system"])
+	assert.Equal(t, "gpt-4o", attempt["requested_model"])
+	assert.Equal(t, "gpt-4o", attempt["response_model"])
+	assert.Equal(t, "gpt-4o", attempt["resolved_model"])
+
+	cost, ok := attempt["cost"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "unknown", cost["source"])
+}
+
 func TestConsumeStream_StreamError(t *testing.T) {
 	netErr := errors.New("connection reset by peer")
 	sp := &mockStreamingProvider{

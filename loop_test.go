@@ -68,6 +68,17 @@ func (r *retryProvider) Chat(ctx context.Context, messages []Message, tools []To
 	return outcome.response, nil
 }
 
+func findResponseAttempt(t *testing.T, data []byte) map[string]any {
+	t.Helper()
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(data, &payload))
+
+	attempt, ok := payload["attempt"].(map[string]any)
+	require.True(t, ok, "response event should include attempt metadata")
+	return attempt
+}
+
 func TestRun_SimpleTextResponse(t *testing.T) {
 	provider := &mockProvider{
 		responses: []Response{
@@ -258,6 +269,52 @@ func TestRun_EventCallback(t *testing.T) {
 	assert.Equal(t, EventLLMRequest, events[1].Type)
 	assert.Equal(t, EventLLMResponse, events[2].Type)
 	assert.Equal(t, EventSessionEnd, events[3].Type)
+}
+
+func TestRun_NonStreamingProviderPreservesAttemptMetadata(t *testing.T) {
+	provider := &mockProvider{
+		responses: []Response{
+			{
+				Content: "done",
+				Usage:   TokenUsage{Input: 10, Output: 5, Total: 15},
+				Model:   "gpt-4o",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "openai",
+					ProviderSystem: "openai",
+					RequestedModel: "gpt-4o",
+					ResponseModel:  "gpt-4o",
+					ResolvedModel:  "gpt-4o",
+					Cost: &CostAttribution{
+						Source: CostSourceUnknown,
+					},
+				},
+			},
+		},
+	}
+
+	var responseEvent Event
+	result, err := Run(context.Background(), Request{
+		Prompt:   "test",
+		Provider: provider,
+		Callback: func(e Event) {
+			if e.Type == EventLLMResponse {
+				responseEvent = e
+			}
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StatusSuccess, result.Status)
+
+	attempt := findResponseAttempt(t, responseEvent.Data)
+	assert.Equal(t, "openai", attempt["provider_name"])
+	assert.Equal(t, "openai", attempt["provider_system"])
+	assert.Equal(t, "gpt-4o", attempt["requested_model"])
+	assert.Equal(t, "gpt-4o", attempt["response_model"])
+	assert.Equal(t, "gpt-4o", attempt["resolved_model"])
+
+	cost, ok := attempt["cost"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "unknown", cost["source"])
 }
 
 func TestRun_MultipleToolCalls(t *testing.T) {

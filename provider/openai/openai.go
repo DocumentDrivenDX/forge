@@ -214,8 +214,12 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 		// subsequent argument chunks carry the index but have an empty ID.
 		// Track index→ID so we can carry the ID forward.
 		indexToID := make(map[int]string)
+		responseModel := model
 		for stream.Next() {
 			chunk := stream.Current()
+			if chunk.Model != "" {
+				responseModel = chunk.Model
+			}
 
 			if len(chunk.Choices) > 0 {
 				choice := chunk.Choices[0]
@@ -273,7 +277,21 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 			ch <- agent.StreamDelta{Err: err}
 			return
 		}
-		ch <- agent.StreamDelta{Done: true}
+
+		ch <- agent.StreamDelta{
+			Model: responseModel,
+			Attempt: &agent.AttemptMetadata{
+				ProviderName:   "openai",
+				ProviderSystem: "openai",
+				RequestedModel: model,
+				ResponseModel:  responseModel,
+				ResolvedModel:  responseModel,
+				Cost: &agent.CostAttribution{
+					Source: agent.CostSourceUnknown,
+				},
+			},
+			Done: true,
+		}
 	}()
 
 	return ch, nil
