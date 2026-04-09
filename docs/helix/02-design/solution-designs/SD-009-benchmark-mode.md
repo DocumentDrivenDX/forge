@@ -7,6 +7,15 @@ ddx:
     - SD-008   # Terminal-Bench/Harbor integration audit
     - benchmark-baseline-2026-04-08
 ---
+
+## Reference Implementations
+
+- **ForgeCode** (patch-based editing): `https://github.com/antinomyhq/forgecode`
+  - Core patch logic: `crates/forge_services/src/tool_services/fs_patch.rs`
+  - Clone locally: `git clone --depth 1 https://github.com/antinomyhq/forgecode.git /tmp/forgecode-study`
+  - Key approach: search-and-replace with exact match, line-ending normalization,
+    multiple operation types (replace, prepend, append, swap), snapshot coordination.
+  - Clone locally: `git clone https://github.com/antinomyhq/forgecode`
 # Solution Design: SD-009 — DDX Agent Benchmark Mode and Terminal-Bench Evaluation Plan
 
 **Bead**: agent-82042311 (Specify ddx-agent benchmark mode and Terminal-Bench evaluation plan)
