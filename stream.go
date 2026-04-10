@@ -19,7 +19,8 @@ type StreamDelta struct {
 	// ToolCallArgs is a fragment of the tool call's JSON arguments.
 	ToolCallArgs string `json:"tool_call_args,omitempty"`
 
-	// Usage is set on the final delta (when Done is true).
+	// Usage may be set on any delta, including before Done.
+	// Providers can emit incremental usage updates; consumers should merge them.
 	Usage *TokenUsage `json:"usage,omitempty"`
 
 	// FinishReason is set on the final delta.

@@ -40,7 +40,8 @@ type StreamDelta struct {
     // ToolCallArgs is a fragment of the tool call's JSON arguments.
     ToolCallArgs string
 
-    // Usage is set on the final delta (when Done is true).
+    // Usage may be set on any delta, including before Done.
+    // Providers can emit incremental usage updates; consumers should merge them.
     Usage *TokenUsage
 
     // FinishReason is set on the final delta.
@@ -91,8 +92,8 @@ if sp, ok := req.Provider.(StreamingProvider); ok {
 ```
 
 `consumeStream` reads deltas from the channel, assembles them into a complete
-`Response`, and emits `EventLLMDelta` events via the callback for real-time
-streaming to the caller.
+`Response`, merges repeated usage updates, and emits `EventLLMDelta` events via
+the callback for real-time streaming to the caller.
 
 ### New Event Types
 
@@ -101,9 +102,10 @@ EventLLMDelta EventType = "llm.delta"   // partial content/tool-call fragment
 ```
 
 The `llm.delta` event carries a `StreamDelta` as its data payload. Callers
-that want token-level streaming subscribe to this event type. Callers that
-don't care about streaming just ignore it — they still get the full
-`llm.response` event at the end.
+that want token-level streaming subscribe to this event type. Usage can arrive
+in fragmented updates on any delta, so consumers should merge the snapshots
+they receive. Callers that don't care about streaming just ignore it — they
+still get the full `llm.response` event at the end.
 
 ### Provider Implementation
 
@@ -115,7 +117,8 @@ Each provider's `ChatStream` implementation:
 1. Calls the SDK's streaming method
 2. Spawns a goroutine that reads chunks and sends `StreamDelta` on the channel
 3. Assembles tool call arguments from incremental fragments
-4. Sends a final `StreamDelta{Done: true, Usage: ...}` and closes the channel
+4. Sends a final `StreamDelta{Done: true}` and closes the channel, often after
+   one or more incremental usage snapshots have already been emitted
 
 ### Request-Level Opt-Out
 
