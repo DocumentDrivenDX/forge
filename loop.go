@@ -475,20 +475,18 @@ func sessionStartIdentity(provider Provider) (string, string) {
 
 func chatStartIdentity(provider Provider) (string, string, int) {
 	if provider == nil {
-		return "unknown", "unknown", 0
+		return "unknown", "", 0
 	}
 
 	metaProvider, ok := provider.(chatStartIdentityProvider)
 	if !ok {
-		return "unknown", "unknown", 0
+		providerSystem, _ := sessionStartIdentity(provider)
+		return providerSystem, "", 0
 	}
 
 	providerSystem, serverAddress, serverPort := metaProvider.ChatStartMetadata()
 	if providerSystem == "" {
 		providerSystem = "unknown"
-	}
-	if serverAddress == "" {
-		serverAddress = "unknown"
 	}
 	return providerSystem, serverAddress, serverPort
 }

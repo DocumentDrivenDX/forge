@@ -84,6 +84,23 @@ func (p *identityProvider) SessionStartMetadata() (string, string) {
 	return p.provider, p.model
 }
 
+type cancelingIdentityProvider struct {
+	provider string
+	model    string
+	cancel   context.CancelFunc
+}
+
+func (p *cancelingIdentityProvider) SessionStartMetadata() (string, string) {
+	return p.provider, p.model
+}
+
+func (p *cancelingIdentityProvider) Chat(ctx context.Context, messages []Message, tools []ToolDef, opts Options) (Response, error) {
+	if p.cancel != nil {
+		p.cancel()
+	}
+	return Response{}, errors.New("forced provider failure")
+}
+
 func findResponseAttempt(t *testing.T, data []byte) map[string]any {
 	t.Helper()
 
@@ -323,6 +340,37 @@ func TestRun_SessionStartEventIncludesMetadata(t *testing.T) {
 	assert.Equal(t, "openai-compat", startPayload["provider"])
 	assert.Equal(t, "gpt-4o", startPayload["model"])
 	assert.Equal(t, "/tmp/project", startPayload["work_dir"])
+}
+
+func TestRun_ChatSpanFallsBackToSessionIdentityWithoutChatMetadata(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	tel := telemetry.New(telemetry.Config{TracerProvider: tp})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	provider := &cancelingIdentityProvider{
+		provider: "virtual",
+		model:    "gpt-4o",
+		cancel:   cancel,
+	}
+
+	result, err := Run(ctx, Request{
+		Prompt:    "test",
+		Provider:  provider,
+		Telemetry: tel,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StatusCancelled, result.Status)
+
+	ended := recorder.Ended()
+	require.Len(t, ended, 2)
+
+	chat := findSpan(t, ended, "chat gpt-4o")
+	assert.Equal(t, "virtual", attrString(t, chat.Attributes(), telemetry.KeyProviderSystem))
+	assert.False(t, hasAttr(chat.Attributes(), telemetry.KeyServerAddress))
+	assert.False(t, hasAttr(chat.Attributes(), telemetry.KeyServerPort))
 }
 
 func TestRun_NonStreamingProviderPreservesAttemptMetadata(t *testing.T) {
@@ -1040,6 +1088,29 @@ func attrInt(t *testing.T, attrs []attribute.KeyValue, key string) int64 {
 
 	require.Failf(t, "attribute not found", "missing %q", key)
 	return 0
+}
+
+func hasAttr(attrs []attribute.KeyValue, key string) bool {
+	for _, attr := range attrs {
+		if string(attr.Key) == key {
+			return true
+		}
+	}
+	return false
+}
+
+func findSpan(t *testing.T, ended []sdktrace.ReadOnlySpan, name string) sdktrace.ReadOnlySpan {
+	t.Helper()
+
+	for _, span := range ended {
+		if span.Name() == name {
+			return span
+		}
+	}
+
+	require.Failf(t, "span not found", "missing span %q", name)
+	var zero sdktrace.ReadOnlySpan
+	return zero
 }
 
 func attrFloat(t *testing.T, attrs []attribute.KeyValue, key string) float64 {
