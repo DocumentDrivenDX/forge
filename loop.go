@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/DocumentDrivenDX/agent/internal/compactionctx"
 	"github.com/DocumentDrivenDX/agent/telemetry"
 )
 
@@ -85,6 +86,10 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	seq := 1
 	opts := Options{}
 	sessionCostKnown := true
+	compactionCtx := ctx
+	if req.SystemPrompt != "" {
+		compactionCtx = compactionctx.WithPrefixTokens(compactionCtx, estimateCompactionPrefixTokens(req.SystemPrompt))
+	}
 
 	// runCompaction handles the compaction logic and event emission.
 	// Returns true if compaction occurred.
@@ -106,7 +111,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		seq++
 
 		// Run compaction
-		compacted, compResult, compErr := req.Compactor(ctx, messages, req.Provider, result.ToolCalls)
+		compacted, compResult, compErr := req.Compactor(compactionCtx, messages, req.Provider, result.ToolCalls)
 		if compErr != nil {
 			// Compaction failure is non-fatal — continue with uncompacted messages
 			emitCallback(req.Callback, Event{
@@ -429,6 +434,14 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func estimateCompactionPrefixTokens(systemPrompt string) int {
+	return estimateCompactionTextTokens(string(RoleSystem)) + estimateCompactionTextTokens(systemPrompt)
+}
+
+func estimateCompactionTextTokens(s string) int {
+	return (len(s) + 3) / 4
 }
 
 func emitCallback(cb EventCallback, e Event) {

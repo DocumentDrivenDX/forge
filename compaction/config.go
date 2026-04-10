@@ -71,6 +71,9 @@ func FindCutPoint(messages []agent.Message, keepRecentTokens int) int {
 	if len(messages) == 0 {
 		return 0
 	}
+	if keepRecentTokens <= 0 {
+		return len(messages)
+	}
 
 	accumulated := 0
 	cutIndex := 0

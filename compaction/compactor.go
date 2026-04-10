@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/DocumentDrivenDX/agent"
+	"github.com/DocumentDrivenDX/agent/internal/compactionctx"
 )
 
 // state tracks compaction state across invocations.
@@ -24,8 +25,10 @@ func NewCompactor(cfg Config) func(ctx context.Context, messages []agent.Message
 			return messages, nil, nil
 		}
 
+		prefixTokens := compactionctx.PrefixTokens(ctx)
+
 		// Estimate current token count
-		estimated := EstimateConversationTokens(messages)
+		estimated := EstimateConversationTokens(messages) + prefixTokens
 
 		// Check if compaction is needed
 		if !ShouldCompact(estimated, cfg.ContextWindow, cfg.EffectivePercent, cfg.ReserveTokens) {
@@ -42,14 +45,27 @@ func NewCompactor(cfg Config) func(ctx context.Context, messages []agent.Message
 		prevOps := s.previousFileOps
 		s.mu.Unlock()
 
+		effectiveCfg := cfg
+		if prefixTokens > 0 {
+			effectiveCfg.KeepRecentTokens = cfg.KeepRecentTokens - prefixTokens
+			if effectiveCfg.KeepRecentTokens < 0 {
+				effectiveCfg.KeepRecentTokens = 0
+			}
+		}
+
 		newMessages, result, err := CompactMessages(
-			ctx, provider, messages, toolCalls, prevSummary, prevOps, cfg,
+			ctx, provider, messages, toolCalls, prevSummary, prevOps, effectiveCfg,
 		)
 		if err != nil {
 			return messages, nil, err
 		}
 		if result == nil {
 			return messages, nil, nil
+		}
+
+		if prefixTokens > 0 {
+			result.TokensBefore += prefixTokens
+			result.TokensAfter += prefixTokens
 		}
 
 		s.mu.Lock()
