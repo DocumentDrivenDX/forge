@@ -17,9 +17,17 @@ type mockStreamingProvider struct {
 	deltas       []StreamDelta
 	delayFirst   time.Duration
 	delayBetween time.Duration
+	setupDelay   time.Duration
 }
 
 func (m *mockStreamingProvider) ChatStream(ctx context.Context, messages []Message, tools []ToolDef, opts Options) (<-chan StreamDelta, error) {
+	if m.setupDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(m.setupDelay):
+		}
+	}
 	ch := make(chan StreamDelta, len(m.deltas))
 	go func() {
 		defer close(ch)
@@ -160,6 +168,33 @@ func TestConsumeStream_CapturesTimingWhenStreamingOutputArrives(t *testing.T) {
 	require.NotNil(t, resp.Attempt.Timing.Generation)
 	assert.GreaterOrEqual(t, resp.Attempt.Timing.FirstToken.Milliseconds(), int64(15))
 	assert.GreaterOrEqual(t, resp.Attempt.Timing.Generation.Milliseconds(), int64(20))
+}
+
+func TestConsumeStream_CapturesTimingFromChatStreamSetup(t *testing.T) {
+	sp := &mockStreamingProvider{
+		setupDelay: 20 * time.Millisecond,
+		deltas: []StreamDelta{
+			{
+				Content: "hello",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "openai",
+					ProviderSystem: "openai",
+					RequestedModel: "gpt-4o",
+					ResponseModel:  "gpt-4o",
+					ResolvedModel:  "gpt-4o",
+				},
+			},
+			{Done: true},
+		},
+	}
+
+	seq := 0
+	resp, err := consumeStream(context.Background(), sp, nil, nil, Options{}, nil, "test", &seq)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Attempt)
+	require.NotNil(t, resp.Attempt.Timing)
+	require.NotNil(t, resp.Attempt.Timing.FirstToken)
+	assert.GreaterOrEqual(t, resp.Attempt.Timing.FirstToken.Milliseconds(), int64(18))
 }
 
 func TestConsumeStream_OmitsTimingWhenNoOutputBearingDeltaArrives(t *testing.T) {
