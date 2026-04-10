@@ -60,7 +60,7 @@ func TestRun_SystemPromptCountsTowardCompactionBudget(t *testing.T) {
 	provider := &summarizationAwareRecordingProvider{finalResponse: "final answer"}
 
 	cfg := DefaultConfig()
-	cfg.ContextWindow = 1
+	cfg.ContextWindow = 100
 	cfg.ReserveTokens = 0
 	cfg.KeepRecentTokens = 5
 	cfg.EffectivePercent = 100
@@ -109,7 +109,7 @@ func TestRun_SystemPromptDoesNotConsumeKeepBudgetForActivePrompt(t *testing.T) {
 	provider := &summarizationAwareRecordingProvider{finalResponse: "final answer"}
 
 	cfg := DefaultConfig()
-	cfg.ContextWindow = 1
+	cfg.ContextWindow = 100
 	cfg.ReserveTokens = 0
 	cfg.KeepRecentTokens = 5
 	cfg.EffectivePercent = 100
@@ -178,4 +178,29 @@ func TestCompactor_SystemPromptPrefixFitKeepsActivePromptAndBudget(t *testing.T)
 	assert.True(t, foundActivePrompt, "compaction must keep the active user prompt verbatim")
 	assert.True(t, IsCompactionSummary(newMsgs[len(newMsgs)-1]))
 	assert.LessOrEqual(t, result.TokensAfter, 80)
+}
+
+func TestCompactor_SystemPromptPrefixNoFitFailsClosed(t *testing.T) {
+	provider := &mockSummarizer{response: "x"}
+
+	cfg := DefaultConfig()
+	cfg.ContextWindow = 80
+	cfg.ReserveTokens = 0
+	cfg.KeepRecentTokens = 20
+	cfg.EffectivePercent = 100
+
+	systemPrompt := strings.Repeat("P", 260)
+	prefixTokens := EstimateMessageTokens(agent.Message{Role: agent.RoleSystem, Content: systemPrompt})
+	ctx := compactionctx.WithPrefixTokens(context.Background(), prefixTokens)
+
+	messages := []agent.Message{
+		{Role: agent.RoleUser, Content: strings.Repeat("A", 120)},
+		{Role: agent.RoleAssistant, Content: strings.Repeat("B", 120)},
+		{Role: agent.RoleUser, Content: "DO-THE-THING"},
+	}
+
+	newMsgs, result, err := NewCompactor(cfg)(ctx, messages, provider, nil)
+	require.NoError(t, err)
+	assert.Nil(t, result, "compaction should fail closed when the prefix leaves no fit")
+	assert.Equal(t, messages, newMsgs)
 }

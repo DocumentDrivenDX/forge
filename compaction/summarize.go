@@ -326,15 +326,6 @@ func compactMessages(
 		if result == nil {
 			nextCut := nextValidBoundary(messages, cutIndex)
 			if nextCut <= cutIndex || (lastUserIndex >= 0 && nextCut > lastUserIndex) {
-				if effectiveWindow > 0 {
-					fallbackMessages, fallbackResult, err := compactAtCutIndex(ctx, provider, messages, toolCalls, previousSummary, previousFileOps, cfg, cutIndex, tokensBefore, prefixTokens, 0)
-					if err != nil {
-						return messages, nil, err
-					}
-					if fallbackResult != nil {
-						return fallbackMessages, fallbackResult, nil
-					}
-				}
 				return messages, nil, nil
 			}
 			cutIndex = nextCut
@@ -356,15 +347,9 @@ func compactMessages(
 	}
 
 	if bestResult == nil {
-		if effectiveWindow > 0 {
-			fallbackMessages, fallbackResult, err := compactAtCutIndex(ctx, provider, messages, toolCalls, previousSummary, previousFileOps, cfg, cutIndex, tokensBefore, prefixTokens, 0)
-			if err != nil {
-				return messages, nil, err
-			}
-			if fallbackResult != nil {
-				return fallbackMessages, fallbackResult, nil
-			}
-		}
+		return messages, nil, nil
+	}
+	if prefixTokens > 0 && bestResult.TokensAfter+prefixTokens > effectiveWindow {
 		return messages, nil, nil
 	}
 	return bestMessages, bestResult, nil
