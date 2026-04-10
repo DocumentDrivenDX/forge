@@ -53,6 +53,26 @@ type providerOutcome struct {
 	err      error
 }
 
+type recordingProvider struct {
+	responses []Response
+	callCount int
+	calls     [][]Message
+}
+
+func (r *recordingProvider) Chat(ctx context.Context, messages []Message, tools []ToolDef, opts Options) (Response, error) {
+	if ctx.Err() != nil {
+		return Response{}, ctx.Err()
+	}
+	copied := append([]Message(nil), messages...)
+	r.calls = append(r.calls, copied)
+	if r.callCount >= len(r.responses) {
+		return Response{Content: "no more responses"}, nil
+	}
+	resp := r.responses[r.callCount]
+	r.callCount++
+	return resp, nil
+}
+
 // retryProvider is a test provider that returns a sequence of outcomes.
 type retryProvider struct {
 	outcomes  []providerOutcome
@@ -282,6 +302,81 @@ func TestRun_EmptyResponse(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusSuccess, result.Status)
 	assert.Equal(t, "", result.Output)
+}
+
+func TestRun_ConversationHistoryCarriesAcrossRuns(t *testing.T) {
+	t.Run("default one-shot call", func(t *testing.T) {
+		provider := &recordingProvider{
+			responses: []Response{
+				{Content: "done"},
+			},
+		}
+
+		result, err := Run(context.Background(), Request{
+			Prompt:   "hello",
+			Provider: provider,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, StatusSuccess, result.Status)
+		require.Len(t, provider.calls, 1)
+		require.Equal(t, []Message{
+			{Role: RoleUser, Content: "hello"},
+		}, provider.calls[0])
+		require.Equal(t, []Message{
+			{Role: RoleUser, Content: "hello"},
+			{Role: RoleAssistant, Content: "done"},
+		}, result.Messages)
+	})
+
+	t.Run("history carries forward across runs", func(t *testing.T) {
+		provider := &recordingProvider{
+			responses: []Response{
+				{Content: "first done"},
+				{Content: "second done"},
+			},
+		}
+
+		systemPrompt := "You are a helpful assistant."
+
+		first, err := Run(context.Background(), Request{
+			Prompt:       "first question",
+			SystemPrompt: systemPrompt,
+			Provider:     provider,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, StatusSuccess, first.Status)
+		require.Len(t, provider.calls, 1)
+		require.Equal(t, []Message{
+			{Role: RoleSystem, Content: systemPrompt},
+			{Role: RoleUser, Content: "first question"},
+		}, provider.calls[0])
+		require.Equal(t, []Message{
+			{Role: RoleUser, Content: "first question"},
+			{Role: RoleAssistant, Content: "first done"},
+		}, first.Messages)
+
+		second, err := Run(context.Background(), Request{
+			History:      first.Messages,
+			Prompt:       "second question",
+			SystemPrompt: systemPrompt,
+			Provider:     provider,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, StatusSuccess, second.Status)
+		require.Len(t, provider.calls, 2)
+		require.Equal(t, []Message{
+			{Role: RoleSystem, Content: systemPrompt},
+			{Role: RoleUser, Content: "first question"},
+			{Role: RoleAssistant, Content: "first done"},
+			{Role: RoleUser, Content: "second question"},
+		}, provider.calls[1])
+		require.Equal(t, []Message{
+			{Role: RoleUser, Content: "first question"},
+			{Role: RoleAssistant, Content: "first done"},
+			{Role: RoleUser, Content: "second question"},
+			{Role: RoleAssistant, Content: "second done"},
+		}, second.Messages)
+	})
 }
 
 func TestRun_EventCallback(t *testing.T) {

@@ -57,11 +57,11 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	}
 
 	// Build initial conversation
-	var messages []Message
-	if req.SystemPrompt != "" {
-		messages = append(messages, Message{Role: RoleSystem, Content: req.SystemPrompt})
-	}
+	messages := append([]Message(nil), req.History...)
 	messages = append(messages, Message{Role: RoleUser, Content: req.Prompt})
+	snapshotMessages := func() {
+		result.Messages = append([]Message(nil), messages...)
+	}
 
 	// Emit session start
 	sessionProvider, sessionModel := sessionStartIdentity(req.Provider)
@@ -154,6 +154,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		if req.MaxIterations > 0 && iteration >= req.MaxIterations {
 			result.Status = StatusIterationLimit
 			result.Duration = time.Since(start)
+			snapshotMessages()
 			emitSessionEnd(req.Callback, sessionID, &seq, result, req.Metadata)
 			return result, nil
 		}
@@ -162,12 +163,21 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		if ctx.Err() != nil {
 			result.Status = StatusCancelled
 			result.Duration = time.Since(start)
+			snapshotMessages()
 			emitSessionEnd(req.Callback, sessionID, &seq, result, req.Metadata)
 			return result, nil
 		}
 
 		// Run compaction before iteration (pre-iteration check)
 		runCompaction()
+
+		providerMessages := append([]Message(nil), messages...)
+		if req.SystemPrompt != "" {
+			providerMessages = append([]Message{{
+				Role:    RoleSystem,
+				Content: req.SystemPrompt,
+			}}, providerMessages...)
+		}
 
 		var resp Response
 		var err error
@@ -194,7 +204,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				Timestamp: time.Now().UTC(),
 				Data: mustMarshal(map[string]any{
 					"attempt_index": attempt,
-					"messages":      messages,
+					"messages":      providerMessages,
 					"tools":         toolDefs,
 				}),
 			})
@@ -202,9 +212,9 @@ func Run(ctx context.Context, req Request) (Result, error) {
 
 			llmStart := time.Now()
 			if sp, ok := req.Provider.(StreamingProvider); ok && !req.NoStream {
-				resp, err = consumeStream(chatCtx, sp, messages, toolDefs, opts, req.Callback, sessionID, chatStart, &seq)
+				resp, err = consumeStream(chatCtx, sp, providerMessages, toolDefs, opts, req.Callback, sessionID, chatStart, &seq)
 			} else {
-				resp, err = req.Provider.Chat(chatCtx, messages, toolDefs, opts)
+				resp, err = req.Provider.Chat(chatCtx, providerMessages, toolDefs, opts)
 			}
 			llmDuration := time.Since(llmStart)
 
@@ -227,6 +237,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				if ctx.Err() != nil {
 					result.Status = StatusCancelled
 					result.Duration = time.Since(start)
+					snapshotMessages()
 					emitSessionEnd(req.Callback, sessionID, &seq, result, req.Metadata)
 					return result, nil
 				}
@@ -238,6 +249,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 					case <-ctx.Done():
 						result.Status = StatusCancelled
 						result.Duration = time.Since(start)
+						snapshotMessages()
 						emitSessionEnd(req.Callback, sessionID, &seq, result, req.Metadata)
 						return result, nil
 					case <-time.After(delay):
@@ -248,6 +260,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				result.Status = StatusError
 				result.Error = fmt.Errorf("agent: provider error: %w", err)
 				result.Duration = time.Since(start)
+				snapshotMessages()
 				emitSessionEnd(req.Callback, sessionID, &seq, result, req.Metadata)
 				return result, result.Error
 			}
@@ -309,6 +322,13 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			annotateChatSpan(chatSpan, resp)
 			chatSpan.End()
 
+			assistantMsg := Message{
+				Role:      RoleAssistant,
+				Content:   resp.Content,
+				ToolCalls: resp.ToolCalls,
+			}
+			messages = append(messages, assistantMsg)
+
 			break
 		}
 
@@ -317,16 +337,10 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			result.Status = StatusSuccess
 			result.Output = resp.Content
 			result.Duration = time.Since(start)
+			snapshotMessages()
 			emitSessionEnd(req.Callback, sessionID, &seq, result, req.Metadata)
 			return result, nil
 		}
-
-		// Append assistant message with tool calls
-		messages = append(messages, Message{
-			Role:      RoleAssistant,
-			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
-		})
 
 		// Execute each tool call sequentially
 		for toolExecutionIndex, tc := range resp.ToolCalls {

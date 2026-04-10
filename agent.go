@@ -201,6 +201,10 @@ type Request struct {
 	// SystemPrompt is prepended to the conversation as a system message.
 	SystemPrompt string
 
+	// History carries prior conversation messages into this run.
+	// Use Result.Messages from a previous Run call to continue a session.
+	History []Message
+
 	// Provider is the configured LLM backend.
 	Provider Provider
 
@@ -243,6 +247,10 @@ type Result struct {
 
 	// ToolCalls logs every tool execution during the run.
 	ToolCalls []ToolCallLog `json:"tool_calls,omitempty"`
+
+	// Messages is the conversation history for this run, excluding the
+	// system prompt. Feed this back into Request.History to continue a session.
+	Messages []Message `json:"messages,omitempty"`
 
 	// Tokens is the accumulated token usage across all iterations.
 	Tokens TokenUsage `json:"tokens"`
