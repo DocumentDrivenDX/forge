@@ -203,6 +203,46 @@ func TestConsumeStream_CapturesTimingFromChatStreamSetup(t *testing.T) {
 	assert.GreaterOrEqual(t, resp.Attempt.Timing.FirstToken.Milliseconds(), int64(18))
 }
 
+func TestConsumeStream_IgnoresCallbackLatencyForTiming(t *testing.T) {
+	sp := &mockStreamingProvider{
+		deltas: []StreamDelta{
+			{
+				Content: "hello ",
+				Attempt: &AttemptMetadata{
+					ProviderName:   "openai",
+					ProviderSystem: "openai",
+					RequestedModel: "gpt-4o",
+					ResponseModel:  "gpt-4o",
+					ResolvedModel:  "gpt-4o",
+				},
+			},
+			{Content: "world", Done: true},
+		},
+	}
+
+	var deltaCount int
+	cb := func(e Event) {
+		if e.Type != EventLLMDelta {
+			return
+		}
+		deltaCount++
+		if deltaCount == 1 {
+			time.Sleep(80 * time.Millisecond)
+		}
+	}
+
+	seq := 0
+	start := time.Now()
+	resp, err := consumeStream(context.Background(), sp, nil, nil, Options{}, cb, "test", start, &seq)
+	require.NoError(t, err)
+	require.NotNil(t, resp.Attempt)
+	require.NotNil(t, resp.Attempt.Timing)
+	require.NotNil(t, resp.Attempt.Timing.FirstToken)
+	require.NotNil(t, resp.Attempt.Timing.Generation)
+	assert.Less(t, *resp.Attempt.Timing.FirstToken, 40*time.Millisecond)
+	assert.Less(t, *resp.Attempt.Timing.Generation, 40*time.Millisecond)
+}
+
 func TestConsumeStream_OmitsTimingWhenNoOutputBearingDeltaArrives(t *testing.T) {
 	sp := &mockStreamingProvider{
 		deltas: []StreamDelta{
