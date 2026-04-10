@@ -50,9 +50,9 @@ func TestPatchTool_Replace_MidFile(t *testing.T) {
 	setupFile(t, dir, "b.go", "package main\n\nfunc hello() {\n\t// TODO\n}\n")
 
 	result, err := tool.Execute(context.Background(), mustJSON(t, PatchParams{
-		Path:      "b.go",
-		Search:    "\t// TODO\n",
-		Content:   "\tif name == \"\" {\n\t\treturn \"anonymous\"\n\t}\n",
+		Path:    "b.go",
+		Search:  "\t// TODO\n",
+		Content: "\tif name == \"\" {\n\t\treturn \"anonymous\"\n\t}\n",
 	}))
 	require.NoError(t, err)
 	assert.Contains(t, result, "Replaced 1 occurrence")
@@ -284,7 +284,7 @@ func TestPatchTool_CRLF_SearchWithLF(t *testing.T) {
 
 	_, err := tool.Execute(context.Background(), mustJSON(t, PatchParams{
 		Path:      "q.go",
-		Search:    "hello\n",  // LF in search
+		Search:    "hello\n", // LF in search
 		Content:   "hi\n",
 		Operation: "replace",
 	}))
@@ -394,8 +394,8 @@ func greet() {
 	setupFile(t, dir, "x.go", original)
 
 	_, err := tool.Execute(context.Background(), mustJSON(t, PatchParams{
-		Path:      "x.go",
-		Search:    `fmt.Println("old")
+		Path: "x.go",
+		Search: `fmt.Println("old")
 	fmt.Println("also old")`,
 		Content: `fmt.Println("new")
 	fmt.Println("also new")`,
@@ -460,8 +460,8 @@ func TestPatchTool_UnknownOperation(t *testing.T) {
 func TestDetectLineEnding(t *testing.T) {
 	assert.Equal(t, "\n", detectLineEnding("a\nb\nc"))
 	assert.Equal(t, "\r\n", detectLineEnding("a\r\nb\r\nc"))
-	assert.Equal(t, "\r\n", detectLineEnding("a\r\nb\r\nc\n"))       // more CRLF
-	assert.Equal(t, "\n", detectLineEnding("a\nb\r\nc"))             // more LF
+	assert.Equal(t, "\r\n", detectLineEnding("a\r\nb\r\nc\n")) // more CRLF
+	assert.Equal(t, "\n", detectLineEnding("a\nb\r\nc"))       // more LF
 }
 
 func TestNormalizeLineEndings(t *testing.T) {

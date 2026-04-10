@@ -25,14 +25,14 @@ var skipDirs = map[string]bool{
 
 // GlobParams are the parameters for the glob tool.
 type GlobParams struct {
-	Pattern     string   `json:"pattern"`
-	Dir         string   `json:"dir,omitempty"`    // base dir; defaults to WorkDir
+	Pattern     string    `json:"pattern"`
+	Dir         string    `json:"dir,omitempty"`          // base dir; defaults to WorkDir
 	ExcludeDirs *[]string `json:"exclude_dirs,omitempty"` // override default skip dirs; nil uses defaults, empty slice means no skips
 }
 
 // GlobTool finds files matching a glob pattern.
 type GlobTool struct {
-	WorkDir    string
+	WorkDir     string
 	ExcludeDirs []string // optional override for skipDirs; if empty, uses default skipDirs
 }
 

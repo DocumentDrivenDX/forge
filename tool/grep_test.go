@@ -16,11 +16,11 @@ func setupGrepFixture(t *testing.T) string {
 	dir := t.TempDir()
 
 	files := map[string]string{
-		"main.go":          "package main\n\nfunc main() {\n\t// TODO: implement\n}\n",
-		"util.go":          "package main\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n",
-		"util_test.go":     "package main\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\t// TODO: test add\n}\n",
-		"cmd/server.go":    "package cmd\n\n// ServerConfig holds configuration.\ntype ServerConfig struct{}\n",
-		"data/binary.bin":  string([]byte{0x00, 0xFF, 0xFE}),
+		"main.go":         "package main\n\nfunc main() {\n\t// TODO: implement\n}\n",
+		"util.go":         "package main\n\nfunc add(a, b int) int {\n\treturn a + b\n}\n",
+		"util_test.go":    "package main\n\nimport \"testing\"\n\nfunc TestAdd(t *testing.T) {\n\t// TODO: test add\n}\n",
+		"cmd/server.go":   "package cmd\n\n// ServerConfig holds configuration.\ntype ServerConfig struct{}\n",
+		"data/binary.bin": string([]byte{0x00, 0xFF, 0xFE}),
 	}
 	for path, content := range files {
 		full := filepath.Join(dir, filepath.FromSlash(path))

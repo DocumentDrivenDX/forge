@@ -12,7 +12,7 @@ import (
 type TaskStatus string
 
 const (
-	TaskStatusPending   TaskStatus = "pending"
+	TaskStatusPending    TaskStatus = "pending"
 	TaskStatusInProgress TaskStatus = "in_progress"
 	TaskStatusCompleted  TaskStatus = "completed"
 )
@@ -28,8 +28,8 @@ type Task struct {
 
 // TaskStore persists task state within a single agent run.
 type TaskStore struct {
-	mu    sync.RWMutex
-	tasks map[string]*Task
+	mu     sync.RWMutex
+	tasks  map[string]*Task
 	nextID int
 }
 
@@ -102,11 +102,11 @@ func (s *TaskStore) List() []*Task {
 
 // TaskParams are the parameters for task tool operations.
 type TaskParams struct {
-	Operation string `json:"operation"` // create, update, list, get
-	ID        string `json:"id,omitempty"`
-	Title     string `json:"title,omitempty"`
+	Operation   string `json:"operation"` // create, update, list, get
+	ID          string `json:"id,omitempty"`
+	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
-	Status    string `json:"status,omitempty"`
+	Status      string `json:"status,omitempty"`
 }
 
 // TaskTool provides task tracking capabilities for multi-step planning.
