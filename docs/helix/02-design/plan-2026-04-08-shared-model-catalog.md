@@ -16,7 +16,7 @@ repo in DDx and HELIX-adjacent tooling. That creates three problems:
 
 The goal is to make agent the reusable owner of model policy while keeping
 runtime orchestration responsibilities separate: agent owns catalog data and
-resolution rules, DDx owns harness/provider orchestration and guardrails, and
+resolution rules, DDx owns cross-harness orchestration and guardrails, and
 HELIX owns only stage intent.
 
 ## Requirements
@@ -105,7 +105,7 @@ HELIX owns only stage intent.
   - agent defines the shared profile references and DDx resolves them during
     harness orchestration
 - **Chosen**: agent defines shared profile references; DDx resolves them while
-  selecting harness/provider/model details
+  selecting harness and model intent
 - **Rationale**: this preserves agent as policy owner without dragging harness
   orchestration into the runtime
 
@@ -178,9 +178,9 @@ model_catalog:
 - CLI gains a catalog-oriented selector separate from prompt presets:
 
 ```bash
-ddx-agent -p "review this diff" --model-ref code-smart
-ddx-agent -p "summarize" --backend review-smart
-ddx-agent -p "use exact pin" --model claude-sonnet-4-20250514
+ddx-agent run --model-ref code-smart "review this diff"
+ddx-agent run --model qwen3-coder-next "summarize"
+ddx-agent run --model claude-sonnet-4-20250514 "use exact pin"
 ```
 
 - `--model` remains a concrete override and bypasses catalog policy.
@@ -188,9 +188,12 @@ ddx-agent -p "use exact pin" --model claude-sonnet-4-20250514
 
 ### Consumer Boundary
 
-- DDX Agent CLI uses the catalog to resolve `--model-ref` or backend config.
+- DDX Agent CLI uses the catalog to resolve `--model-ref` or model routes.
 - DDx uses the catalog as a library dependency for harness/model resolution and
   warnings/guardrails.
+- When DDx selects the embedded harness, it passes only model intent
+  (`model_ref` or exact pin). Embedded `ddx-agent` continues provider
+  selection internally.
 - HELIX does not depend on the catalog at runtime; it emits stage intent such as
   `smart` or `fast`, and DDx maps that intent to a concrete harness/model pair.
 
@@ -284,7 +287,7 @@ targets:
 
 - **Unit**: manifest parsing, alias lookup, profile resolution, canonical target
   lookup, deprecation handling, embedded-fallback behavior
-- **Integration**: config/CLI resolution from `--model-ref` or backend pools
+- **Integration**: config/CLI resolution from `--model-ref` or model routes
   into one concrete provider/model pair
 - **E2E**: DDx consumes agent catalog data without its own duplicate model table
 

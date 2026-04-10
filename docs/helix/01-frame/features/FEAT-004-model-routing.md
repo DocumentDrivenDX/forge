@@ -5,29 +5,29 @@ ddx:
     - helix.prd
     - FEAT-003
 ---
-# Feature Specification: FEAT-004 — Shared Model Catalog, Backend Routing, and Provider Configuration
+# Feature Specification: FEAT-004 — Shared Model Catalog, Model-First Routing, and Provider Configuration
 
 **Feature ID**: FEAT-004
 **Status**: Draft
-**Priority**: P0 (named providers), P1 (shared catalog), P2 (backend pools)
+**Priority**: P0 (named providers), P1 (shared catalog), P2 (model routes)
 **Owner**: DDX Agent Team
 
 ## Overview
 
-DDX Agent keeps the runtime boundary deliberately simple: `agent.Run()` receives one
-resolved `Provider`. Model policy and routing happen above that boundary in the
-config/CLI layer and in a reusable agent-owned model catalog.
+DDX Agent keeps the runtime boundary deliberately simple: `agent.Run()` receives
+one resolved `Provider`. Model policy and routing happen above that boundary in
+the config/CLI layer and in a reusable agent-owned model catalog.
 
 This feature therefore has three related but separate responsibilities:
 
 - **Providers** — concrete transport/auth definitions
 - **Shared model catalog** — agent-owned aliases, tiers/profiles, canonical
   targets, and deprecation metadata
-- **Backend pools** — optional routing targets that choose one provider before
-  a run
+- **Model routes** — optional provider-selection policy keyed by requested
+  model or canonical target
 
 Prompt presets stay separate from all three. `preset` already means system
-prompt behavior and must not be reused for model policy or backend routing.
+prompt behavior and must not be reused for model policy or routing.
 
 ## Terminology
 
@@ -41,22 +41,26 @@ prompt behavior and must not be reused for model policy or backend routing.
   as an alias or tier/profile
 - **Canonical target** — the current concrete model/version the catalog wants a
   given reference to resolve to for a specific consumer surface
-- **Backend pool** — a logical routing target that chooses among one or more
-  concrete providers for a run and may attach a model reference
+- **Model route** — a routing entry keyed by requested model or canonical
+  target that chooses among one or more concrete providers for a run
+- **Route candidate** — one concrete provider option within a model route, with
+  optional provider-specific concrete model override and priority
 - **Prompt preset** — system prompt selection (`preset`, `--preset`); unrelated
   to model policy and routing
 
 ## Problem Statement
 
 - **Current situation**: DDX Agent can select one named provider directly, while
-  DDx and HELIX still carry duplicated model policy outside agent.
+  DDx and HELIX still carry duplicated or mismatched routing assumptions above
+  it.
 - **Pain points**: Prompt presets already occupy the `preset` naming surface,
-  provider configs currently mix transport and model concerns, and rapidly
-  changing model release data is too volatile to live only in hardcoded Go
-  tables.
+  provider configs currently mix transport and model concerns, and the shipped
+  `backend` UX forces operators to invent labels when what they actually know
+  is the model they want.
 - **Desired outcome**: DDX Agent becomes the reusable source of truth for model
-  aliases, tiers/profiles, canonical targets, and deprecations, while keeping
-  harness orchestration in DDx and stage intent in HELIX.
+  aliases, tiers/profiles, canonical targets, deprecations, and embedded
+  provider-selection policy, while DDx keeps cross-harness orchestration and
+  HELIX keeps stage intent only.
 
 ## Requirements
 
@@ -84,8 +88,8 @@ prompt behavior and must not be reused for model policy or backend routing.
    - tiers/profiles (for example `smart`, `fast`, `cheap`)
    - canonical current targets
    - deprecated or stale targets with replacement metadata
-   - consumer-surface mappings where a canonical target needs different concrete
-     strings for different downstream integrations
+   - consumer-surface mappings where a canonical target needs different
+     concrete strings for different downstream integrations
 9. Catalog data is stored in a structured manifest maintained separately from
    Go logic inside the agent repo.
 10. DDX Agent ships an embedded snapshot of that manifest and may also load an
@@ -96,66 +100,77 @@ prompt behavior and must not be reused for model policy or backend routing.
 12. Explicit concrete model pins remain supported and intentionally bypass the
     catalog when a caller wants exact control.
 13. Ownership split is explicit:
-    - agent owns model catalog data/policy
-    - DDx owns harness/provider orchestration and guardrails
+    - agent owns model catalog data/policy and provider selection inside the
+      embedded runtime
+    - DDx owns cross-harness orchestration and guardrails
     - HELIX owns stage intent only
 
-#### Phase 2A (P2): Backend Pools
+#### Phase 2A (P2): Model Routes
 
-14. `Config` may specify named backend pools distinct from prompt presets.
-15. A backend pool resolves to:
-    - one model reference or pinned concrete model
-    - one or more provider references
+14. `Config` may specify model routes keyed by requested model or canonical
+    target, distinct from prompt presets and direct provider names.
+15. A model route resolves to:
+    - one route key equal to the requested model or canonical target
+    - one or more provider candidates
+    - optional provider-specific concrete model overrides
     - one selection strategy
 16. Supported phase-2A strategies are:
-    - `round-robin` — rotate across providers between requests
-    - `first-available` — always pick the first configured provider
-17. Backend-pool resolution happens in the config/CLI layer. `agent.Run()`
-    still receives one concrete `Provider`.
-18. The selected concrete provider, resolved model reference, and resolved
-    concrete model are recorded in the `Result`.
-19. If the selected provider fails, the request fails. Phase 2A does not retry
-    the same request against another provider.
+    - `priority-round-robin` — use the highest-priority healthy tier and rotate
+      within that tier between requests
+    - `ordered-failover` — prefer candidates in configured order and advance
+      only when the current candidate is unavailable
+17. Model-route resolution happens in the config/CLI layer. `agent.Run()`
+    still receives one concrete `Provider` per attempt.
+18. The selected concrete provider, requested model input, resolved model
+    reference, route key, and resolved concrete model are recorded in the
+    `Result`.
+19. Existing `backends`, `default_backend`, and `--backend` surfaces are
+    deprecated compatibility inputs during migration and must emit warnings.
 
-#### Phase 2B (P2, later): Failover and Health Tracking
+#### Phase 2B (P2, later): Health Tracking and Passive Failover
 
-20. DDX Agent may add request-level failover for backend pools after phase 2A is
-    in use and measured.
-21. If enabled, a failed provider may be skipped for the current request and a
-    later provider attempted.
-22. DDX Agent may track recent failures and temporarily back off unhealthy
-    providers, but this is explicitly deferred until after phase 2A.
+20. DDX Agent may track recent failures and temporarily back off unhealthy
+    candidates using a bounded cooldown window.
+21. A failed provider candidate may be skipped for the current request and a
+    later candidate attempted only for transport/auth/upstream availability
+    failures.
+22. Prompt-shape, tool-schema, or other deterministic request errors must not
+    trigger cross-provider failover.
+23. DDx continues to pass only model intent (`model_ref` or exact pin) into the
+    embedded harness. DDx must not duplicate inner provider-selection logic.
 
 ### Non-Functional Requirements
 
 - **Simplicity**: library users can still pass a concrete `agent.Provider`
   directly with no YAML, catalog, or routing machinery.
-- **Clarity**: prompt presets, provider config, model policy, and backend
+- **Clarity**: prompt presets, provider config, model policy, and provider
   routing each use distinct terminology.
+- **Boundary safety**: DDx may depend on agent-owned routing for the embedded
+  harness, but it only names harness intent and never reproduces provider
+  candidate logic.
 - **Updateability**: rapidly changing model policy/data can be refreshed via an
   external manifest without requiring every consumer to wait for a new Go
   release.
 - **Compatibility**: named-provider configuration remains valid; catalog and
-  backend-pool features are additive.
+  model-route features are additive.
 
 ## Edge Cases and Error Handling
 
 - **Unknown provider name**: config resolution returns an error before the run.
-- **Unknown backend pool name**: config resolution returns an error before the
-  run.
+- **Unknown model route**: config resolution returns an error before the run.
 - **Unknown model reference**: catalog resolution returns an error before the
   run.
 - **Deprecated or stale model reference**: resolution returns metadata that the
   caller may surface as a warning or block according to policy.
 - **Manifest missing or unreadable**: fall back to the embedded snapshot unless
   the caller explicitly required the external manifest.
-- **Backend pool with one provider**: valid; behaves like explicit indirection.
-- **Backend pool with empty provider list**: invalid configuration.
+- **Model route with one candidate**: valid; behaves like explicit indirection.
+- **Model route with empty candidate list**: invalid configuration.
 - **Selected provider not reachable**:
   - Phase 1: return error immediately
-  - Phase 2A: return error immediately after that provider is selected
-  - Phase 2B: may attempt the next provider if failover is implemented
-- **All providers fail (phase 2B)**: return an error containing each attempt.
+  - Phase 2A: return error immediately after that candidate is selected
+  - Phase 2B: may attempt the next candidate if failover is implemented
+- **All candidates fail (phase 2B)**: return an error containing each attempt.
 
 ## Success Metrics
 
@@ -165,8 +180,8 @@ prompt behavior and must not be reused for model policy or backend routing.
   and profile tables.
 - Prompt preset docs and model-policy docs stay terminology-safe and do not
   overload `preset`.
-- Backend-pool routing, when implemented, distributes requests deterministically
-  according to the documented strategy.
+- Model-route routing, when implemented, selects provider candidates
+  deterministically and records the actual provider used.
 
 ## Acceptance Criteria
 
@@ -176,8 +191,10 @@ prompt behavior and must not be reused for model policy or backend routing.
 | AC-FEAT-004-02 | Model references resolve through the embedded or external manifest to the correct consumer-surface model string, and missing references/surfaces fail deterministically before the run. | `go test ./modelcatalog ./config ./cmd/ddx-agent ./...` |
 | AC-FEAT-004-03 | Deprecated or stale model references are rejected by default, surface replacement metadata, and can be explicitly allowed only when the caller opts in. | `go test ./modelcatalog ./config ./cmd/ddx-agent ./...` |
 | AC-FEAT-004-04 | An explicit concrete `--model` or provider-level pin bypasses catalog policy for that run while leaving catalog-backed resolution unchanged for other runs. | `go test ./config ./cmd/ddx-agent ./...` |
-| AC-FEAT-004-05 | Backend pools choose providers deterministically for `round-robin` and `first-available`, reject empty/unknown provider lists before the run, and do not introduce request-level failover in phase 1 / phase 2A. | `go test ./config ./...` |
-| AC-FEAT-004-06 | The selected concrete provider, resolved model reference, and resolved concrete model are recorded in the run result and session artifacts so downstream analytics can attribute the actual backend choice. | `go test ./cmd/ddx-agent ./...` |
+| AC-FEAT-004-05 | Model routes keyed by requested model or canonical target choose provider candidates deterministically for `priority-round-robin` and `ordered-failover`, reject empty/unknown routes before the run, and preserve direct-provider override behavior. | `go test ./config ./cmd/ddx-agent ./...` |
+| AC-FEAT-004-06 | Passive failover advances only on provider-side availability failures, records the attempt chain, and returns an aggregated routing error when every candidate fails. | `go test ./config ./cmd/ddx-agent ./...` |
+| AC-FEAT-004-07 | The selected concrete provider, requested model input, resolved model reference, route key, and resolved concrete model are recorded in the run result and session artifacts so DDx and downstream analytics can attribute the actual embedded-provider choice without reproducing the route logic. | `go test ./cmd/ddx-agent ./session ./...` |
+| AC-FEAT-004-08 | Deprecated `backends`, `default_backend`, and `--backend` inputs still resolve during the migration window, emit a deprecation warning, and map to the same provider choice as the equivalent model-route configuration. | `go test ./config ./cmd/ddx-agent ./...` |
 
 ## Dependencies
 

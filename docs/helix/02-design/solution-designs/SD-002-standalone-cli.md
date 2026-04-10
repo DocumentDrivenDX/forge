@@ -22,7 +22,7 @@ subcommands.
 
 | Requirement | Technical Capability | Component | Priority |
 |-------------|---------------------|-----------|----------|
-| Non-interactive mode (FEAT-006 FR-1..3) | `ddx-agent -p "prompt"`, stdin | `cmd/ddx-agent` | P0 |
+| Non-interactive mode (FEAT-006 FR-1..4) | `ddx-agent run "prompt"`, `-p`, stdin | `cmd/ddx-agent` | P0 |
 | Exit codes (FEAT-006 FR-4) | 0/1/2 mapping | `cmd/ddx-agent` | P0 |
 | Output modes (FEAT-006 FR-5..6) | stdout text, --json, stderr progress | `cmd/ddx-agent` | P0 |
 | Config file (FEAT-006 FR-7..10) | YAML config + env + flags | `cmd/ddx-agent` | P0 |
@@ -41,15 +41,17 @@ subcommands.
 
 The CLI is a single `cmd/ddx-agent/main.go` entry point using Go's `flag` stdlib
 package (per project concern override — no Cobra). Subcommands are dispatched
-by the first positional argument.
+by the first positional argument. `run` is the preferred explicit execution
+verb; the existing bare `-p` path remains as a compatibility shim.
 
 ### Command Structure
 
 ```
-ddx-agent -p "prompt"              # run agent, print result
-ddx-agent -p @file.md              # prompt from file
-echo "prompt" | ddx-agent          # prompt from stdin
-ddx-agent --json -p "prompt"       # JSON output
+ddx-agent run "prompt"             # preferred run path
+ddx-agent run @file.md             # prompt from file
+echo "prompt" | ddx-agent run      # prompt from stdin
+ddx-agent --json run "prompt"      # JSON output
+ddx-agent -p "prompt"              # legacy compatibility
 
 ddx-agent log                      # list recent sessions
 ddx-agent log <session-id>         # show session detail
@@ -65,8 +67,8 @@ ddx-agent usage --since=7d         # with time window
 3. Project config: `.agent/config.yaml`
 4. Environment variables: `AGENT_PROVIDER`, `AGENT_BASE_URL`, `AGENT_API_KEY`,
    `AGENT_MODEL`
-5. CLI flags: `--provider`, `--base-url`, `--api-key`, `--model`,
-   `--max-iter`, `--work-dir`
+5. CLI flags: `--provider`, `--model`, `--model-ref`, `--max-iter`,
+   `--work-dir`
 
 Later sources override earlier ones.
 
@@ -124,7 +126,7 @@ session_log_dir: .agent/sessions
 
 | Requirement | Component | Test Strategy |
 |-------------|-----------|---------------|
-| FEAT-006 FR-1..3 | main.go prompt handling | Functional: run binary with `-p` and stdin |
+| FEAT-006 FR-1..4 | main.go prompt handling | Functional: run binary with `run`, `-p`, and stdin |
 | FEAT-006 FR-4 | main.go exit codes | Functional: check exit codes for success/failure/usage |
 | FEAT-006 FR-5..6 | main.go output | Functional: text vs `--json` output |
 | FEAT-006 FR-7..10 | config loader | Unit: config merging from file/env/flags |

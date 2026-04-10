@@ -167,8 +167,9 @@ task the same: spawn a process, send to cloud, parse the result.
 ### Nice to Have (P2)
 
 1. **Caching** — cache file reads within a session to reduce redundant I/O
-2. **Multi-provider round robin** — configure multiple providers, distribute
-   requests across them. Phase 2 routing strategy.
+2. **Model-first provider routing** — request a model or model ref and let the
+   embedded runtime choose among equivalent configured providers with recorded
+   attribution and bounded failover.
 3. **Multi-model consensus** — run same prompt on N models, return majority
    answer (mirrors DDx quorum)
 4. **Model selection optimization** — choose model based on task
@@ -314,8 +315,9 @@ tests, review findings, or execution beads.
 
 - **Model loading**: Assume models are pre-loaded. DDX Agent does not manage
   `lms load` / `ollama pull`. Model selection optimization is P2.
-- **Routing**: Phase 1 is dumb — configure one server, it works or it doesn't.
-  Phase 2 adds multiple providers with round robin (P2).
+- **Routing**: DDx owns cross-harness selection. Within the embedded harness,
+  DDX Agent owns model-first provider routing keyed by requested model or model
+  ref; legacy backend pools are compatibility-only during migration.
 - **Config**: Library takes a `Config` struct that DDx (or any embedder)
   provides. The standalone CLI has its own config reader (patterned on DDx's
   `.ddx/config.yaml`). Library has no config file opinions.

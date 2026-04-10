@@ -7,7 +7,7 @@ ddx:
     - FEAT-006
     - SD-001
 ---
-# Solution Design: SD-005 — Provider Registry, Model Catalog, and Backend Pools
+# Solution Design: SD-005 — Provider Registry, Model Catalog, and Model-First Routing
 
 ## Problem
 
@@ -19,9 +19,9 @@ real users need three separate concerns:
    OpenRouter, LM Studio hosts, etc.
 2. **Shared model policy** — one agent-owned catalog for aliases,
    tiers/profiles, canonical targets, and deprecations.
-3. **Simple routing across equivalent backends** — for example rotate among
-   several local inference servers that should all serve the same logical model
-   reference.
+3. **Simple routing across equivalent providers** — for example choose among
+   several local inference servers that should all serve the same requested
+   model.
 
 Prompt presets already exist in agent and must remain a separate concern for
 system prompt behavior only.
@@ -33,11 +33,18 @@ DDX Agent keeps three layers above the runtime boundary:
 - **Providers** — transport/auth definitions and optional direct pinned models
 - **Model catalog** — agent-owned reusable policy/data loaded from an embedded
   snapshot plus an optional external manifest override
-- **Backend pools** — routing targets that pick one provider before a run and
-  optionally attach a catalog model reference
+- **Model routes** — routing entries keyed by requested model or canonical
+  target that pick one provider candidate before a run
 
 After resolution, agent still builds exactly one concrete `Provider` and passes
 it to `agent.Run()`.
+
+DDx boundary:
+
+- DDx chooses the harness and passes model intent to the embedded harness.
+- Embedded `ddx-agent` chooses the concrete provider candidate.
+- DDx records attribution facts from the embedded run, but does not own or
+  inspect provider candidate tables.
 
 ### Config Format
 
@@ -51,13 +58,16 @@ providers:
     type: openai-compat
     base_url: http://vidar:1234/v1
     api_key: lmstudio
-    model: qwen/qwen3-coder-next          # optional direct pin / fallback
 
   bragi:
     type: openai-compat
     base_url: http://bragi:1234/v1
     api_key: lmstudio
-    model: qwen/qwen3-coder-next
+
+  grendel:
+    type: openai-compat
+    base_url: http://grendel:1234/v1
+    api_key: lmstudio
 
   openrouter:
     type: openai-compat
@@ -71,19 +81,38 @@ providers:
     type: anthropic
     api_key: ${ANTHROPIC_API_KEY}
 
-backends:
-  code-fast-local:
-    model_ref: code-fast
-    providers: [vidar, bragi]
-    strategy: round-robin
+routing:
+  default_model_ref: code-fast
+  health_cooldown: 30s
 
-  review-smart:
-    model_ref: code-smart
-    providers: [anthropic, openrouter]
-    strategy: first-available
+model_routes:
+  qwen3-coder-next:
+    strategy: priority-round-robin
+    candidates:
+      - provider: vidar
+        model: qwen/qwen3-coder-next
+        priority: 100
+      - provider: bragi
+        model: qwen/qwen3-coder-next
+        priority: 100
+      - provider: grendel
+        model: qwen/qwen3-coder-next
+        priority: 100
+      - provider: openrouter
+        model: qwen/qwen3-coder-next
+        priority: 10
+
+  claude-sonnet-4:
+    strategy: ordered-failover
+    candidates:
+      - provider: anthropic
+        model: claude-sonnet-4-20250514
+        priority: 100
+      - provider: openrouter
+        model: anthropic/claude-sonnet-4
+        priority: 50
 
 default: vidar
-default_backend: code-fast-local
 preset: agent
 max_iterations: 20
 session_log_dir: .agent/sessions
@@ -92,13 +121,14 @@ session_log_dir: .agent/sessions
 ### Resolution Model
 
 1. Load provider config and the agent model catalog.
-2. If `--backend` is provided, resolve that backend pool.
-3. Else if `default_backend` exists, resolve that backend pool.
-4. Else fall back to direct provider selection via `--provider` or `default`.
-5. If a backend or explicit `--model-ref` is used, resolve that reference
-   through the catalog for the requested consumer surface.
-6. If `--model` is provided, treat it as an explicit concrete pin and bypass
-   catalog policy for that run.
+2. If `--provider` is provided, build that provider directly.
+3. Else if `--model` is provided, treat it as the requested model key and
+   resolve a model route for it.
+4. Else if `--model-ref` is provided, resolve it through the catalog and then
+   resolve the corresponding model route.
+5. Else if `routing.default_model_ref` or `routing.default_model` exists, use
+   that route.
+6. Else fall back to direct provider selection via `default`.
 7. Build exactly one provider with one concrete model string and pass it to
    `agent.Run()`.
 
@@ -111,7 +141,7 @@ terminology-safe.
 endpoint URLs, credentials, and headers. They are not the canonical source of
 alias/profile policy.
 
-**D2: Add a agent-owned model catalog as a first-class layer.** The catalog is
+**D2: Add an agent-owned model catalog as a first-class layer.** The catalog is
 loaded from an embedded manifest snapshot with an optional external override,
 and it owns aliases, tiers/profiles, canonical targets, and deprecations.
 
@@ -120,26 +150,33 @@ and it owns aliases, tiers/profiles, canonical targets, and deprecations.
 SD-003. Model policy uses `model_ref`, `alias`, `profile`, or `catalog`, never
 `preset`.
 
-**D4: Backend pools resolve providers, not policy.** A backend pool selects one
-provider reference and one model reference before the run. It does not replace
-the catalog.
+**D4: Model routes resolve providers, not policy.** A model route selects one
+provider candidate and one concrete model string before the run. It does not
+replace the catalog.
 
-**D5: Phase 2A uses simple pre-run selection only.** Supported strategies are:
-- `round-robin` — rotate between configured providers per request
-- `first-available` — always use the first configured provider
+**D5: Model-first routing is the public surface.** Users ask for `--model` or
+`--model-ref`; they should not have to invent arbitrary backend labels.
 
-Phase 2A does **not** retry a failed request on another provider.
+**D6: Passive availability and bounded failover are additive.** Supported
+selection strategies are:
+- `priority-round-robin` — use the highest-priority healthy tier and rotate
+  within that tier
+- `ordered-failover` — walk candidates in priority/order when the current one
+  is unavailable
 
-**D6: Direct concrete model pins remain supported.** `--model` and provider
+Failover applies only to provider-side availability failures.
+
+**D7: Direct concrete model pins remain supported.** `--model` and provider
 defaults remain valid for exact control, imports, and back-compat, but catalog
 references are the preferred shared-policy surface.
 
-**D7: Environment variable expansion still applies to values.** `${VAR}` is
+**D8: Environment variable expansion still applies to values.** `${VAR}` is
 expanded at config load time. No shell evaluation.
 
-**D8: Backwards compatible with the legacy flat format.** Old flat config still
-maps to a single provider named `default`. Users can adopt catalog references
-and backend pools only when they need them.
+**D9: Backwards compatible with the legacy flat format and backend pools.** Old
+flat config still maps to a single provider named `default`. Existing
+`backends`/`default_backend` config is translated into internal model routes
+during migration and emits a deprecation warning.
 
 ## CLI UX
 
@@ -175,21 +212,26 @@ Built-in preset details are defined by SD-003 and implemented in
 ### Direct Provider / Model Selection
 
 ```bash
-ddx-agent -p "prompt" --provider vidar
-ddx-agent -p "prompt" --provider anthropic --model claude-sonnet-4-20250514
-ddx-agent -p "prompt" --model-ref code-smart
+ddx-agent run --provider vidar "prompt"
+ddx-agent run --provider anthropic --model claude-sonnet-4-20250514 "prompt"
+ddx-agent run --model-ref code-smart "prompt"
 ```
 
-### Backend-Pool Selection
+### Model-Route Selection
+
+```bash
+ddx-agent run --model qwen3-coder-next "prompt"
+ddx-agent run --model-ref code-fast "prompt"
+ddx-agent run "prompt"                        # use default model route if set, else default provider
+```
+
+Compatibility:
 
 ```bash
 ddx-agent -p "prompt" --backend code-fast-local
-ddx-agent -p "prompt"                         # use default_backend if set, else default provider
 ```
 
-Initial phase-2A scope only requires backend resolution for runs. Provider
-listing, checking, and model listing remain provider-oriented commands. Catalog
-inspection commands can be added later if needed.
+The compatibility flag remains temporarily, but it is not the preferred UX.
 
 ## Library and Package Boundaries
 
@@ -198,14 +240,16 @@ single `Provider` in the `Request`.
 
 Config and CLI code grow a catalog-aware layer above that boundary. The
 detailed package/API shape is defined in
-`docs/helix/02-design/plan-2026-04-08-shared-model-catalog.md`.
+`docs/helix/02-design/plan-2026-04-08-shared-model-catalog.md` and
+`docs/helix/02-design/plan-2026-04-10-model-first-routing.md`.
 
 Expected package split:
 
-- `config/` — load provider config and optional manifest override path
+- `config/` — load provider config, route config, and optional manifest
+  override path
 - `modelcatalog/` — load, validate, and resolve shared model policy
-- `cmd/ddx-agent/` — resolve `--provider`, `--backend`, `--model-ref`, or `--model`
-  into one concrete provider/model pair
+- `cmd/ddx-agent/` — resolve `--provider`, `--model-ref`, or `--model` into
+  one concrete provider/model pair
 
 ## Traceability
 
@@ -213,5 +257,6 @@ Expected package split:
 - SD-003 reserves `preset` for system prompt behavior
 - `plan-2026-04-08-shared-model-catalog.md` defines the catalog package/API,
   manifest format, and consumer examples
-- `agent-94b5d420` covers the converged design
-- `agent-66eef6fe` is the follow-on implementation bead
+- `plan-2026-04-10-model-first-routing.md` captures the converged replacement
+  of backend pools with model routes
+- `agent-94b5d420` covers the shared-catalog design lineage
