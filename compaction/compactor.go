@@ -45,8 +45,8 @@ func NewCompactor(cfg Config) func(ctx context.Context, messages []agent.Message
 		prevOps := s.previousFileOps
 		s.mu.Unlock()
 
-		newMessages, result, err := CompactMessages(
-			ctx, provider, messages, toolCalls, prevSummary, prevOps, cfg,
+		newMessages, result, err := compactMessages(
+			ctx, provider, messages, toolCalls, prevSummary, prevOps, cfg, prefixTokens,
 		)
 		if err != nil {
 			return messages, nil, err

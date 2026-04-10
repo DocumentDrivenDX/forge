@@ -156,6 +156,107 @@ func InjectSummary(summary string) agent.Message {
 	}
 }
 
+// recoverCompactionStateFromHistory reconstructs the latest compaction state
+// from carried history. This lets resumed runs continue compaction even when
+// they use a fresh compactor instance.
+func recoverCompactionStateFromHistory(messages []agent.Message) (string, *FileOps) {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if !IsCompactionSummary(messages[i]) {
+			continue
+		}
+
+		summary, ops, ok := parseSummaryInjection(messages[i].Content)
+		if !ok {
+			return "", nil
+		}
+		return summary, ops
+	}
+
+	return "", nil
+}
+
+// parseSummaryInjection removes the wrapper around a compacted summary and
+// extracts any serialized file-op XML that was appended to it.
+func parseSummaryInjection(content string) (string, *FileOps, bool) {
+	if !strings.HasPrefix(content, SummaryInjectionPrefix) || !strings.HasSuffix(content, SummaryInjectionSuffix) {
+		return "", nil, false
+	}
+
+	inner := strings.TrimPrefix(content, SummaryInjectionPrefix)
+	inner = strings.TrimSuffix(inner, SummaryInjectionSuffix)
+	summary, ops := splitSummaryAndFileOps(inner)
+	return summary, ops, true
+}
+
+// splitSummaryAndFileOps separates the human-readable summary text from the
+// XML file-op suffix appended by Summarize.
+func splitSummaryAndFileOps(summary string) (string, *FileOps) {
+	boundary := len(summary)
+	if idx := strings.Index(summary, "\n\n<read-files>"); idx >= 0 && idx < boundary {
+		boundary = idx
+	}
+	if idx := strings.Index(summary, "\n\n<modified-files>"); idx >= 0 && idx < boundary {
+		boundary = idx
+	}
+
+	if boundary == len(summary) {
+		return summary, nil
+	}
+
+	body := summary[:boundary]
+	ops := parseFileOpsXML(summary[boundary:])
+	return body, ops
+}
+
+// parseFileOpsXML reconstructs a FileOps value from the XML suffix emitted by
+// FileOps.FormatXML.
+func parseFileOpsXML(xml string) *FileOps {
+	ops := NewFileOps()
+	seen := false
+
+	if block, ok := extractTagBlock(xml, "read-files"); ok {
+		seen = true
+		for _, path := range strings.Split(block, "\n") {
+			path = strings.TrimSpace(path)
+			if path != "" {
+				ops.Read[path] = true
+			}
+		}
+	}
+	if block, ok := extractTagBlock(xml, "modified-files"); ok {
+		seen = true
+		for _, path := range strings.Split(block, "\n") {
+			path = strings.TrimSpace(path)
+			if path != "" {
+				ops.Modified[path] = true
+			}
+		}
+	}
+
+	if !seen || (len(ops.Read) == 0 && len(ops.Modified) == 0) {
+		return nil
+	}
+	return ops
+}
+
+func extractTagBlock(xml, tag string) (string, bool) {
+	startTag := "<" + tag + ">"
+	endTag := "</" + tag + ">"
+
+	start := strings.Index(xml, startTag)
+	if start < 0 {
+		return "", false
+	}
+	start += len(startTag)
+
+	end := strings.Index(xml[start:], endTag)
+	if end < 0 {
+		return "", false
+	}
+
+	return xml[start : start+end], true
+}
+
 // CompactMessages performs a full compaction pass on a message history.
 // Returns the new message list with older messages replaced by a summary.
 func CompactMessages(
@@ -167,15 +268,89 @@ func CompactMessages(
 	previousFileOps *FileOps,
 	cfg Config,
 ) ([]agent.Message, *CompactionResult, error) {
-	tokensBefore := EstimateConversationTokens(messages)
+	return compactMessages(ctx, provider, messages, toolCalls, previousSummary, previousFileOps, cfg, 0)
+}
 
-	// Find cut point
+func compactMessages(
+	ctx context.Context,
+	provider agent.Provider,
+	messages []agent.Message,
+	toolCalls []agent.ToolCallLog,
+	previousSummary string,
+	previousFileOps *FileOps,
+	cfg Config,
+	prefixTokens int,
+) ([]agent.Message, *CompactionResult, error) {
+	if previousSummary == "" || previousFileOps == nil {
+		recoveredSummary, recoveredOps := recoverCompactionStateFromHistory(messages)
+		if previousSummary == "" {
+			previousSummary = recoveredSummary
+		}
+		if previousFileOps == nil {
+			previousFileOps = recoveredOps
+		}
+	}
+
+	tokensBefore := EstimateConversationTokens(messages)
+	effectiveWindow := cfg.ContextWindow*cfg.EffectivePercent/100 - cfg.ReserveTokens
+	lastUserIndex := findLastUserMessageIndex(messages)
+
 	cutIndex := FindCutPoint(messages, cfg.KeepRecentTokens)
-	if cutIndex == 0 {
-		// Nothing to compact
+	if cutIndex == 0 && len(messages) > 0 {
+		cutIndex = nextValidBoundary(messages, 0)
+	}
+	if lastUserIndex >= 0 && cutIndex > lastUserIndex {
+		cutIndex = lastUserIndex
+	}
+	if cutIndex <= 0 || cutIndex > len(messages) {
 		return messages, nil, nil
 	}
 
+	var (
+		bestMessages []agent.Message
+		bestResult   *CompactionResult
+	)
+
+	for {
+		newMessages, result, err := compactAtCutIndex(ctx, provider, messages, toolCalls, previousSummary, previousFileOps, cfg, cutIndex, tokensBefore)
+		if err != nil {
+			return messages, nil, err
+		}
+		if result == nil {
+			return messages, nil, nil
+		}
+
+		bestMessages = newMessages
+		bestResult = result
+
+		if prefixTokens <= 0 || result.TokensAfter+prefixTokens <= effectiveWindow {
+			return newMessages, result, nil
+		}
+
+		nextCut := nextValidBoundary(messages, cutIndex)
+		if nextCut <= cutIndex || (lastUserIndex >= 0 && nextCut > lastUserIndex) {
+			break
+		}
+		cutIndex = nextCut
+	}
+
+	if bestResult == nil {
+		return messages, nil, nil
+	}
+	return bestMessages, bestResult, nil
+}
+
+func compactAtCutIndex(
+	ctx context.Context,
+	provider agent.Provider,
+	messages []agent.Message,
+	toolCalls []agent.ToolCallLog,
+	previousSummary string,
+	previousFileOps *FileOps,
+	cfg Config,
+	cutIndex int,
+	tokensBefore int,
+) ([]agent.Message, *CompactionResult, error) {
 	// Filter out previous compaction summaries from messages-to-summarize
 	var toSummarize []agent.Message
 	for _, msg := range messages[:cutIndex] {
@@ -190,10 +365,14 @@ func CompactMessages(
 		return messages, nil, err
 	}
 
+	summaryBody, _ := splitSummaryAndFileOps(summary)
+
 	// Merge previous file ops
 	if previousFileOps != nil {
 		ops.Merge(previousFileOps)
 	}
+
+	summary = summaryBody + ops.FormatXML()
 
 	// Build new message list: kept messages + summary LAST (per SD-006 for prompt cache optimization)
 	var newMessages []agent.Message
@@ -213,4 +392,17 @@ func CompactMessages(
 	}
 
 	return newMessages, result, nil
+}
+
+func nextValidBoundary(messages []agent.Message, index int) int {
+	return findValidBoundary(messages, index+1)
+}
+
+func findLastUserMessageIndex(messages []agent.Message) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == agent.RoleUser {
+			return i
+		}
+	}
+	return -1
 }

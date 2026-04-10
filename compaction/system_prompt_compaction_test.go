@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/DocumentDrivenDX/agent"
+	"github.com/DocumentDrivenDX/agent/internal/compactionctx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,13 +34,30 @@ func (r *recordingProvider) Chat(ctx context.Context, messages []agent.Message, 
 	return resp, nil
 }
 
-func TestRun_SystemPromptCountsTowardCompactionBudget(t *testing.T) {
-	provider := &recordingProvider{
-		responses: []agent.Response{
-			{Content: "## Goal\nSummarized context"},
-			{Content: "final answer"},
-		},
+type summarizationAwareRecordingProvider struct {
+	finalResponse string
+	calls         [][]agent.Message
+}
+
+func (p *summarizationAwareRecordingProvider) Chat(ctx context.Context, messages []agent.Message, tools []agent.ToolDef, opts agent.Options) (agent.Response, error) {
+	if ctx.Err() != nil {
+		return agent.Response{}, ctx.Err()
 	}
+
+	copied := append([]agent.Message(nil), messages...)
+	p.calls = append(p.calls, copied)
+
+	if len(messages) >= 2 &&
+		messages[0].Role == agent.RoleSystem &&
+		strings.Contains(messages[0].Content, "context summarization assistant") {
+		return agent.Response{Content: "## Goal\nSummarized context"}, nil
+	}
+
+	return agent.Response{Content: p.finalResponse}, nil
+}
+
+func TestRun_SystemPromptCountsTowardCompactionBudget(t *testing.T) {
+	provider := &summarizationAwareRecordingProvider{finalResponse: "final answer"}
 
 	cfg := DefaultConfig()
 	cfg.ContextWindow = 1
@@ -65,9 +83,9 @@ func TestRun_SystemPromptCountsTowardCompactionBudget(t *testing.T) {
 	assert.Equal(t, "final answer", result.Output)
 	require.Len(t, provider.calls, 2)
 
-	require.NotEmpty(t, provider.calls[1])
-	assert.Equal(t, agent.RoleSystem, provider.calls[1][0].Role)
-	assert.Equal(t, systemPrompt, provider.calls[1][0].Content)
+	require.NotEmpty(t, provider.calls[len(provider.calls)-1])
+	assert.Equal(t, agent.RoleSystem, provider.calls[len(provider.calls)-1][0].Role)
+	assert.Equal(t, systemPrompt, provider.calls[len(provider.calls)-1][0].Content)
 
 	systemCount := 0
 	for _, msg := range result.Messages {
@@ -88,12 +106,7 @@ func TestRun_SystemPromptCountsTowardCompactionBudget(t *testing.T) {
 }
 
 func TestRun_SystemPromptDoesNotConsumeKeepBudgetForActivePrompt(t *testing.T) {
-	provider := &recordingProvider{
-		responses: []agent.Response{
-			{Content: "## Goal\nSummarized context"},
-			{Content: "final answer"},
-		},
-	}
+	provider := &summarizationAwareRecordingProvider{finalResponse: "final answer"}
 
 	cfg := DefaultConfig()
 	cfg.ContextWindow = 1
@@ -118,14 +131,51 @@ func TestRun_SystemPromptDoesNotConsumeKeepBudgetForActivePrompt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, agent.StatusSuccess, result.Status)
 	assert.Equal(t, "final answer", result.Output)
-	require.Len(t, provider.calls, 2)
+	require.GreaterOrEqual(t, len(provider.calls), 2)
 
 	foundActivePrompt := false
-	for _, msg := range provider.calls[1] {
+	for _, msg := range provider.calls[len(provider.calls)-1] {
 		if msg.Role == agent.RoleUser && msg.Content == activePrompt {
 			foundActivePrompt = true
 			break
 		}
 	}
 	assert.True(t, foundActivePrompt, "compaction must keep the active user prompt verbatim")
+}
+
+func TestCompactor_SystemPromptPrefixFitKeepsActivePromptAndBudget(t *testing.T) {
+	provider := &mockSummarizer{response: strings.Repeat("S", 100)}
+
+	cfg := DefaultConfig()
+	cfg.ContextWindow = 80
+	cfg.ReserveTokens = 0
+	cfg.KeepRecentTokens = 80
+	cfg.EffectivePercent = 100
+
+	systemPrompt := strings.Repeat("P", 80)
+	prefixTokens := EstimateMessageTokens(agent.Message{Role: agent.RoleSystem, Content: systemPrompt})
+	ctx := compactionctx.WithPrefixTokens(context.Background(), prefixTokens)
+
+	messages := []agent.Message{
+		{Role: agent.RoleUser, Content: strings.Repeat("A", 120)},
+		{Role: agent.RoleAssistant, Content: strings.Repeat("B", 120)},
+		{Role: agent.RoleUser, Content: strings.Repeat("C", 120)},
+		{Role: agent.RoleAssistant, Content: strings.Repeat("D", 120)},
+		{Role: agent.RoleUser, Content: "DO-THE-THING"},
+	}
+
+	newMsgs, result, err := NewCompactor(cfg)(ctx, messages, provider, nil)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.LessOrEqual(t, result.TokensAfter, cfg.ContextWindow*cfg.EffectivePercent/100-cfg.ReserveTokens)
+
+	foundActivePrompt := false
+	for _, msg := range newMsgs {
+		if msg.Role == agent.RoleUser && msg.Content == "DO-THE-THING" {
+			foundActivePrompt = true
+			break
+		}
+	}
+	assert.True(t, foundActivePrompt, "compaction must keep the active user prompt verbatim")
+	assert.True(t, IsCompactionSummary(newMsgs[len(newMsgs)-1]))
 }
