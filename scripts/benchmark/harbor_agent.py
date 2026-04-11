@@ -1,171 +1,200 @@
 #!/usr/bin/env python3
 """
-harbor_agent.py — Harbor BaseInstalledAgent adapter for ddx-agent.
+harbor_agent.py — Harbor 0.3.x BaseInstalledAgent adapter for ddx-agent.
 
-Implements the three-hook lifecycle expected by Harbor/Terminal-Bench:
-  install()                   — copy binary, write provider config
-  run(task_instruction)       — invoke ddx-agent, capture output
-  populate_context_post_run() — convert session JSONL to ATIF v1.4
-
-See docs/helix/02-design/solution-designs/SD-008-terminal-bench-integration.md
+This adapter stages a prebuilt ddx-agent binary into the task environment,
+writes a minimal config rooted under /installed-agent/home, runs ddx-agent in
+the task workspace, and converts downloaded session logs into a trajectory file
+that our benchmark scoring path can consume.
 """
+
+from __future__ import annotations
 
 import json
 import os
-import shutil
-import subprocess
-import sys
+import shlex
 import uuid
 from pathlib import Path
 from typing import Any
 
-# Harbor framework import — available inside the task container.
-try:
-    from harbor import BaseInstalledAgent
-except ImportError:
-    # Allow import for local testing without Harbor installed.
-    class BaseInstalledAgent:  # type: ignore[no-redef]
-        pass
+from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
+from harbor.environments.base import BaseEnvironment
+from harbor.models.agent.context import AgentContext
+
+_INSTALL_ROOT = "/installed-agent"
+_BINARY_TARGET = f"{_INSTALL_ROOT}/ddx-agent"
+_HOME_DIR = f"{_INSTALL_ROOT}/home"
+_CONFIG_TARGET = f"{_HOME_DIR}/.config/agent/config.yaml"
+_SESSION_LOG_DIR = "/logs/agent/sessions"
+_OUTPUT_LOG = "/logs/agent/ddx-agent.txt"
 
 
-# Paths inside the task container.
-_INSTALL_DIR = Path("/usr/local/bin")
-_CONFIG_DIR = Path.home() / ".config" / "agent"
-_LOG_DIR = Path("/logs/agent")
-_TRAJECTORY_PATH = _LOG_DIR / "trajectory.json"
+def _bench_env(name: str, default: str = "") -> str:
+    return os.environ.get(name, default)
 
-# ddx-agent invocation flags (SD-008 §1, SD-009 §2).
-_AGENT_FLAGS = ["--json", "--preset", "benchmark"]
+
+def _provider_headers_yaml() -> str:
+    raw = _bench_env("DDX_BENCH_PROVIDER_HEADERS_JSON", "")
+    if not raw:
+        return ""
+    headers = json.loads(raw)
+    if not isinstance(headers, dict):
+        raise ValueError("DDX_BENCH_PROVIDER_HEADERS_JSON must decode to an object")
+    lines = ["    headers:"]
+    for key, value in headers.items():
+        lines.append(f"      {key}: {json.dumps(str(value))}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_provider_config() -> str:
+    provider_name = _bench_env("DDX_BENCH_PROVIDER_NAME", "benchmark")
+    provider_type = _bench_env("DDX_BENCH_PROVIDER_TYPE", "anthropic")
+    provider_model = _bench_env(
+        "DDX_BENCH_PROVIDER_MODEL", "claude-haiku-4-5-20251001"
+    )
+    api_key_env = _bench_env("DDX_BENCH_PROVIDER_API_KEY_ENV", "ANTHROPIC_API_KEY")
+    base_url = _bench_env("DDX_BENCH_PROVIDER_BASE_URL", "")
+
+    lines = [
+        "providers:",
+        f"  {provider_name}:",
+        f"    type: {provider_type}",
+        f'    api_key: "${{{api_key_env}}}"',
+        f"    model: {provider_model}",
+    ]
+    if base_url:
+        lines.append(f"    base_url: {base_url}")
+    headers_yaml = _provider_headers_yaml().rstrip()
+    if headers_yaml:
+        lines.append(headers_yaml)
+    lines.extend(
+        [
+            f"default_provider: {provider_name}",
+            f"session_log_dir: {_SESSION_LOG_DIR}",
+        ]
+    )
+    return "\n".join(lines) + "\n"
+
+
+def _agent_flags() -> list[str]:
+    flags = ["--json", "--preset", _bench_env("DDX_BENCH_PRESET", "benchmark")]
+    system_append = _bench_env("DDX_BENCH_SYSTEM_APPEND", "")
+    if system_append:
+        flags.extend(["--system", system_append])
+    return flags
 
 
 class DDXAgent(BaseInstalledAgent):
-    """
-    Harbor installed-agent adapter for ddx-agent.
+    SUPPORTS_ATIF: bool = False
 
-    Lifecycle (called by Harbor per trial):
-      1. install()                   — once per container startup
-      2. run(task)                   — once per task trial
-      3. populate_context_post_run() — after run() returns
-    """
+    def __init__(self, *args: Any, **kwargs: Any):
+        kwargs.setdefault("version", "ddx-agent-benchmark")
+        super().__init__(*args, **kwargs)
 
-    name = "ddx-agent"
-    version = "1.0"
+    @staticmethod
+    def name() -> str:
+        return "ddx-agent"
 
-    def install(self) -> None:
-        """
-        Copy the pre-built linux/amd64 binary and write the provider config.
-
-        Binary resolution order:
-          1. $HARBOR_AGENT_ARTIFACT env var (Harbor passes artifact paths here)
-          2. Same directory as this script (scripts/benchmark/ddx-agent-linux-amd64)
-        """
-        binary_src = Path(
-            os.environ.get("HARBOR_AGENT_ARTIFACT", "ddx-agent-linux-amd64")
-        )
+    async def install(self, environment: BaseEnvironment) -> None:
+        binary_src = Path(os.environ.get("HARBOR_AGENT_ARTIFACT", ""))
         if not binary_src.exists():
             binary_src = Path(__file__).parent / "ddx-agent-linux-amd64"
         if not binary_src.exists():
             raise FileNotFoundError(
-                f"ddx-agent binary not found. Expected at {binary_src} or "
-                "set HARBOR_AGENT_ARTIFACT to the binary path."
+                f"ddx-agent binary not found. Expected {binary_src} or set "
+                "HARBOR_AGENT_ARTIFACT to the host binary path."
             )
 
-        dest = _INSTALL_DIR / "ddx-agent"
-        _INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(binary_src, dest)
-        dest.chmod(0o755)
-        print(f"[install] ddx-agent installed to {dest}", file=sys.stderr)
-
-        # Write provider config with env-var expansion for API key.
-        # ddx-agent config loader already supports ${ENV_VAR} expansion.
-        _CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        config_path = _CONFIG_DIR / "config.yaml"
-        config_path.write_text(
-            "providers:\n"
-            "  benchmark:\n"
-            "    type: anthropic\n"
-            "    api_key: \"${ANTHROPIC_API_KEY}\"\n"
-            "    model: claude-haiku-4-5-20251001\n"
-            "default_provider: benchmark\n"
+        await self.exec_as_root(
+            environment,
+            command=(
+                f"mkdir -p {_INSTALL_ROOT} {_HOME_DIR}/.config/agent /logs/agent "
+                f"&& chmod 755 {_INSTALL_ROOT}"
+            ),
         )
-        print(f"[install] config written to {config_path}", file=sys.stderr)
 
-    def get_env(self) -> dict[str, str]:
-        """Pass API credentials from the outer environment into the container."""
-        env: dict[str, str] = {}
-        for key in ("ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
-            val = os.environ.get(key, "")
-            if val:
-                env[key] = val
+        await environment.upload_file(binary_src, _BINARY_TARGET)
+        await self.exec_as_root(
+            environment, command=f"chmod 755 {_BINARY_TARGET}"
+        )
+
+        local_config = self.logs_dir / "config.yaml"
+        local_config.write_text(_render_provider_config(), encoding="utf-8")
+        await environment.upload_file(local_config, _CONFIG_TARGET)
+        await self.exec_as_root(
+            environment,
+            command=f"chmod 600 {_CONFIG_TARGET} && chown -R $(id -u):$(id -g) {_HOME_DIR}",
+        )
+
+    def _run_env(self, instruction: str) -> dict[str, str]:
+        env = {
+            "HARBOR_INSTRUCTION": instruction,
+            "HOME": _HOME_DIR,
+            "XDG_CONFIG_HOME": f"{_HOME_DIR}/.config",
+        }
+        api_key_env = _bench_env("DDX_BENCH_PROVIDER_API_KEY_ENV", "")
+        if api_key_env:
+            value = os.environ.get(api_key_env, "")
+            if value:
+                env[api_key_env] = value
         return env
 
-    def run(self, task_instruction: str, work_dir: str = ".") -> int:
-        """
-        Invoke ddx-agent with the task instruction.
+    @with_prompt_template
+    async def run(
+        self,
+        instruction: str,
+        environment: BaseEnvironment,
+        context: AgentContext,
+    ) -> None:
+        del context
 
-        Returns:
-          0  — agent attempted the task (Harbor reads reward from verifier)
-          >0 — trial failure (Harbor marks task as failed)
-        """
-        _LOG_DIR.mkdir(parents=True, exist_ok=True)
-        cmd = [
-            str(_INSTALL_DIR / "ddx-agent"),
-            *_AGENT_FLAGS,
-            "-p", task_instruction,
-            "--work-dir", work_dir,
-        ]
-        print(f"[run] {' '.join(cmd)}", file=sys.stderr)
-        result = subprocess.run(cmd)
-        print(f"[run] exit_code={result.returncode}", file=sys.stderr)
-        return result.returncode
+        ddx_flags = " ".join(shlex.quote(flag) for flag in _agent_flags())
+        command = (
+            "set -euo pipefail; "
+            "cd /testbed 2>/dev/null || cd /workspace 2>/dev/null || true; "
+            f"{_BINARY_TARGET} {ddx_flags} "
+            '--work-dir "$(pwd)" '
+            '-p "$HARBOR_INSTRUCTION" '
+            f'2>&1 | stdbuf -oL tee {_OUTPUT_LOG}'
+        )
 
-    def populate_context_post_run(self, work_dir: str = ".") -> None:
-        """
-        Convert the most recent ddx-agent JSONL session log to ATIF v1.4
-        and write to /logs/agent/trajectory.json for Harbor's collector.
-        """
-        log_dir = Path(work_dir) / ".agent" / "session-logs"
+        await self.exec_as_agent(
+            environment,
+            command=command,
+            env=self._run_env(instruction),
+        )
+
+    def populate_context_post_run(self, context: AgentContext) -> None:
+        trajectory, totals = self._build_trajectory()
+        trajectory_path = self.logs_dir / "trajectory.json"
+        trajectory_path.write_text(json.dumps(trajectory, indent=2), encoding="utf-8")
+
+        context.n_input_tokens = totals["input"]
+        context.n_output_tokens = totals["output"]
+        context.cost_usd = totals["cost"]
+
+    def _build_trajectory(self) -> tuple[dict[str, Any], dict[str, float]]:
         session_files = sorted(
-            log_dir.glob("*.jsonl"),
+            (self.logs_dir / "sessions").glob("*.jsonl"),
             key=lambda p: p.stat().st_mtime,
         )
         if not session_files:
-            print(
-                "[post_run] WARNING: no session log found; writing empty trajectory",
-                file=sys.stderr,
-            )
-            self._write_trajectory(self._empty_trajectory())
-            return
+            return self._empty_trajectory(), {"input": 0, "output": 0, "cost": 0.0}
 
-        log_path = session_files[-1]
-        print(f"[post_run] converting {log_path}", file=sys.stderr)
-        trajectory = self._convert_session_log(log_path)
-        self._write_trajectory(trajectory)
-        print(
-            f"[post_run] trajectory written to {_TRAJECTORY_PATH}"
-            f" ({len(trajectory['steps'])} steps)",
-            file=sys.stderr,
-        )
-
-    # ------------------------------------------------------------------ helpers
-
-    def _convert_session_log(self, log_path: Path) -> dict[str, Any]:
-        """Parse a ddx-agent JSONL session log and return an ATIF v1.4 dict."""
         events: list[dict[str, Any]] = []
-        with log_path.open() as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    events.append(json.loads(line))
+        for line in session_files[-1].read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            events.append(json.loads(line))
 
-        # log_path stem is the session UUID written by ddx-agent's session logger.
-        session_id = log_path.stem
-        model_name = ""
         steps: list[dict[str, Any]] = []
+        session_id = session_files[-1].stem
+        model_name = ""
         total_input = 0
         total_output = 0
         total_cost = 0.0
-        step_id = 0
+        step_id = 1
 
         for event in events:
             etype = event.get("type", "")
@@ -175,113 +204,127 @@ class DDXAgent(BaseInstalledAgent):
                     data = json.loads(data)
                 except json.JSONDecodeError:
                     data = {}
-            ts = event.get("ts", "")
+            timestamp = event.get("timestamp") or event.get("ts")
             session_id = event.get("session_id", session_id)
 
             if etype == "session.start":
-                model_name = data.get("model", "")
+                model_name = data.get("model", model_name)
                 prompt = data.get("prompt", "")
-                step_id += 1
-                steps.append({
-                    "step_id": step_id,
-                    "timestamp": ts,
-                    "source": "user",
-                    "message": prompt,
-                    "tool_calls": [],
-                    "metrics": {"input_tokens": 0, "output_tokens": 0, "cost": 0},
-                })
+                if prompt:
+                    steps.append(
+                        {
+                            "step_id": step_id,
+                            "timestamp": timestamp,
+                            "source": "user",
+                            "message": prompt,
+                        }
+                    )
+                    step_id += 1
+                continue
 
-            elif etype == "llm.response":
+            if etype == "llm.response":
                 usage = data.get("usage") or {}
                 cost = data.get("cost_usd") or 0.0
-                if cost == -1:  # -1 means unknown model — treat as 0
+                if cost == -1:
                     cost = 0.0
-                in_tok = usage.get("input", 0)
-                out_tok = usage.get("output", 0)
-                total_input += in_tok
-                total_output += out_tok
+                prompt_tokens = usage.get("input", 0) or 0
+                completion_tokens = usage.get("output", 0) or 0
+                total_input += prompt_tokens
+                total_output += completion_tokens
                 total_cost += cost
                 model_name = data.get("model", model_name)
 
-                tc_list = [
-                    {
-                        "id": tc.get("id", ""),
-                        "name": tc.get("name", ""),
-                        "arguments": tc.get("arguments", {}),
-                        "result": None,
-                    }
-                    for tc in (data.get("tool_calls") or [])
-                ]
-                step_id += 1
-                steps.append({
-                    "step_id": step_id,
-                    "timestamp": ts,
-                    "source": "agent",
-                    "message": data.get("content", ""),
-                    "tool_calls": tc_list,
-                    "metrics": {
-                        "input_tokens": in_tok,
-                        "output_tokens": out_tok,
-                        "cost": cost,
-                    },
-                })
+                tool_calls = []
+                for tc in data.get("tool_calls") or []:
+                    name = tc.get("name", "")
+                    tool_calls.append(
+                        {
+                            "tool_call_id": tc.get("id", ""),
+                            "function_name": name,
+                            "arguments": tc.get("arguments", {}),
+                            "name": name,
+                            "result": "",
+                            "error": "",
+                        }
+                    )
 
-            elif etype == "tool.call":
-                # Attach result to the matching pending tool call in the last agent step.
+                step: dict[str, Any] = {
+                    "step_id": step_id,
+                    "timestamp": timestamp,
+                    "source": "agent",
+                    "message": data.get("content", "") or "(tool use)",
+                    "model_name": model_name,
+                    "tool_calls": tool_calls or None,
+                    "metrics": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "cost_usd": cost,
+                    },
+                }
+                steps.append(step)
+                step_id += 1
+                continue
+
+            if etype == "tool.call":
                 tool_name = data.get("tool", "")
                 output = data.get("output", "")
+                err = data.get("error", "")
                 for step in reversed(steps):
-                    if step["source"] != "agent":
+                    if step.get("source") != "agent":
                         continue
-                    for tc in step["tool_calls"]:
-                        if tc["name"] == tool_name and tc["result"] is None:
+                    tool_calls = step.get("tool_calls") or []
+                    for tc in tool_calls:
+                        if tc.get("name") == tool_name and not tc.get("result"):
                             tc["result"] = output
+                            tc["error"] = err
+                            observation = step.setdefault("observation", {"results": []})
+                            observation["results"].append(
+                                {
+                                    "source_call_id": tc.get("tool_call_id"),
+                                    "content": err or output,
+                                }
+                            )
                             break
+                    else:
+                        continue
                     break
 
-        return {
-            "schema_version": "1.4",
+        trajectory = {
+            "schema_version": "ATIF-v1.6-ddx",
             "session_id": session_id,
             "agent": {
                 "name": "ddx-agent",
-                "version": self.version,
+                "version": self.version() or "unknown",
                 "model_name": model_name,
             },
             "steps": steps,
             "final_metrics": {
-                "total_input_tokens": total_input,
-                "total_output_tokens": total_output,
-                "total_cost": total_cost,
+                "total_prompt_tokens": total_input,
+                "total_completion_tokens": total_output,
+                "total_cost_usd": total_cost,
+                "total_steps": len(steps),
             },
+        }
+        return trajectory, {
+            "input": total_input,
+            "output": total_output,
+            "cost": total_cost,
         }
 
     def _empty_trajectory(self) -> dict[str, Any]:
         return {
-            "schema_version": "1.4",
+            "schema_version": "ATIF-v1.6-ddx",
             "session_id": str(uuid.uuid4()),
-            "agent": {"name": "ddx-agent", "version": self.version, "model_name": ""},
+            "agent": {
+                "name": "ddx-agent",
+                "version": self.version() or "unknown",
+                "model_name": self.model_name or "",
+            },
             "steps": [],
             "final_metrics": {
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "total_cost": 0,
+                "total_prompt_tokens": 0,
+                "total_completion_tokens": 0,
+                "total_cost_usd": 0.0,
+                "total_steps": 0,
             },
         }
-
-    def _write_trajectory(self, trajectory: dict[str, Any]) -> None:
-        _LOG_DIR.mkdir(parents=True, exist_ok=True)
-        _TRAJECTORY_PATH.write_text(json.dumps(trajectory, indent=2))
-
-
-# Allow running directly for local testing outside Harbor.
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: harbor_agent.py '<task instruction>' [work_dir]")
-        sys.exit(1)
-    task = sys.argv[1]
-    work_dir = sys.argv[2] if len(sys.argv) > 2 else "."
-    a = DDXAgent()
-    a.install()
-    rc = a.run(task, work_dir)
-    a.populate_context_post_run(work_dir)
-    sys.exit(rc)

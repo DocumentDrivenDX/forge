@@ -1,0 +1,120 @@
+# Fixed benchmark subset for ddx-agent — v2 (2026-04-10)
+# Evidence-grade comparison subset with real Terminal-Bench 2.0 task IDs.
+#
+# Preserve task-subset-v1.yaml as the historical placeholder artifact from the
+# initial benchmark design. v2 is the first manifest suitable for before/after
+# comparison runs.
+#
+# Selection rule:
+# 1. Start from the public terminal-bench-2 task catalog at upstream commit
+#    53ff2b87d621bdb97b455671f2bd9728b7d86c11.
+# 2. Keep only tasks with:
+#    - environment.cpus == 1
+#    - environment.memory == "2G"
+#    - verifier.timeout_sec <= 1200
+#    - agent.timeout_sec <= 1200
+#    - metadata.expert_time_estimate_min <= 180
+#    - no "no-verified-solution" tag
+# 3. Stratify by category using a fixed quota chosen before execution to bias
+#    toward ddx-agent-relevant coding workflows while still covering shell,
+#    security, debugging, and file-heavy tasks:
+#    - software-engineering: 5
+#    - security: 3
+#    - file-operations: 2
+#    - system-administration: 2
+#    - data-processing: 2
+#    - debugging: 1
+# 4. Within each category, sort by difficulty (hard, then medium, then easy)
+#    and then by task ID. Take the first N tasks matching the category quota.
+#
+# IMPORTANT: Do not modify task IDs without updating the version field and
+# filing a bead. Any new subset version requires a fresh baseline.
+#
+version: "2"
+captured: "2026-04-10"
+dataset: terminal-bench@2.0
+dataset_repo: https://github.com/laude-institute/terminal-bench-2
+dataset_commit: "53ff2b87d621bdb97b455671f2bd9728b7d86c11"
+selection_rule: "filtered public TB2 tasks with fixed category quotas and deterministic sort"
+
+tasks:
+  # software-engineering (5)
+  - id: cancel-async-tasks
+    category: software-engineering
+    difficulty: hard
+    rationale: Async/debug-heavy code fix; exercises read, edit, and test loops.
+
+  - id: build-pmars
+    category: software-engineering
+    difficulty: medium
+    rationale: Build-oriented task that stresses shell discipline and targeted fixes.
+
+  - id: code-from-image
+    category: software-engineering
+    difficulty: medium
+    rationale: Mixed extraction and coding workflow; broadens beyond plain text edits.
+
+  - id: git-leak-recovery
+    category: software-engineering
+    difficulty: medium
+    rationale: Git-oriented remediation task aligned with repository tooling workflows.
+
+  - id: headless-terminal
+    category: software-engineering
+    difficulty: medium
+    rationale: Terminal-centric task that can expose shell exploration anti-patterns.
+
+  # security (3)
+  - id: fix-code-vulnerability
+    category: security
+    difficulty: hard
+    rationale: High-signal secure-editing task for structured edit and validation behavior.
+
+  - id: password-recovery
+    category: security
+    difficulty: hard
+    rationale: Troubleshooting-heavy security task with file and shell interaction.
+
+  - id: break-filter-js-from-html
+    category: security
+    difficulty: medium
+    rationale: Smaller security task that helps detect regressions on easier remediation work.
+
+  # file-operations (2)
+  - id: db-wal-recovery
+    category: file-operations
+    difficulty: medium
+    rationale: Recovery task with binary/file handling and verification pressure.
+
+  - id: extract-elf
+    category: file-operations
+    difficulty: medium
+    rationale: File-inspection task that stresses targeted reads over shell thrash.
+
+  # system-administration (2)
+  - id: configure-git-webserver
+    category: system-administration
+    difficulty: hard
+    rationale: Short but high-signal config task that exercises precise shell usage.
+
+  - id: git-multibranch
+    category: system-administration
+    difficulty: medium
+    rationale: Multi-branch git workflow useful for navigation and command discipline.
+
+  # data-processing (2)
+  - id: log-summary-date-ranges
+    category: data-processing
+    difficulty: medium
+    rationale: Text-processing/report task aligned with read-edit-run loops.
+
+  - id: multi-source-data-merger
+    category: data-processing
+    difficulty: medium
+    rationale: Multi-input transformation task that stresses structured reasoning over bash search.
+
+  # debugging (1)
+  - id: build-cython-ext
+    category: debugging
+    difficulty: medium
+    rationale: Build/debug task that checks diagnosis quality and fix verification.

@@ -39,6 +39,40 @@ func TestResolveProviderForRun_DefaultProvider(t *testing.T) {
 	assert.Equal(t, "configured-model", pc.Model)
 }
 
+func TestResolvePreset(t *testing.T) {
+	cfg := &agentConfig.Config{Preset: "codex"}
+
+	assert.Equal(t, "benchmark", resolvePreset("benchmark", cfg))
+	assert.Equal(t, "codex", resolvePreset("", cfg))
+	assert.Equal(t, "agent", resolvePreset("", &agentConfig.Config{}))
+}
+
+func TestBuildToolsForPreset_BenchmarkExcludesTaskTool(t *testing.T) {
+	tools := buildToolsForPreset(t.TempDir(), "benchmark")
+
+	var names []string
+	for _, tool := range tools {
+		names = append(names, tool.Name())
+	}
+
+	assert.NotContains(t, names, "task")
+	assert.Contains(t, names, "patch")
+	assert.Contains(t, names, "glob")
+	assert.Contains(t, names, "grep")
+	assert.Contains(t, names, "ls")
+}
+
+func TestBuildToolsForPreset_DefaultIncludesTaskTool(t *testing.T) {
+	tools := buildToolsForPreset(t.TempDir(), "agent")
+
+	var names []string
+	for _, tool := range tools {
+		names = append(names, tool.Name())
+	}
+
+	assert.Contains(t, names, "task")
+}
+
 func TestResolveProviderForRun_ModelRef(t *testing.T) {
 	isolateCatalogHome(t)
 	workDir := t.TempDir()

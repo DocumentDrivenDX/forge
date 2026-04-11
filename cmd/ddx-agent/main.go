@@ -140,6 +140,8 @@ func run() int {
 		return 2
 	}
 
+	preset := resolvePreset(*presetFlag, cfg)
+
 	overrides := agentConfig.ProviderOverrides{
 		Model:           *model,
 		ModelRef:        *modelRef,
@@ -158,27 +160,9 @@ func run() int {
 	}
 
 	// Build tools
-	taskStore := tool.NewTaskStore()
-	tools := []agent.Tool{
-		&tool.ReadTool{WorkDir: wd},
-		&tool.WriteTool{WorkDir: wd},
-		&tool.EditTool{WorkDir: wd},
-		&tool.BashTool{WorkDir: wd},
-		&tool.GlobTool{WorkDir: wd},
-		&tool.GrepTool{WorkDir: wd},
-		&tool.LsTool{WorkDir: wd},
-		&tool.PatchTool{WorkDir: wd},
-		&tool.TaskTool{Store: taskStore},
-	}
+	tools := buildToolsForPreset(wd, preset)
 
 	// Build system prompt
-	preset := *presetFlag
-	if preset == "" {
-		preset = cfg.Preset
-	}
-	if preset == "" {
-		preset = "agent"
-	}
 	sysPrompt := prompt.NewFromPreset(preset).
 		WithTools(tools).
 		WithContextFiles(prompt.LoadContextFiles(wd)).
@@ -527,6 +511,35 @@ func selectBackendProviderIndex(strategy string, counter, n int) int {
 		return counter % n
 	}
 	return 0
+}
+
+func resolvePreset(flagValue string, cfg *agentConfig.Config) string {
+	preset := flagValue
+	if preset == "" {
+		preset = cfg.Preset
+	}
+	if preset == "" {
+		preset = "agent"
+	}
+	return preset
+}
+
+func buildToolsForPreset(workDir, preset string) []agent.Tool {
+	tools := []agent.Tool{
+		&tool.ReadTool{WorkDir: workDir},
+		&tool.WriteTool{WorkDir: workDir},
+		&tool.EditTool{WorkDir: workDir},
+		&tool.BashTool{WorkDir: workDir},
+		&tool.GlobTool{WorkDir: workDir},
+		&tool.GrepTool{WorkDir: workDir},
+		&tool.LsTool{WorkDir: workDir},
+		&tool.PatchTool{WorkDir: workDir},
+	}
+	if preset != "benchmark" {
+		taskStore := tool.NewTaskStore()
+		tools = append(tools, &tool.TaskTool{Store: taskStore})
+	}
+	return tools
 }
 
 func buildProviderFromResolvedConfig(name string, pc agentConfig.ProviderConfig) (agent.Provider, error) {

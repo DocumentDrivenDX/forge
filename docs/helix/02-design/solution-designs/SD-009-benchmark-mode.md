@@ -174,6 +174,11 @@ tasks:
 actual Terminal-Bench v2 task catalog. The `agent-a3ce467a` bead that implements the
 adapter will validate and pin the real task IDs from the live dataset.
 
+**Evidence-grade comparison subset**: The first real-ID manifest is
+`scripts/benchmark/task-subset-v2.yaml`. It is the correct subset for any
+before/after claim. `task-subset-v1.yaml` is retained only as a historical design
+artifact from the initial benchmark plan.
+
 ### Subset Versioning Policy
 
 - Subset is frozen once pinned. Threshold regressions must be investigated, not
@@ -225,7 +230,8 @@ The adapter and smoke workflow scripts live in `scripts/benchmark/`:
 ```
 scripts/benchmark/
 ├── harbor_agent.py          # BaseInstalledAgent adapter (agent-a3ce467a)
-├── task-subset-v1.yaml      # Fixed task subset (this doc)
+├── task-subset-v1.yaml      # Historical placeholder subset from initial design
+├── task-subset-v2.yaml      # Real-ID evidence-grade comparison subset
 ├── smoke_run.sh             # Smoke run script
 └── README.md                # How to run benchmarks
 ```
@@ -296,7 +302,79 @@ to avoid live model costs.
 
 ---
 
-## Implementation Order
+## 7. Evidence-Grade Comparative Protocol
+
+The original SD-009 deliverables established the benchmark harness, fixed subset
+shape, baseline characterization, and benchmark-critical tools. A credible claim
+that ForgeCode-inspired changes improved ddx-agent's Terminal-Bench standing
+requires a stricter comparative protocol than the original pilot baseline.
+
+### Comparative claim
+
+The claim under test is:
+
+> ForgeCode-inspired harness and tooling changes improved ddx-agent's measured
+> performance on a fixed Terminal-Bench subset under one fixed harness and one
+> fixed runtime/model configuration.
+
+### Required controls
+
+Any before/after comparison MUST satisfy all of the following:
+
+1. **Pinned task subset**: comparison runs use a real-ID subset manifest
+   (`task-subset-v2.yaml` or later). Placeholder-ID manifests are not valid for
+   evidentiary comparison.
+2. **Pinned SHAs**: the exact `before_sha` and `after_sha` are chosen before the
+   run and recorded in the benchmark artifact.
+3. **One harness for both sides**: the benchmark runner, Harbor adapter, scoring
+   code, and report schema are identical across the before/after runs. Do not
+   compare "old agent + old runner" versus "new agent + new runner".
+4. **Pinned runtime configuration**: provider route, exact model, preset/system
+   prompt, tool surface, Harbor runtime, and dataset version are fixed across
+   both sides and captured in a checked-in config artifact.
+5. **Predeclared scoring rules**: metric definitions are written before the run,
+   not inferred after inspecting results.
+
+### Evidence-grade execution order
+
+1. Create a real-ID benchmark subset manifest (`task-subset-v2.yaml`) and record
+   the task selection rule.
+2. Upgrade the benchmark harness so one runner can execute arbitrary ddx-agent
+   binaries from different SHAs while preserving identical reporting and scoring.
+3. Extend the report and scoring pipeline to capture actual runtime metadata and
+   compute the declared comparison metrics.
+4. Pin the comparison SHAs and checked-in benchmark config.
+5. Run the benchmark on the `before_sha`.
+6. Run the benchmark on the `after_sha`.
+7. Compare the two reports and publish a memo from the recorded artifacts.
+
+### Metric definitions for comparison runs
+
+The comparison memo MUST report these metrics using predeclared scoring rules:
+
+| Metric | Operational definition |
+|--------|------------------------|
+| Resolved-task rate | Fraction of tasks where Harbor reward is exactly `1` |
+| Clarification-question rate | Fraction of trials where the first agent message before tool use asks the user for clarification or defers pending user input |
+| Shell anti-pattern rate | Fraction of bash tool calls used for repository/file navigation when structured tools should suffice (`ls`, `find`, `cat`, ad hoc `grep`/`rg` discovery, similar shell-only exploration) |
+| Structured-edit success rate | Fraction of structured edit/patch tool calls that return success rather than error |
+
+The implementation MUST encode these definitions in scoring code or fixtures.
+They are not left to memo-time interpretation.
+
+### Validity notes
+
+- Creating `task-subset-v2.yaml` is required because `task-subset-v1.yaml`
+  contains representative placeholder IDs and is therefore not a valid
+  benchmark subset for before/after evidence.
+- If repeated runs are not feasible, the comparison memo MUST explicitly state
+  that the results are single-run and therefore subject to model variance.
+- If a subset version changes, the run establishes a new baseline and MUST NOT
+  be compared numerically against older subset versions without that caveat.
+
+---
+
+## 8. Implementation Order
 
 | Bead | Dependency | What it delivers |
 |------|-----------|-----------------|
@@ -312,9 +390,13 @@ to avoid live model costs.
 ## Open Questions
 
 - [ ] **Real Terminal-Bench task IDs**: The `task-subset-v1.yaml` uses placeholder IDs.
-  Once the adapter bead (`agent-a3ce467a`) validates connectivity, replace with real IDs.
+  An evidence-grade comparison requires a new real-ID manifest (`task-subset-v2.yaml`)
+  with a documented task selection rule.
 - [ ] **Cloud runtime vs local Docker**: Harbor's cloud runtimes (Modal, Daytona) add
   latency. Initial evaluation should use local Docker (`--runtime docker`).
 - [ ] **Local model evaluation**: The baseline used `claude-haiku-4-5` (cloud). A local
   model baseline (qwen3.5-27b via LM Studio) is needed to measure the "70% of routine
   tasks succeed on local 7B+" PRD success metric. This is a separate baseline run.
+- [ ] **Commit-independent harness**: the benchmark runner and scoring path currently
+  live in the agent repo and must be made commit-independent before a before/after
+  comparison can be treated as evidence rather than mixed harness+agent drift.
