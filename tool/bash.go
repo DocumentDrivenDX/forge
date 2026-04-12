@@ -13,7 +13,6 @@ import (
 
 const (
 	defaultBashTimeout = 120 * time.Second
-	maxOutputBytes     = 1 << 20 // 1MB
 )
 
 // BashParams are the parameters for the bash tool.
@@ -68,8 +67,8 @@ func (t *BashTool) Execute(ctx context.Context, params json.RawMessage) (string,
 
 	err := cmd.Run()
 
-	out := truncateOutput(stdout.Bytes())
-	errOut := truncateOutput(stderr.Bytes())
+	out := TruncateTail(string(stdout.Bytes()), truncMaxLines, truncMaxBytes)
+	errOut := TruncateTail(string(stderr.Bytes()), truncMaxLines, truncMaxBytes)
 
 	exitCode := -1
 	if cmd.ProcessState != nil {
@@ -100,11 +99,5 @@ func (t *BashTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	return result, nil
 }
 
-func truncateOutput(data []byte) string {
-	if len(data) > maxOutputBytes {
-		return string(data[:maxOutputBytes]) + "\n[truncated]"
-	}
-	return string(data)
-}
 
 var _ agent.Tool = (*BashTool)(nil)

@@ -71,7 +71,7 @@ func (t *ReadTool) Execute(ctx context.Context, params json.RawMessage) (string,
 		content = strings.Join(lines[start:end], "\n")
 	}
 
-	return content, nil
+	return TruncateHead(content, truncMaxLines, truncMaxBytes), nil
 }
 
 // Verify ReadTool implements agent.Tool at compile time.

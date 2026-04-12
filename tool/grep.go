@@ -168,7 +168,7 @@ func (t *GrepTool) Execute(_ context.Context, params json.RawMessage) (string, e
 	if truncated {
 		fmt.Fprintf(&sb, "(results truncated at %d matches)\n", maxGrepResults)
 	}
-	return strings.TrimRight(sb.String(), "\n"), nil
+	return TruncateHead(strings.TrimRight(sb.String(), "\n"), truncMaxLines, truncMaxBytes), nil
 }
 
 var _ agent.Tool = (*GrepTool)(nil)

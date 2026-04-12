@@ -268,8 +268,8 @@ func TestRun_IterationLimit(t *testing.T) {
 func TestRun_RetriesProviderFailures(t *testing.T) {
 	provider := &retryProvider{
 		outcomes: []providerOutcome{
-			{err: errors.New("temporary provider failure 1")},
-			{err: errors.New("temporary provider failure 2")},
+			{err: errors.New("503 service unavailable (transient)")},
+			{err: errors.New("connection reset by peer")},
 			{
 				response: Response{
 					Content: "done",
@@ -293,9 +293,11 @@ func TestRun_RetriesProviderFailures(t *testing.T) {
 func TestRun_RetryExhaustionStopsAtRetryCeiling(t *testing.T) {
 	provider := &retryProvider{
 		outcomes: []providerOutcome{
-			{err: errors.New("temporary provider failure 1")},
-			{err: errors.New("temporary provider failure 2")},
-			{err: errors.New("temporary provider failure 3")},
+			{err: errors.New("503 service unavailable (1)")},
+			{err: errors.New("503 service unavailable (2)")},
+			{err: errors.New("503 service unavailable (3)")},
+			{err: errors.New("503 service unavailable (4)")},
+			{err: errors.New("503 service unavailable (5)")},
 			{response: Response{Content: "must never execute"}},
 		},
 	}
@@ -322,10 +324,10 @@ func TestRun_RetryExhaustionStopsAtRetryCeiling(t *testing.T) {
 	assert.Equal(t, StatusError, result.Status)
 	require.Error(t, result.Error)
 	assert.Contains(t, result.Error.Error(), "provider error")
-	assert.Contains(t, result.Error.Error(), "temporary provider failure 3")
-	assert.Equal(t, 3, provider.callCount, "runtime retry ceiling should prevent a fourth provider call")
-	assert.Equal(t, []int{1, 2, 3}, attempts)
-	require.Len(t, llmErrors, 3)
+	assert.Contains(t, result.Error.Error(), "503 service unavailable (5)")
+	assert.Equal(t, 5, provider.callCount, "runtime retry ceiling should prevent a sixth provider call")
+	assert.Equal(t, []int{1, 2, 3, 4, 5}, attempts)
+	require.Len(t, llmErrors, 5)
 }
 
 func TestRun_ContextCancellation(t *testing.T) {
@@ -1331,8 +1333,8 @@ func TestRun_EmitsRetryIndexedChatSpans(t *testing.T) {
 
 	provider := &retryProvider{
 		outcomes: []providerOutcome{
-			{err: errors.New("temporary provider failure 1")},
-			{err: errors.New("temporary provider failure 2")},
+			{err: errors.New("503 service unavailable (transient)")},
+			{err: errors.New("connection reset by peer")},
 			{
 				response: Response{
 					Content: "done",
@@ -1794,4 +1796,132 @@ func TestRun_ToolsAreExposedToProvider(t *testing.T) {
 	require.Len(t, prov.toolCalls[0], 2, "two tool definitions should reach the provider")
 	assert.Equal(t, "read", prov.toolCalls[0][0].Name)
 	assert.Equal(t, "bash", prov.toolCalls[0][1].Name)
+}
+
+// overflowProvider returns an overflow error for the first N calls, then
+// succeeds. Used to test the overflow-compaction recovery path.
+type overflowProvider struct {
+	failCount int
+	calls     int
+	success   Response
+}
+
+func (p *overflowProvider) Chat(ctx context.Context, messages []Message, tools []ToolDef, opts Options) (Response, error) {
+	if ctx.Err() != nil {
+		return Response{}, ctx.Err()
+	}
+	p.calls++
+	if p.calls <= p.failCount {
+		return Response{}, errors.New("context length exceeded: reduce your message length")
+	}
+	return p.success, nil
+}
+
+func TestRun_OverflowTriggersCompactionAndRetrySucceeds(t *testing.T) {
+	// Provider fails once with overflow, then succeeds after compaction.
+	provider := &overflowProvider{
+		failCount: 1,
+		success:   Response{Content: "done after compaction", Usage: TokenUsage{Total: 5}},
+	}
+
+	compactionCalls := 0
+	compactor := func(ctx context.Context, msgs []Message, prov Provider, toolCalls []ToolCallLog) ([]Message, *CompactionResult, error) {
+		compactionCalls++
+		// Return a shorter message list to signal compaction occurred.
+		shortened := msgs[:1]
+		return shortened, &CompactionResult{Summary: "compacted", TokensBefore: 100, TokensAfter: 20}, nil
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:    "test overflow recovery",
+		Provider:  provider,
+		Compactor: compactor,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StatusSuccess, result.Status)
+	assert.Equal(t, "done after compaction", result.Output)
+	// Pre-turn compaction runs once (no-op since not over budget), overflow
+	// compaction runs once after the overflow error.
+	assert.GreaterOrEqual(t, compactionCalls, 1, "compaction should have been triggered")
+	assert.Equal(t, 2, provider.calls, "provider should have been called twice: once failing, once succeeding")
+}
+
+func TestRun_OverflowWithNoCompactorReturnsError(t *testing.T) {
+	// Provider always returns overflow; no compactor configured.
+	provider := &overflowProvider{
+		failCount: 99,
+		success:   Response{Content: "should not reach"},
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:   "test overflow no compactor",
+		Provider: provider,
+		// No Compactor set.
+	})
+	require.Error(t, err)
+	assert.Equal(t, StatusError, result.Status)
+	assert.Contains(t, err.Error(), "provider error")
+}
+
+func TestRun_OverflowCompactionNoFitReturnsError(t *testing.T) {
+	// Provider returns overflow; pre-turn compaction is a no-op (returns nil
+	// result), but overflow-triggered compaction returns ErrCompactionNoFit.
+	provider := &overflowProvider{
+		failCount: 99,
+		success:   Response{Content: "should not reach"},
+	}
+
+	compactionCalls := 0
+	compactor := func(ctx context.Context, msgs []Message, prov Provider, toolCalls []ToolCallLog) ([]Message, *CompactionResult, error) {
+		compactionCalls++
+		if compactionCalls == 1 {
+			// Pre-turn compaction: no-op (not over budget).
+			return msgs, nil, nil
+		}
+		// Overflow-triggered compaction: can't fit.
+		return msgs, nil, ErrCompactionNoFit
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:    "test overflow compaction no fit",
+		Provider:  provider,
+		Compactor: compactor,
+	})
+	require.Error(t, err)
+	assert.Equal(t, StatusError, result.Status)
+	assert.Contains(t, err.Error(), "provider error")
+	// Provider called once (overflow error), compaction called twice
+	// (pre-turn no-op, then overflow recovery ErrCompactionNoFit).
+	assert.Equal(t, 1, provider.calls)
+	assert.Equal(t, 2, compactionCalls)
+}
+
+func TestRun_OverflowCompactionSuccessRetryStillOverflowsReturnsError(t *testing.T) {
+	// Provider always returns overflow even after compaction.
+	provider := &overflowProvider{
+		failCount: 99,
+		success:   Response{Content: "should not reach"},
+	}
+
+	compactionCalls := 0
+	compactor := func(ctx context.Context, msgs []Message, prov Provider, toolCalls []ToolCallLog) ([]Message, *CompactionResult, error) {
+		compactionCalls++
+		// Return a shorter list to signal compaction occurred.
+		if len(msgs) > 1 {
+			return msgs[:1], &CompactionResult{Summary: "compacted", TokensBefore: 100, TokensAfter: 20}, nil
+		}
+		return msgs, nil, nil
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:    "test double overflow",
+		Provider:  provider,
+		Compactor: compactor,
+	})
+	require.Error(t, err)
+	assert.Equal(t, StatusError, result.Status)
+	assert.Contains(t, err.Error(), "provider error")
+	// Provider should be called at most twice: once initially overflows,
+	// compaction runs, retry still overflows — no infinite loop.
+	assert.LessOrEqual(t, provider.calls, 3, "must not loop indefinitely on repeated overflow")
 }

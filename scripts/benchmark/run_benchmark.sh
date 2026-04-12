@@ -42,6 +42,7 @@ PROVIDER_BASE_URL="${DDX_BENCH_PROVIDER_BASE_URL:-}"
 PROVIDER_API_KEY_ENV="${DDX_BENCH_PROVIDER_API_KEY_ENV:-ANTHROPIC_API_KEY}"
 PROVIDER_HEADERS_JSON="${DDX_BENCH_PROVIDER_HEADERS_JSON:-}"
 SYSTEM_APPEND="${DDX_BENCH_SYSTEM_APPEND:-}"
+AGENT_TIMEOUT_MULTIPLIER="${DDX_BENCH_AGENT_TIMEOUT_MULTIPLIER:-1.0}"
 DRY_RUN="${DDX_BENCH_DRY_RUN:-0}"
 AGENT_SHA_OVERRIDE="${DDX_AGENT_SHA:-}"
 HARBOR_BIN=""
@@ -244,6 +245,7 @@ DRY RUN
   provider_api_key_env=${PROVIDER_API_KEY_ENV}
   provider_base_url=${PROVIDER_BASE_URL}
   provider_headers_json=${PROVIDER_HEADERS_JSON}
+  agent_timeout_multiplier=${AGENT_TIMEOUT_MULTIPLIER}
   subset_version=${SUBSET_VERSION}
   subset_file=${SUBSET_FILE}
   binary_sha256=${BINARY_SHA256}
@@ -291,6 +293,7 @@ while IFS= read -r TASK_ID; do
         --env "${RUNTIME}" \
         --jobs-dir "${HARBOR_JOBS_DIR}" \
         --job-name "${TASK_JOB_NAME}" \
+        --agent-timeout-multiplier "${AGENT_TIMEOUT_MULTIPLIER}" \
         "${AGENT_ENV_ARGS[@]}" \
         2>&1)" || true
     TASK_END="$(date -u +%s%3N)"
@@ -400,6 +403,7 @@ report = {
         "provider_base_url": "${PROVIDER_BASE_URL}",
         "provider_api_key_env": "${PROVIDER_API_KEY_ENV}",
         "provider_headers_json": "${PROVIDER_HEADERS_JSON}",
+        "agent_timeout_multiplier": ${AGENT_TIMEOUT_MULTIPLIER},
     },
     "summary": {
         "total_tasks": total,

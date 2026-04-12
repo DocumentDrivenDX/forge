@@ -70,12 +70,44 @@ type ToolDef struct {
 	Parameters  json.RawMessage `json:"parameters"` // JSON Schema
 }
 
+// ThinkingLevel is a named thinking intensity level for models that support
+// extended reasoning (e.g. Qwen3, DeepSeek-R1).
+type ThinkingLevel string
+
+const (
+	ThinkingLevelOff    ThinkingLevel = "off"
+	ThinkingLevelLow    ThinkingLevel = "low"
+	ThinkingLevelMedium ThinkingLevel = "medium"
+	ThinkingLevelHigh   ThinkingLevel = "high"
+)
+
+// DefaultThinkingBudgets maps ThinkingLevel to token budgets.
+var DefaultThinkingBudgets = map[ThinkingLevel]int{
+	ThinkingLevelOff:    0,
+	ThinkingLevelLow:    2048,
+	ThinkingLevelMedium: 8192,
+	ThinkingLevelHigh:   32768,
+}
+
+// ResolveThinkingBudget returns the token budget for a level.
+// Returns 0 for unknown levels (treated as off).
+func ResolveThinkingBudget(level ThinkingLevel) int {
+	return DefaultThinkingBudgets[level]
+}
+
 // Options configures a single provider Chat call.
 type Options struct {
 	Model       string   `json:"model,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
 	MaxTokens   int      `json:"max_tokens,omitempty"`
 	Stop        []string `json:"stop,omitempty"`
+	// ThinkingBudget limits the number of reasoning/thinking tokens for models
+	// that support extended thinking (e.g. Qwen3, DeepSeek-R1). Zero means
+	// no explicit budget is set and the provider default applies.
+	ThinkingBudget int `json:"thinking_budget,omitempty"`
+	// ThinkingLevel is a named intensity level. If set and ThinkingBudget is 0,
+	// the level is resolved to a token budget via ResolveThinkingBudget.
+	ThinkingLevel ThinkingLevel `json:"thinking_level,omitempty"`
 }
 
 // Response is the result of a single provider Chat call.

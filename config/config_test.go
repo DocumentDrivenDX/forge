@@ -998,3 +998,77 @@ func TestImportMetadata(t *testing.T) {
 	assert.Contains(t, string(data), "source: pi")
 	assert.Contains(t, string(data), "a1b2c3d4")
 }
+
+func TestBuildProvider_ThinkingLevel_ResolvesToBudget(t *testing.T) {
+	cfg := Config{
+		Providers: map[string]ProviderConfig{
+			"thinking": {
+				Type:          "openai-compat",
+				BaseURL:       "http://localhost:1234/v1",
+				Model:         "qwen3.5-27b",
+				ThinkingLevel: "medium",
+			},
+		},
+		Default: "thinking",
+	}
+
+	pc, ok := cfg.GetProvider("thinking")
+	require.True(t, ok)
+	assert.Equal(t, "medium", pc.ThinkingLevel)
+	assert.Equal(t, 0, pc.ThinkingBudget) // raw budget unset
+
+	// BuildProvider should resolve the level to 8192
+	p, err := cfg.BuildProvider("thinking")
+	require.NoError(t, err)
+	assert.NotNil(t, p)
+}
+
+func TestLoad_ThinkingLevel_ParsedFromYAML(t *testing.T) {
+	isolateHome(t)
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, ".agent")
+	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
+
+	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
+providers:
+  vidar:
+    type: openai-compat
+    base_url: http://vidar:1234/v1
+    model: qwen3.5-27b
+    thinking_level: medium
+default: vidar
+`), 0o644))
+
+	cfg, err := Load(dir)
+	require.NoError(t, err)
+
+	pc, ok := cfg.GetProvider("vidar")
+	require.True(t, ok)
+	assert.Equal(t, "medium", pc.ThinkingLevel)
+	assert.Equal(t, 0, pc.ThinkingBudget) // not set explicitly
+
+	// Building the provider should succeed (level resolved to 8192 internally)
+	p, err := cfg.BuildProvider("vidar")
+	require.NoError(t, err)
+	assert.NotNil(t, p)
+}
+
+func TestBuildProvider_ThinkingBudgetWinsOverLevel(t *testing.T) {
+	cfg := Config{
+		Providers: map[string]ProviderConfig{
+			"both": {
+				Type:           "openai-compat",
+				BaseURL:        "http://localhost:1234/v1",
+				Model:          "qwen3",
+				ThinkingBudget: 4096, // explicit budget
+				ThinkingLevel:  "high",
+			},
+		},
+		Default: "both",
+	}
+
+	// Provider should be built without error; explicit budget takes precedence.
+	p, err := cfg.BuildProvider("both")
+	require.NoError(t, err)
+	assert.NotNil(t, p)
+}

@@ -25,14 +25,16 @@ type Provider struct {
 	providerSystem string
 	serverAddress  string
 	serverPort     int
+	thinkingBudget int
 }
 
 // Config holds configuration for the OpenAI-compatible provider.
 type Config struct {
-	BaseURL string            // e.g., "http://localhost:1234/v1" for LM Studio
-	APIKey  string            // optional for local providers
-	Model   string            // e.g., "qwen3.5-7b", "gpt-4o"
-	Headers map[string]string // extra HTTP headers (OpenRouter, Azure, etc.)
+	BaseURL        string            // e.g., "http://localhost:1234/v1" for LM Studio
+	APIKey         string            // optional for local providers
+	Model          string            // e.g., "qwen3.5-7b", "gpt-4o"
+	Headers        map[string]string // extra HTTP headers (OpenRouter, Azure, etc.)
+	ThinkingBudget int               // max reasoning tokens for thinking models (0 = unset)
 }
 
 // New creates a new OpenAI-compatible provider.
@@ -59,6 +61,7 @@ func New(cfg Config) *Provider {
 		providerSystem: providerSystem,
 		serverAddress:  serverAddress,
 		serverPort:     serverPort,
+		thinkingBudget: cfg.ThinkingBudget,
 	}
 }
 
@@ -235,7 +238,25 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 		params.Temperature = oai.Float(*opts.Temperature)
 	}
 
-	stream := p.client.Chat.Completions.NewStreaming(ctx, params)
+	// Build per-request options. For thinking models (Qwen3, DeepSeek-R1 etc.)
+	// apply a budget cap via the non-standard `thinking` body field that
+	// LM Studio and compatible servers recognise.
+	thinkingBudget := p.thinkingBudget
+	if opts.ThinkingBudget > 0 {
+		thinkingBudget = opts.ThinkingBudget
+	}
+	if thinkingBudget == 0 && opts.ThinkingLevel != "" {
+		thinkingBudget = agent.ResolveThinkingBudget(opts.ThinkingLevel)
+	}
+	var streamReqOpts []option.RequestOption
+	if thinkingBudget > 0 {
+		streamReqOpts = append(streamReqOpts, option.WithJSONSet("thinking", map[string]interface{}{
+			"type":          "enabled",
+			"budget_tokens": thinkingBudget,
+		}))
+	}
+
+	stream := p.client.Chat.Completions.NewStreaming(ctx, params, streamReqOpts...)
 
 	ch := make(chan agent.StreamDelta, 1)
 	go func() {
@@ -259,6 +280,23 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 				streamCost = cost
 			}
 
+			// Extract reasoning_content from the raw chunk JSON. Models like Qwen3
+			// and DeepSeek-R1 emit thinking tokens in choices[0].delta.reasoning_content,
+			// which the typed SDK struct does not expose.
+			var reasoningContent string
+			if rawJSON := chunk.RawJSON(); rawJSON != "" {
+				var raw struct {
+					Choices []struct {
+						Delta struct {
+							ReasoningContent string `json:"reasoning_content"`
+						} `json:"delta"`
+					} `json:"choices"`
+				}
+				if err := json.Unmarshal([]byte(rawJSON), &raw); err == nil && len(raw.Choices) > 0 {
+					reasoningContent = raw.Choices[0].Delta.ReasoningContent
+				}
+			}
+
 			if len(chunk.Choices) > 0 {
 				choice := chunk.Choices[0]
 
@@ -279,12 +317,13 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 					})
 				}
 
-				// Emit a separate delta for content / finish reason when present.
-				if choice.Delta.Content != "" || choice.FinishReason != "" {
+				// Emit a separate delta for content / finish reason / reasoning when present.
+				if choice.Delta.Content != "" || choice.FinishReason != "" || reasoningContent != "" {
 					send(agent.StreamDelta{
-						Model:        chunk.Model,
-						Content:      choice.Delta.Content,
-						FinishReason: string(choice.FinishReason),
+						Model:            chunk.Model,
+						Content:          choice.Delta.Content,
+						ReasoningContent: reasoningContent,
+						FinishReason:     string(choice.FinishReason),
 					})
 				} else if len(choice.Delta.ToolCalls) == 0 {
 					// No content, no tool calls — still forward model/finish metadata.

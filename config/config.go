@@ -26,6 +26,12 @@ type ProviderConfig struct {
 	APIKey  string            `yaml:"api_key"`
 	Model   string            `yaml:"model"`
 	Headers map[string]string `yaml:"headers"` // extra HTTP headers (OpenRouter, Azure)
+	// ThinkingBudget limits reasoning tokens for models that support extended
+	// thinking (e.g. Qwen3, DeepSeek-R1). Zero means no budget is set.
+	ThinkingBudget int `yaml:"thinking_budget,omitempty"`
+	// ThinkingLevel is a named intensity level (off/low/medium/high).
+	// Resolved to ThinkingBudget if ThinkingBudget is 0.
+	ThinkingLevel string `yaml:"thinking_level,omitempty"`
 }
 
 // ImportMetadata records the last import source for drift detection.
@@ -553,11 +559,16 @@ func (c *Config) ResolveBackend(name string, counter int, overrides ProviderOver
 func buildProviderFromConfig(pc ProviderConfig) (agent.Provider, error) {
 	switch pc.Type {
 	case "openai-compat", "openai":
+		budget := pc.ThinkingBudget
+		if budget == 0 && pc.ThinkingLevel != "" {
+			budget = agent.ResolveThinkingBudget(agent.ThinkingLevel(pc.ThinkingLevel))
+		}
 		return oaiProvider.New(oaiProvider.Config{
-			BaseURL: pc.BaseURL,
-			APIKey:  pc.APIKey,
-			Model:   pc.Model,
-			Headers: pc.Headers,
+			BaseURL:        pc.BaseURL,
+			APIKey:         pc.APIKey,
+			Model:          pc.Model,
+			Headers:        pc.Headers,
+			ThinkingBudget: budget,
 		}), nil
 	case "anthropic":
 		return anthropic.New(anthropic.Config{

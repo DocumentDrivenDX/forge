@@ -379,7 +379,7 @@ model_routes:
 	res := runBuiltCLI(t, exe, workDir, testEnvWithHome(home, nil), "--work-dir", workDir, "run", "--model", "qwen3.5-27b", "no failover")
 	require.Equal(t, 1, res.exitCode, "stdout=%s stderr=%s", res.stdout, res.stderr)
 	assert.Contains(t, res.stderr, "agent: provider error")
-	assert.Equal(t, 3, badRequest.chatCallCount(), "runtime should retry the selected provider only")
+	assert.Equal(t, 1, badRequest.chatCallCount(), "400 is non-transient: runtime should fail immediately without retry")
 	assert.Equal(t, 0, healthy.chatCallCount())
 }
 
@@ -674,5 +674,5 @@ default_backend: local-pool
 	require.Equal(t, 1, res.exitCode, "stdout=%s stderr=%s", res.stdout, res.stderr)
 	assert.Contains(t, res.stderr, "agent: provider error")
 	assert.Equal(t, 0, healthy.chatCallCount(), "phase 1 / 2A should not fail over to secondary provider")
-	assert.Equal(t, 3, dead.chatCallCount(), "runtime should retry selected provider only")
+	assert.Equal(t, 5, dead.chatCallCount(), "503 is transient: runtime should retry selected provider up to 5 times")
 }

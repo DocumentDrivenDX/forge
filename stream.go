@@ -12,6 +12,12 @@ type StreamDelta struct {
 	// Content is a text fragment (may be empty for tool call chunks).
 	Content string `json:"content,omitempty"`
 
+	// ReasoningContent holds thinking/reasoning tokens emitted by models that
+	// separate their internal reasoning from the final response (e.g. Qwen3,
+	// DeepSeek-R1). Captured from choices[0].delta.reasoning_content in the
+	// OpenAI-compatible streaming format.
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+
 	// ToolCallID is set when a new tool call starts.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	// ToolCallName is set on the first delta of a tool call.

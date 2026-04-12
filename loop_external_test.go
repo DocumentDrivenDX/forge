@@ -89,7 +89,7 @@ func TestRun_FailedOpenAICompatibleChatSpansIncludeServerIdentity(t *testing.T) 
 
 	ended := recorder.Ended()
 	chatSpans := spansWithOperation(ended, "chat")
-	require.Len(t, chatSpans, 3)
+	require.Len(t, chatSpans, 5)
 
 	for _, span := range chatSpans {
 		assert.Equal(t, "openai-compat", attrString(span.Attributes(), telemetry.KeyProviderName))

@@ -82,6 +82,6 @@ func TestBashTool_Execute(t *testing.T) {
 		}))
 		require.NoError(t, err) // non-zero exit should be captured, not returned as Go error
 		assert.Contains(t, result, "exit_code: 7")
-		assert.Contains(t, result, "[truncated]")
+		assert.Contains(t, result, "lines omitted]")
 	})
 }
