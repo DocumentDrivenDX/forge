@@ -16,3 +16,7 @@ var ErrReasoningOverflow = errors.New("agent: reasoning overflow: model produced
 // deltas have arrived for longer than reasoningStallTimeout with no content or
 // tool_call delta. The model appears to be making no forward progress.
 var ErrReasoningStall = errors.New("agent: reasoning stall: model produced only reasoning tokens past stall timeout")
+
+// ErrToolCallLoop reports that the agent produced identical tool calls for
+// toolCallLoopLimit consecutive turns, indicating a non-converging loop.
+var ErrToolCallLoop = errors.New("agent: identical tool calls repeated, aborting loop")

@@ -1925,3 +1925,66 @@ func TestRun_OverflowCompactionSuccessRetryStillOverflowsReturnsError(t *testing
 	// compaction runs, retry still overflows — no infinite loop.
 	assert.LessOrEqual(t, provider.calls, 3, "must not loop indefinitely on repeated overflow")
 }
+
+func TestRun_ToolCallLoopDetection(t *testing.T) {
+	// Provider returns the same tool call 4 times in a row.
+	// Loop should abort after 3 identical consecutive turns with ErrToolCallLoop.
+	loopCall := ToolCall{
+		ID:        "call-1",
+		Name:      "bash",
+		Arguments: json.RawMessage(`{"command":"go test ./..."}`),
+	}
+	provider := &mockProvider{
+		responses: []Response{
+			{ToolCalls: []ToolCall{loopCall}},
+			{ToolCalls: []ToolCall{loopCall}},
+			{ToolCalls: []ToolCall{loopCall}},
+			{ToolCalls: []ToolCall{loopCall}},
+			{Content: "should not reach"},
+		},
+	}
+	tool := &mockTool{name: "bash", result: "compile error"}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:   "run tests",
+		Provider: provider,
+		Tools:    []Tool{tool},
+	})
+	require.ErrorIs(t, err, ErrToolCallLoop)
+	assert.Equal(t, StatusError, result.Status)
+	assert.Equal(t, 3, provider.callCount, "should abort after 3 identical consecutive turns")
+}
+
+func TestRun_ToolCallLoopCounterResetsOnDifferentCall(t *testing.T) {
+	// Two identical calls, then a different call, then same again — counter resets.
+	// With toolCallLoopLimit=3 the loop should not abort in this sequence.
+	callA := ToolCall{
+		ID:        "call-a",
+		Name:      "bash",
+		Arguments: json.RawMessage(`{"command":"go test ./..."}`),
+	}
+	callB := ToolCall{
+		ID:        "call-b",
+		Name:      "bash",
+		Arguments: json.RawMessage(`{"command":"go build ./..."}`),
+	}
+	provider := &mockProvider{
+		responses: []Response{
+			{ToolCalls: []ToolCall{callA}},
+			{ToolCalls: []ToolCall{callA}}, // consecutive count = 1
+			{ToolCalls: []ToolCall{callB}}, // different — resets counter
+			{ToolCalls: []ToolCall{callA}}, // consecutive count starts again at 0
+			{Content: "done"},
+		},
+	}
+	tool := &mockTool{name: "bash", result: "ok"}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:   "run tests",
+		Provider: provider,
+		Tools:    []Tool{tool},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StatusSuccess, result.Status)
+	assert.Equal(t, 5, provider.callCount, "should run all 5 turns without aborting")
+}

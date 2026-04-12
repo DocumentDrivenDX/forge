@@ -111,6 +111,12 @@ func Run(ctx context.Context, req Request) (Result, error) {
 
 	seq := 1
 	opts := Options{}
+
+	// Tool-call loop detection: abort when the same fingerprint repeats consecutively.
+	const toolCallLoopLimit = 3
+	var lastToolCallFingerprint string
+	consecutiveToolCallCount := 0
+
 	compactionCtx := ctx
 	if req.SystemPrompt != "" {
 		compactionCtx = compactionctx.WithPrefixTokens(compactionCtx, estimateCompactionPrefixTokens(req.SystemPrompt))
@@ -586,6 +592,24 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			emitFinalSessionEnd(req.Callback, sessionID, &seq, req.Provider, &result, req.Metadata)
 			return result, compErr
 		}
+
+		// Detect identical consecutive tool-call turns and abort.
+		fp := toolCallFingerprint(resp.ToolCalls)
+		if fp == lastToolCallFingerprint {
+			consecutiveToolCallCount++
+		} else {
+			consecutiveToolCallCount = 1
+			lastToolCallFingerprint = fp
+		}
+		if consecutiveToolCallCount >= toolCallLoopLimit {
+			slog.Warn("tool-call loop: identical calls repeated 3 times, aborting")
+			result.Status = StatusError
+			result.Error = ErrToolCallLoop
+			result.Duration = time.Since(start)
+			snapshotMessages()
+			emitFinalSessionEnd(req.Callback, sessionID, &seq, req.Provider, &result, req.Metadata)
+			return result, ErrToolCallLoop
+		}
 	}
 }
 
@@ -747,6 +771,16 @@ func attemptCostUSD(attempt *AttemptMetadata) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+// toolCallFingerprint returns a string that uniquely identifies a set of tool
+// calls by name and arguments, in order. Used to detect identical consecutive turns.
+func toolCallFingerprint(calls []ToolCall) string {
+	parts := make([]string, len(calls))
+	for i, c := range calls {
+		parts[i] = c.Name + "\x00" + string(c.Arguments)
+	}
+	return strings.Join(parts, "\x01")
 }
 
 func truncateForLog(s string, maxLen int) string {
