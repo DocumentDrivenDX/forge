@@ -1209,7 +1209,6 @@ func checkProviderStatus(pc agentConfig.ProviderConfig) string {
 	return fmt.Sprintf("connected (%d models)", len(probe.models))
 }
 
-
 func cmdImport(workDir string, args []string) int {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: ddx-agent import <pi|opencode> [--diff] [--merge] [--project]")

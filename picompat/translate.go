@@ -27,8 +27,8 @@ var knownMappings = map[string]ProviderMapping{
 	"openai-codex": {AgentName: "openai", Type: "openai-compat", BaseURL: "https://api.openai.com/v1"},
 	"openrouter":   {AgentName: "openrouter", Type: "openai-compat", BaseURL: "https://openrouter.ai/api/v1"},
 	// Qwen / Alibaba Cloud DashScope
-	"qwen":       {AgentName: "qwen", Type: "openai-compat", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"},
-	"dashscope":  {AgentName: "qwen", Type: "openai-compat", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+	"qwen":      {AgentName: "qwen", Type: "openai-compat", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+	"dashscope": {AgentName: "qwen", Type: "openai-compat", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"},
 	// MiniMax
 	"minimax": {AgentName: "minimax", Type: "openai-compat", BaseURL: "https://api.minimaxi.chat/v1"},
 	// Z.ai

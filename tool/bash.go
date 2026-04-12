@@ -99,5 +99,4 @@ func (t *BashTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	return result, nil
 }
 
-
 var _ agent.Tool = (*BashTool)(nil)

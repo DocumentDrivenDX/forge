@@ -21,10 +21,10 @@ import (
 
 // ProviderConfig describes a single named provider.
 type ProviderConfig struct {
-	Type    string            `yaml:"type"`     // "openai-compat" or "anthropic"
-	BaseURL string            `yaml:"base_url"` // e.g., "http://localhost:1234/v1"
-	APIKey  string            `yaml:"api_key"`
-	Model   string            `yaml:"model"`
+	Type    string `yaml:"type"`     // "openai-compat" or "anthropic"
+	BaseURL string `yaml:"base_url"` // e.g., "http://localhost:1234/v1"
+	APIKey  string `yaml:"api_key"`
+	Model   string `yaml:"model"`
 	// ModelPattern is a case-insensitive regex applied to auto-discovered model
 	// IDs when Model is empty. The first matching model returned by /v1/models
 	// is used. If the pattern matches nothing, the first available model is
