@@ -24,14 +24,17 @@ func TestLoadAuth(t *testing.T) {
 	err := os.MkdirAll(agentDir, 0755)
 	require.NoError(t, err)
 
-	// Write test auth.json
+	// Write test auth.json using pi's actual field names:
+	// oauth uses "access", api_key uses "key"
 	authJSON := `{
 		"anthropic": {
-			"access_token": "sk-ant-test123",
+			"type": "oauth",
+			"access": "sk-ant-test123",
 			"expires": 1749331200000
 		},
 		"openrouter": {
-			"api_key": "sk-or-test456"
+			"type": "api_key",
+			"key": "sk-or-test456"
 		}
 	}`
 	err = os.WriteFile(filepath.Join(agentDir, "auth.json"), []byte(authJSON), 0644)
@@ -44,7 +47,7 @@ func TestLoadAuth(t *testing.T) {
 
 	assert.Equal(t, "sk-ant-test123", creds["anthropic"].AccessToken)
 	assert.Equal(t, int64(1749331200000), creds["anthropic"].Expires)
-	assert.Equal(t, "sk-or-test456", creds["openrouter"].APIKey)
+	assert.Equal(t, "sk-or-test456", creds["openrouter"].Key)
 }
 
 func TestLoadModels(t *testing.T) {
@@ -155,10 +158,10 @@ func TestTranslate_TwoSourceMerge(t *testing.T) {
 	err := os.MkdirAll(agentDir, 0755)
 	require.NoError(t, err)
 
-	// auth.json
+	// auth.json — use pi's actual field names
 	authJSON := `{
-		"anthropic": {"access_token": "sk-ant-api-key"},
-		"openrouter": {"api_key": "sk-or-api-key"}
+		"anthropic": {"type": "oauth", "access": "sk-ant-api-key"},
+		"openrouter": {"type": "api_key", "key": "sk-or-api-key"}
 	}`
 	err = os.WriteFile(filepath.Join(agentDir, "auth.json"), []byte(authJSON), 0644)
 	require.NoError(t, err)
@@ -325,6 +328,148 @@ func TestTranslate_SkipsCommandKeys(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Contains(t, result.Warnings[0], "shell-resolved key")
+}
+
+func TestAuthEntry_ResolvedKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		entry    AuthEntry
+		expected string
+	}{
+		{"oauth access token", AuthEntry{AccessToken: "sk-ant-oat01-abc"}, "sk-ant-oat01-abc"},
+		{"api_key field", AuthEntry{APIKey: "sk-or-v1-abc"}, "sk-or-v1-abc"},
+		{"key field (pi api_key type)", AuthEntry{Key: "sk-z-abc"}, "sk-z-abc"},
+		{"access takes priority over key", AuthEntry{AccessToken: "oauth-tok", Key: "api-key"}, "oauth-tok"},
+		{"key takes priority over api_key", AuthEntry{Key: "key-field", APIKey: "api_key_field"}, "key-field"},
+		{"empty entry", AuthEntry{}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, tt.entry.ResolvedKey())
+		})
+	}
+}
+
+func TestTranslate_NewCloudProviders(t *testing.T) {
+	tmpDir := t.TempDir()
+	agentDir := filepath.Join(tmpDir, "agent")
+	require.NoError(t, os.MkdirAll(agentDir, 0755))
+
+	authJSON := `{
+		"qwen":     {"type": "api_key", "key": "sk-qwen-abc"},
+		"dashscope":{"type": "api_key", "key": "sk-dash-abc"},
+		"minimax":  {"type": "api_key", "key": "sk-mm-abc"},
+		"z.ai":     {"type": "api_key", "key": "sk-zai-abc"}
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "auth.json"), []byte(authJSON), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "models.json"), []byte(`{"providers":[]}`), 0644))
+
+	result, err := Translate(tmpDir)
+	require.NoError(t, err)
+	assert.Empty(t, result.Warnings)
+
+	qwen := result.Providers["qwen"]
+	assert.Equal(t, "openai-compat", qwen.Type)
+	assert.Equal(t, "https://dashscope.aliyuncs.com/compatible-mode/v1", qwen.BaseURL)
+	// Both qwen and dashscope map to agent name "qwen"; Go map iteration is random
+	// so either key may win — just verify one of them was used.
+	assert.True(t, qwen.APIKey == "sk-qwen-abc" || qwen.APIKey == "sk-dash-abc",
+		"qwen provider should have one of the two keys, got %q", qwen.APIKey)
+
+	// dashscope is an alias for qwen — both map to the same agent name "qwen"
+	// the second entry overwrites; we just verify it resolves without error
+	minimax := result.Providers["minimax"]
+	assert.Equal(t, "openai-compat", minimax.Type)
+	assert.Equal(t, "https://api.minimaxi.chat/v1", minimax.BaseURL)
+	assert.Equal(t, "sk-mm-abc", minimax.APIKey)
+
+	zai := result.Providers["z.ai"]
+	assert.Equal(t, "openai-compat", zai.Type)
+	assert.Equal(t, "https://api.z.ai/v1", zai.BaseURL)
+	assert.Equal(t, "sk-zai-abc", zai.APIKey)
+}
+
+func TestTranslate_OAuthAccessToken(t *testing.T) {
+	tmpDir := t.TempDir()
+	agentDir := filepath.Join(tmpDir, "agent")
+	require.NoError(t, os.MkdirAll(agentDir, 0755))
+
+	// Matches pi's actual auth.json shape for oauth providers
+	authJSON := `{
+		"anthropic": {
+			"type": "oauth",
+			"access": "sk-ant-oat01-real-token",
+			"refresh": "sk-ant-ort01-refresh",
+			"expires": 1775681733815
+		},
+		"openrouter": {
+			"type": "api_key",
+			"key": "sk-or-v1-real-key"
+		}
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "auth.json"), []byte(authJSON), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "models.json"), []byte(`{"providers":[]}`), 0644))
+
+	result, err := Translate(tmpDir)
+	require.NoError(t, err)
+
+	// Anthropic oauth access token should be used as the API key
+	assert.Equal(t, "sk-ant-oat01-real-token", result.Providers["anthropic"].APIKey)
+	// OpenRouter key field should be used
+	assert.Equal(t, "sk-or-v1-real-key", result.Providers["openrouter"].APIKey)
+}
+
+func TestTranslate_ThinkingModelAutoConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	agentDir := filepath.Join(tmpDir, "agent")
+	require.NoError(t, os.MkdirAll(agentDir, 0755))
+
+	modelsJSON := `{
+		"providers": {
+			"vidar": {
+				"baseUrl": "http://vidar:1234/v1",
+				"api": "openai-completions",
+				"api_key": "lmstudio",
+				"models": [{"id": "qwen3.5-27b"}]
+			},
+			"bragi": {
+				"baseUrl": "http://bragi:1234/v1",
+				"api": "openai-completions",
+				"api_key": "lmstudio",
+				"models": [{"id": "deepseek-r1-distill-qwen-32b"}]
+			},
+			"grendel": {
+				"baseUrl": "http://grendel:1234/v1",
+				"api": "openai-completions",
+				"api_key": "lmstudio",
+				"models": [{"id": "llama3.1-8b"}]
+			}
+		}
+	}`
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "models.json"), []byte(modelsJSON), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(agentDir, "auth.json"), []byte(`{}`), 0644))
+
+	result, err := Translate(tmpDir)
+	require.NoError(t, err)
+
+	// qwen3.5-27b → thinking_level: medium
+	assert.Equal(t, "medium", result.Providers["vidar"].ThinkingLevel, "qwen3 model should get thinking_level")
+	// deepseek-r1 variant → thinking_level: medium
+	assert.Equal(t, "medium", result.Providers["bragi"].ThinkingLevel, "deepseek-r1 model should get thinking_level")
+	// llama3.1 → no thinking_level
+	assert.Equal(t, "", result.Providers["grendel"].ThinkingLevel, "non-thinking model should not get thinking_level")
+}
+
+func TestIsThinkingModel(t *testing.T) {
+	thinking := []string{"qwen3.5-27b", "qwen3-coder-30b", "Qwen3-72B", "deepseek-r1", "deepseek-r1-distill-qwen-32b", "deepseek_r1", "qwq-32b"}
+	notThinking := []string{"qwen2.5-coder", "llama3.1-8b", "gpt-4o", "claude-sonnet-4-6", "gemma-4-26b", "qwen3.5-27b-claude-4.6-opus-distilled-mlx"}
+
+	for _, m := range thinking {
+		assert.True(t, isThinkingModel(m), "expected %q to be a thinking model", m)
+	}
+	for _, m := range notThinking {
+		assert.False(t, isThinkingModel(m), "expected %q to NOT be a thinking model", m)
+	}
 }
 
 func TestComputeSourceHash(t *testing.T) {

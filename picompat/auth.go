@@ -9,11 +9,31 @@ import (
 )
 
 // AuthEntry represents a single credential entry in auth.json.
+// Pi uses several field-name conventions across versions:
+//   - OAuth entries use "access" (token) and "refresh"
+//   - API-key entries use "key" (preferred) or "api_key"
+//   - The "type" field is "oauth" or "api_key"
 type AuthEntry struct {
-	AccessToken string `json:"access_token,omitempty"`
-	TokenType   string `json:"token_type,omitempty"`
-	Expires     int64  `json:"expires,omitempty"` // epoch milliseconds
-	APIKey      string `json:"api_key,omitempty"`
+	// OAuth fields
+	AuthType     string `json:"type,omitempty"`
+	AccessToken  string `json:"access,omitempty"`  // pi oauth
+	RefreshToken string `json:"refresh,omitempty"` // pi oauth
+	// API-key fields — pi uses "key"; some versions use "api_key"
+	Key     string `json:"key,omitempty"`
+	APIKey  string `json:"api_key,omitempty"`
+	Expires int64  `json:"expires,omitempty"` // epoch milliseconds
+}
+
+// ResolvedKey returns the usable credential: the OAuth access token for oauth
+// entries, or the API key for api_key entries. Returns "" if nothing is set.
+func (a AuthEntry) ResolvedKey() string {
+	if a.AccessToken != "" {
+		return a.AccessToken
+	}
+	if a.Key != "" {
+		return a.Key
+	}
+	return a.APIKey
 }
 
 // AuthCredentials maps provider names to their credentials.

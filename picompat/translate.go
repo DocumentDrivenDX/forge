@@ -4,6 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"regexp"
+	"strings"
 
 	agentConfig "github.com/DocumentDrivenDX/agent/config"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
@@ -16,12 +18,30 @@ type ProviderMapping struct {
 	BaseURL   string // default URL if not specified in pi
 }
 
-// Known mappings per SD-007
+// Known mappings per SD-007. Keyed by the provider name as it appears in
+// pi's auth.json. BaseURL is the canonical OpenAI-compatible endpoint for
+// cloud providers; local providers get their URL from models.json instead.
 var knownMappings = map[string]ProviderMapping{
+	// Established cloud providers
 	"anthropic":    {AgentName: "anthropic", Type: "anthropic"},
 	"openai-codex": {AgentName: "openai", Type: "openai-compat", BaseURL: "https://api.openai.com/v1"},
 	"openrouter":   {AgentName: "openrouter", Type: "openai-compat", BaseURL: "https://openrouter.ai/api/v1"},
+	// Qwen / Alibaba Cloud DashScope
+	"qwen":       {AgentName: "qwen", Type: "openai-compat", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+	"dashscope":  {AgentName: "qwen", Type: "openai-compat", BaseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1"},
+	// MiniMax
+	"minimax": {AgentName: "minimax", Type: "openai-compat", BaseURL: "https://api.minimaxi.chat/v1"},
+	// Z.ai
+	"z.ai": {AgentName: "z.ai", Type: "openai-compat", BaseURL: "https://api.z.ai/v1"},
+	"zai":  {AgentName: "z.ai", Type: "openai-compat", BaseURL: "https://api.z.ai/v1"},
 }
+
+// thinkingModelRe matches model IDs that support extended thinking / reasoning
+// tokens. When a provider's default model matches, thinking_level is set to
+// "medium" automatically during import.
+var thinkingModelRe = regexp.MustCompile(
+	`(?i)^(qwen3|qwen-3|deepseek-r1|deepseek_r1|qwq)`,
+)
 
 // Warnings collects import warnings.
 type Warnings []string
@@ -80,7 +100,8 @@ func Translate(piDir string) (*TranslationResult, error) {
 		}
 
 		// Check for !command API key
-		if len(cred.APIKey) > 0 && cred.APIKey[0] == '!' {
+		resolvedKey := cred.ResolvedKey()
+		if len(resolvedKey) > 0 && resolvedKey[0] == '!' {
 			result.Warnings.Add("provider %q uses shell-resolved key, set AGENT_API_KEY or add api_key manually", name)
 			continue
 		}
@@ -89,10 +110,7 @@ func Translate(piDir string) (*TranslationResult, error) {
 		if mapping, known := knownMappings[name]; known {
 			pc := agentConfig.ProviderConfig{
 				Type:   mapping.Type,
-				APIKey: cred.APIKey,
-			}
-			if cred.AccessToken != "" {
-				pc.APIKey = cred.AccessToken
+				APIKey: resolvedKey,
 			}
 			if mapping.BaseURL != "" {
 				pc.BaseURL = mapping.BaseURL
@@ -156,24 +174,39 @@ func translateProvider(def ProviderDefinition, cred AuthEntry) translatedProvide
 		pc.BaseURL = def.BaseURL
 	}
 
-	// Prefer auth.json API key, but use model's if auth doesn't have one
-	if cred.APIKey != "" && cred.APIKey[0] != '!' {
-		pc.APIKey = cred.APIKey
+	// Prefer auth.json credential, fall back to model's inline api_key.
+	credKey := cred.ResolvedKey()
+	if credKey != "" && credKey[0] != '!' {
+		pc.APIKey = credKey
 	} else if def.APIKey != "" && def.APIKey[0] != '!' {
 		pc.APIKey = def.APIKey
 	}
 
-	// Check for !command values (unsupported)
-	if cred.APIKey != "" && cred.APIKey[0] == '!' {
-		// Will be skipped during translation
-	}
-
-	// Set model if specified
+	// Set model if specified.
 	if len(def.Models) > 0 {
 		pc.Model = def.Models[0]
 	}
 
+	// Auto-configure thinking_level for known reasoning models (Qwen3,
+	// DeepSeek-R1, QwQ). Only set when not already specified.
+	if pc.ThinkingLevel == "" && pc.Model != "" && isThinkingModel(pc.Model) {
+		pc.ThinkingLevel = "medium"
+	}
+
 	return translatedProvider{Name: name, Config: pc}
+}
+
+// isThinkingModel reports whether modelID belongs to a model family that
+// supports extended thinking / reasoning tokens and benefits from an explicit
+// thinking budget in the provider config. Claude-distilled variants (e.g.
+// "qwen3-claude-opus-distilled") are excluded since they do not expose a
+// native thinking API.
+func isThinkingModel(modelID string) bool {
+	lower := strings.ToLower(strings.TrimSpace(modelID))
+	if strings.Contains(lower, "claude") {
+		return false
+	}
+	return thinkingModelRe.MatchString(strings.TrimSpace(modelID))
 }
 
 // ComputeSourceHash computes a truncated SHA-256 hash of the source files.
