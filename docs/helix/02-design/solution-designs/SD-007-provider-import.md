@@ -73,6 +73,9 @@ The import merges them:
 | `anthropic` | `anthropic` | `anthropic` | (SDK default) | OAuth access token as API key |
 | `openai-codex` | `openai` | `openai-compat` | `https://api.openai.com/v1` | OAuth access token as bearer |
 | `openrouter` | `openrouter` | `openai-compat` | `https://openrouter.ai/api/v1` | API key from auth.json |
+| `qwen` / `dashscope` | `qwen` | `openai-compat` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | Qwen/DashScope cloud API; both aliases map to the same agent provider |
+| `minimax` | `minimax` | `openai-compat` | `https://api.minimaxi.chat/v1` | |
+| `z.ai` / `zai` | `z.ai` | `openai-compat` | `https://api.z.ai/v1` | both aliases map to the same agent provider |
 | `google-gemini-cli` | skipped | — | — | Not yet supported |
 | `github-copilot` | skipped | — | — | Proprietary auth flow |
 | Custom (models.json) | pi provider name | mapped from `api` field | from `baseUrl` | `openai-completions` → `openai-compat` |
