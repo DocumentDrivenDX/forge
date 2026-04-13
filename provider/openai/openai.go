@@ -494,6 +494,25 @@ func openAIIdentity(baseURL string) (providerSystem, serverAddress string, serve
 		}
 	case strings.Contains(host, "openai.com"):
 		providerSystem = "openai"
+	case strings.Contains(host, "minimaxi.chat"):
+		providerSystem = "minimax"
+	case strings.Contains(host, "dashscope.aliyuncs.com"):
+		providerSystem = "qwen"
+	case strings.Contains(host, "z.ai"):
+		providerSystem = "zai"
+	default:
+		// Non-standard port on a named host → treat as local inference runtime.
+		if serverPort != 0 && serverPort != 80 && serverPort != 443 {
+			switch serverPort {
+			case 11434:
+				providerSystem = "ollama"
+			case 1234:
+				providerSystem = "lmstudio"
+			default:
+				providerSystem = "local"
+			}
+		}
+		// Standard ports (0, 80, 443) on an unknown host fall through to "openai".
 	}
 
 	return providerSystem, serverAddress, serverPort

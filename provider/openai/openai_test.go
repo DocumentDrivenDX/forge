@@ -372,3 +372,58 @@ func TestNew_LocalOpenAICompatibleBaseURLsResolveProviderIdentity(t *testing.T) 
 		})
 	}
 }
+
+func TestOpenAIIdentity_CloudAndPortHeuristics(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		system  string
+	}{
+		{
+			name:    "minimax cloud endpoint",
+			baseURL: "https://api.minimaxi.chat/v1",
+			system:  "minimax",
+		},
+		{
+			name:    "qwen/dashscope cloud endpoint",
+			baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+			system:  "qwen",
+		},
+		{
+			name:    "z.ai cloud endpoint",
+			baseURL: "https://api.z.ai/v1",
+			system:  "zai",
+		},
+		{
+			name:    "named host port 11434 treated as ollama",
+			baseURL: "http://vidar:11434/v1",
+			system:  "ollama",
+		},
+		{
+			name:    "named host port 1234 treated as lmstudio",
+			baseURL: "http://vidar:1234/v1",
+			system:  "lmstudio",
+		},
+		{
+			name:    "named host non-standard port treated as local",
+			baseURL: "http://vidar:8080/v1",
+			system:  "local",
+		},
+		{
+			name:    "unknown host standard HTTPS port falls through to openai",
+			baseURL: "https://api.example.com/v1",
+			system:  "openai",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := openai.New(openai.Config{
+				BaseURL: tt.baseURL,
+				Model:   "gpt-4o",
+			})
+			system, _, _ := p.ChatStartMetadata()
+			assert.Equal(t, tt.system, system)
+		})
+	}
+}
