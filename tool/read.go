@@ -74,5 +74,7 @@ func (t *ReadTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	return TruncateHead(content, truncMaxLines, truncMaxBytes), nil
 }
 
+func (t *ReadTool) Parallel() bool { return true }
+
 // Verify ReadTool implements agent.Tool at compile time.
 var _ agent.Tool = (*ReadTool)(nil)

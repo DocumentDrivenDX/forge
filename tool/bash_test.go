@@ -17,7 +17,7 @@ func TestBashTool_Execute(t *testing.T) {
 			Command: "echo hello",
 		}))
 		require.NoError(t, err)
-		assert.Contains(t, result, "exit_code: 0")
+		assert.Contains(t, result, "Exit code: 0")
 		assert.Contains(t, result, "hello")
 	})
 
@@ -26,7 +26,7 @@ func TestBashTool_Execute(t *testing.T) {
 			Command: "echo error >&2",
 		}))
 		require.NoError(t, err)
-		assert.Contains(t, result, "stderr:")
+		assert.Contains(t, result, "Stderr:")
 		assert.Contains(t, result, "error")
 	})
 
@@ -35,7 +35,7 @@ func TestBashTool_Execute(t *testing.T) {
 			Command: "exit 42",
 		}))
 		require.NoError(t, err) // non-zero exit is not a Go error
-		assert.Contains(t, result, "exit_code: 42")
+		assert.Contains(t, result, "Exit code: 42")
 	})
 
 	t.Run("runs in working directory", func(t *testing.T) {
@@ -72,7 +72,7 @@ func TestBashTool_Execute(t *testing.T) {
 			TimeoutMs: 200,
 		}))
 		require.NoError(t, err)
-		assert.Contains(t, result, "exit_code: 0")
+		assert.Contains(t, result, "Exit code: 0")
 		assert.Contains(t, result, "stdin_eof")
 	})
 
@@ -81,7 +81,7 @@ func TestBashTool_Execute(t *testing.T) {
 			Command: "yes a | head -c 1100000; exit 7",
 		}))
 		require.NoError(t, err) // non-zero exit should be captured, not returned as Go error
-		assert.Contains(t, result, "exit_code: 7")
+		assert.Contains(t, result, "Exit code: 7")
 		assert.Contains(t, result, "lines omitted]")
 	})
 }

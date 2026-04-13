@@ -55,6 +55,7 @@ func (t oversizedOutputTool) Schema() json.RawMessage {
 func (t oversizedOutputTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
 	return t.output, nil
 }
+func (t oversizedOutputTool) Parallel() bool { return false }
 
 func TestRun_FailedOpenAICompatibleChatSpansIncludeServerIdentity(t *testing.T) {
 	recorder := tracetest.NewSpanRecorder()

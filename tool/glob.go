@@ -163,4 +163,6 @@ func matchParts(pat, name []string) (bool, error) {
 	}
 }
 
+func (t *GlobTool) Parallel() bool { return true }
+
 var _ agent.Tool = (*GlobTool)(nil)

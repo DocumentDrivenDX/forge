@@ -65,7 +65,9 @@ func (t *BashTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	start := time.Now()
 	err := cmd.Run()
+	elapsed := time.Since(start)
 
 	out := TruncateTail(string(stdout.Bytes()), truncMaxLines, truncMaxBytes)
 	errOut := TruncateTail(string(stderr.Bytes()), truncMaxLines, truncMaxBytes)
@@ -75,9 +77,14 @@ func (t *BashTool) Execute(ctx context.Context, params json.RawMessage) (string,
 		exitCode = cmd.ProcessState.ExitCode()
 	}
 
-	result := fmt.Sprintf("exit_code: %d\nstdout:\n%s", exitCode, out)
+	outSection := out
+	if len(outSection) == 0 {
+		outSection = "(no output)"
+	}
+
+	result := fmt.Sprintf("Exit code: %d\nWall time: %.2fs\nOutput:\n%s", exitCode, elapsed.Seconds(), outSection)
 	if len(errOut) > 0 {
-		result += fmt.Sprintf("\nstderr:\n%s", errOut)
+		result += fmt.Sprintf("\nStderr:\n%s", errOut)
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
@@ -98,5 +105,7 @@ func (t *BashTool) Execute(ctx context.Context, params json.RawMessage) (string,
 
 	return result, nil
 }
+
+func (t *BashTool) Parallel() bool { return false }
 
 var _ agent.Tool = (*BashTool)(nil)

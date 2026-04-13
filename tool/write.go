@@ -56,4 +56,6 @@ func (t *WriteTool) Execute(ctx context.Context, params json.RawMessage) (string
 	return fmt.Sprintf("Wrote %d bytes to %s", len(p.Content), resolved), nil
 }
 
+func (t *WriteTool) Parallel() bool { return false }
+
 var _ agent.Tool = (*WriteTool)(nil)

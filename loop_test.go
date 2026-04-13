@@ -59,6 +59,7 @@ func (t *mockTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"o
 func (t *mockTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
 	return t.result, t.err
 }
+func (t *mockTool) Parallel() bool { return false }
 
 type providerOutcome struct {
 	response Response
@@ -1990,4 +1991,92 @@ func TestRun_ToolCallLoopCounterResetsOnDifferentCall(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusSuccess, result.Status)
 	assert.Equal(t, 5, provider.callCount, "should run all 5 turns without aborting")
+}
+
+// barrierTool is a test Tool that uses a barrier to prove two goroutines run
+// concurrently. Parallel() returns true so the agent loop will batch these.
+type barrierTool struct {
+	name    string
+	barrier chan struct{} // closed once at least 2 goroutines are inside Execute
+	arrived *sync.WaitGroup
+	mu      *sync.Mutex
+	calls   *int
+}
+
+func (b *barrierTool) Name() string            { return b.name }
+func (b *barrierTool) Description() string     { return "barrier tool" }
+func (b *barrierTool) Schema() json.RawMessage { return json.RawMessage(`{"type":"object"}`) }
+func (b *barrierTool) Parallel() bool          { return true }
+func (b *barrierTool) Execute(_ context.Context, _ json.RawMessage) (string, error) {
+	b.mu.Lock()
+	*b.calls++
+	b.mu.Unlock()
+	b.arrived.Done()
+	// Block until the barrier is released (i.e., all tools have arrived).
+	<-b.barrier
+	return b.name + "_result", nil
+}
+
+func TestRun_ParallelToolExecution(t *testing.T) {
+	// barrier is closed once all 3 goroutines have called Done() on arrived.
+	barrier := make(chan struct{})
+	var arrived sync.WaitGroup
+	arrived.Add(3)
+
+	var mu sync.Mutex
+	calls := 0
+
+	// Release the barrier once all 3 have arrived, in a background goroutine.
+	go func() {
+		arrived.Wait()
+		close(barrier)
+	}()
+
+	makeBarrierTool := func(name string) Tool {
+		return &barrierTool{
+			name:    name,
+			barrier: barrier,
+			arrived: &arrived,
+			mu:      &mu,
+			calls:   &calls,
+		}
+	}
+
+	toolA := makeBarrierTool("read_a")
+	toolB := makeBarrierTool("read_b")
+	toolC := makeBarrierTool("read_c")
+
+	provider := &mockProvider{
+		responses: []Response{
+			{
+				ToolCalls: []ToolCall{
+					{ID: "tc1", Name: "read_a", Arguments: json.RawMessage(`{}`)},
+					{ID: "tc2", Name: "read_b", Arguments: json.RawMessage(`{}`)},
+					{ID: "tc3", Name: "read_c", Arguments: json.RawMessage(`{}`)},
+				},
+				Usage: TokenUsage{Total: 30},
+			},
+			{Content: "all done", Usage: TokenUsage{Total: 10}},
+		},
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:   "read three files",
+		Provider: provider,
+		Tools:    []Tool{toolA, toolB, toolC},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, StatusSuccess, result.Status)
+
+	// All three tools must have been called.
+	assert.Equal(t, 3, calls, "all 3 parallel tools should have been called")
+
+	// Results must be in original order.
+	require.Len(t, result.ToolCalls, 3)
+	assert.Equal(t, "read_a", result.ToolCalls[0].Tool)
+	assert.Equal(t, "read_b", result.ToolCalls[1].Tool)
+	assert.Equal(t, "read_c", result.ToolCalls[2].Tool)
+	// The test itself proves concurrency: if tools ran sequentially the barrier
+	// would never be released (deadlock / timeout) because each tool blocks until
+	// all 3 have arrived. If we reach here without deadlock, they ran concurrently.
 }

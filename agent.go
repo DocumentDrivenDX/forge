@@ -136,6 +136,10 @@ type Tool interface {
 	Schema() json.RawMessage
 	// Execute runs the tool with the given parameters and returns the result.
 	Execute(ctx context.Context, params json.RawMessage) (string, error)
+	// Parallel reports whether this tool is safe to execute concurrently with
+	// other parallel-flagged tools. Read-only tools return true; tools with
+	// side effects (writes, shell commands, sub-agents) return false.
+	Parallel() bool
 }
 
 // ToolCallLog records one tool execution during an agent run.

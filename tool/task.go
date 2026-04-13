@@ -132,6 +132,8 @@ func (t *TaskTool) Schema() json.RawMessage {
 	}`)
 }
 
+func (t *TaskTool) Parallel() bool { return false }
+
 func (t *TaskTool) Execute(_ context.Context, params json.RawMessage) (string, error) {
 	var p TaskParams
 	if err := json.Unmarshal(params, &p); err != nil {

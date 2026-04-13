@@ -171,4 +171,6 @@ func (t *GrepTool) Execute(_ context.Context, params json.RawMessage) (string, e
 	return TruncateHead(strings.TrimRight(sb.String(), "\n"), truncMaxLines, truncMaxBytes), nil
 }
 
+func (t *GrepTool) Parallel() bool { return true }
+
 var _ agent.Tool = (*GrepTool)(nil)

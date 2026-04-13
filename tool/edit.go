@@ -156,4 +156,6 @@ func (t *EditTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	return fmt.Sprintf("Applied %d edits to %s", len(edits), resolved), nil
 }
 
+func (t *EditTool) Parallel() bool { return false }
+
 var _ agent.Tool = (*EditTool)(nil)

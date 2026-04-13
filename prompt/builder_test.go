@@ -20,6 +20,7 @@ func (t *stubTool) Schema() json.RawMessage { return nil }
 func (t *stubTool) Execute(ctx context.Context, params json.RawMessage) (string, error) {
 	return "", nil
 }
+func (t *stubTool) Parallel() bool { return false }
 
 func TestBuilder_BaseOnly(t *testing.T) {
 	result := New("You are a helpful assistant.").

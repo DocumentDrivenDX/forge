@@ -78,4 +78,6 @@ func (t *LsTool) Execute(_ context.Context, params json.RawMessage) (string, err
 	return fmt.Sprintf("%s/\n%s", header, strings.Join(all, "\n")), nil
 }
 
+func (t *LsTool) Parallel() bool { return true }
+
 var _ agent.Tool = (*LsTool)(nil)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -506,56 +507,132 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			return result, nil
 		}
 
-		// Execute each tool call sequentially
-		for toolExecutionIndex, tc := range resp.ToolCalls {
-			toolCtx, toolSpan := runtimeTelemetry.StartExecuteTool(ctx, telemetry.ExecuteToolSpan{
-				HarnessName:        "agent",
-				SessionID:          sessionID,
-				ConversationID:     sessionID,
-				TurnIndex:          iteration + 1,
-				ToolExecutionIndex: toolExecutionIndex + 1,
-				ToolName:           tc.Name,
-				ToolType:           "function",
-				ToolCallID:         tc.ID,
-			})
-			tool, ok := toolMap[tc.Name]
-			if !ok {
-				// Unknown tool — return error to the model
-				unknownErr := fmt.Errorf("unknown tool %q", tc.Name)
-				recordSpanError(toolSpan, unknownErr)
-				toolSpan.End()
-				messages = append(messages, Message{
-					Role:       RoleTool,
-					Content:    fmt.Sprintf("error: %s", unknownErr.Error()),
-					ToolCallID: tc.ID,
+		// Determine whether all tools in this batch are safe to run concurrently.
+		allParallel := true
+		for _, tc := range resp.ToolCalls {
+			if tool, ok := toolMap[tc.Name]; !ok || !tool.Parallel() {
+				allParallel = false
+				break
+			}
+		}
+
+		// toolResult holds the per-call output collected during (possibly parallel) execution.
+		type toolResult struct {
+			output      string
+			toolErr     error
+			toolDuration time.Duration
+			log         ToolCallLog
+			toolSpan    trace.Span
+		}
+		results := make([]toolResult, len(resp.ToolCalls))
+
+		if allParallel && len(resp.ToolCalls) > 1 {
+			// Run all tools concurrently; collect results in index order.
+			var wg sync.WaitGroup
+			wg.Add(len(resp.ToolCalls))
+			for toolExecutionIndex, tc := range resp.ToolCalls {
+				toolExecutionIndex, tc := toolExecutionIndex, tc // capture loop vars
+				go func() {
+					defer wg.Done()
+					toolCtx, toolSpan := runtimeTelemetry.StartExecuteTool(ctx, telemetry.ExecuteToolSpan{
+						HarnessName:        "agent",
+						SessionID:          sessionID,
+						ConversationID:     sessionID,
+						TurnIndex:          iteration + 1,
+						ToolExecutionIndex: toolExecutionIndex + 1,
+						ToolName:           tc.Name,
+						ToolType:           "function",
+						ToolCallID:         tc.ID,
+					})
+					tool := toolMap[tc.Name] // safe: allParallel guarantees existence
+					toolStart := time.Now()
+					output, toolErr := tool.Execute(toolCtx, tc.Arguments)
+					toolDuration := time.Since(toolStart)
+					log := ToolCallLog{
+						Tool:     tc.Name,
+						Input:    tc.Arguments,
+						Output:   output,
+						Duration: toolDuration,
+					}
+					if toolErr != nil {
+						log.Error = toolErr.Error()
+						output = fmt.Sprintf("error: %s", toolErr.Error())
+						recordSpanError(toolSpan, toolErr)
+					}
+					results[toolExecutionIndex] = toolResult{
+						output:      output,
+						toolErr:     toolErr,
+						toolDuration: toolDuration,
+						log:         log,
+						toolSpan:    toolSpan,
+					}
+				}()
+			}
+			wg.Wait()
+		} else {
+			// Execute each tool call sequentially.
+			for toolExecutionIndex, tc := range resp.ToolCalls {
+				toolCtx, toolSpan := runtimeTelemetry.StartExecuteTool(ctx, telemetry.ExecuteToolSpan{
+					HarnessName:        "agent",
+					SessionID:          sessionID,
+					ConversationID:     sessionID,
+					TurnIndex:          iteration + 1,
+					ToolExecutionIndex: toolExecutionIndex + 1,
+					ToolName:           tc.Name,
+					ToolType:           "function",
+					ToolCallID:         tc.ID,
 				})
-				result.ToolCalls = append(result.ToolCalls, ToolCallLog{
-					Tool:  tc.Name,
-					Input: tc.Arguments,
-					Error: unknownErr.Error(),
-				})
+				tool, ok := toolMap[tc.Name]
+				if !ok {
+					// Unknown tool — return error to the model; no result slot needed.
+					unknownErr := fmt.Errorf("unknown tool %q", tc.Name)
+					recordSpanError(toolSpan, unknownErr)
+					toolSpan.End()
+					messages = append(messages, Message{
+						Role:       RoleTool,
+						Content:    fmt.Sprintf("error: %s", unknownErr.Error()),
+						ToolCallID: tc.ID,
+					})
+					result.ToolCalls = append(result.ToolCalls, ToolCallLog{
+						Tool:  tc.Name,
+						Input: tc.Arguments,
+						Error: unknownErr.Error(),
+					})
+					results[toolExecutionIndex] = toolResult{} // mark as handled
+					continue
+				}
+				toolStart := time.Now()
+				output, toolErr := tool.Execute(toolCtx, tc.Arguments)
+				toolDuration := time.Since(toolStart)
+				log := ToolCallLog{
+					Tool:     tc.Name,
+					Input:    tc.Arguments,
+					Output:   output,
+					Duration: toolDuration,
+				}
+				if toolErr != nil {
+					log.Error = toolErr.Error()
+					output = fmt.Sprintf("error: %s", toolErr.Error())
+					recordSpanError(toolSpan, toolErr)
+				}
+				results[toolExecutionIndex] = toolResult{
+					output:      output,
+					toolErr:     toolErr,
+					toolDuration: toolDuration,
+					log:         log,
+					toolSpan:    toolSpan,
+				}
+			}
+		}
+
+		// Merge results (in order) into messages and logs.
+		for i, tc := range resp.ToolCalls {
+			r := results[i]
+			if r.toolSpan == nil {
+				// Already handled inline (unknown tool in sequential path).
 				continue
 			}
-
-			// Execute the tool
-			toolStart := time.Now()
-			output, toolErr := tool.Execute(toolCtx, tc.Arguments)
-			toolDuration := time.Since(toolStart)
-
-			log := ToolCallLog{
-				Tool:     tc.Name,
-				Input:    tc.Arguments,
-				Output:   output,
-				Duration: toolDuration,
-			}
-
-			if toolErr != nil {
-				log.Error = toolErr.Error()
-				output = fmt.Sprintf("error: %s", toolErr.Error())
-				recordSpanError(toolSpan, toolErr)
-			}
-
-			result.ToolCalls = append(result.ToolCalls, log)
+			result.ToolCalls = append(result.ToolCalls, r.log)
 
 			// Emit tool call event
 			emitCallback(req.Callback, Event{
@@ -566,18 +643,18 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				Data: mustMarshal(map[string]any{
 					"tool":        tc.Name,
 					"input":       tc.Arguments,
-					"output":      truncateForLog(output, 10000),
-					"duration_ms": toolDuration.Milliseconds(),
-					"error":       log.Error,
+					"output":      truncateForLog(r.output, 10000),
+					"duration_ms": r.toolDuration.Milliseconds(),
+					"error":       r.log.Error,
 				}),
 			})
 			seq++
-			toolSpan.End()
+			r.toolSpan.End()
 
 			// Append tool result to conversation
 			messages = append(messages, Message{
 				Role:       RoleTool,
-				Content:    output,
+				Content:    r.output,
 				ToolCallID: tc.ID,
 			})
 		}

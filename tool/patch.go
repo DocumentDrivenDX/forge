@@ -215,4 +215,6 @@ func normalizeLineEndings(s, target string) string {
 	return s
 }
 
+func (t *PatchTool) Parallel() bool { return false }
+
 var _ agent.Tool = (*PatchTool)(nil)
