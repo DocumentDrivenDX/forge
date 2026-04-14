@@ -89,6 +89,10 @@ type RoutingConfig struct {
 
 	// CostWeight weights observed known cost when balancing healthy candidates.
 	CostWeight float64 `yaml:"cost_weight,omitempty"`
+
+	// CapabilityWeight weights model benchmark capability (swe_bench_verified)
+	// when scoring healthy candidates.
+	CapabilityWeight float64 `yaml:"capability_weight"`
 }
 
 // ModelRouteCandidateConfig describes one provider candidate inside a route.

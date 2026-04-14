@@ -155,6 +155,40 @@ func (c *Catalog) Resolve(ref string, opts ResolveOptions) (ResolvedTarget, erro
 	return ResolvedTarget{}, &UnknownReferenceError{Ref: ref}
 }
 
+// ModelEntry holds benchmark and metadata for a catalog target as looked up by
+// concrete model ID.
+type ModelEntry struct {
+	CanonicalID      string
+	Family           string
+	SWEBenchVerified float64
+	LiveCodeBench    float64
+	BenchmarkAsOf    string
+}
+
+// LookupModel finds a catalog entry by concrete model ID (any surface).
+// Returns the first matching active target. Returns (ModelEntry{}, false) if
+// no target in the catalog maps to the given model ID.
+func (c *Catalog) LookupModel(id string) (ModelEntry, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ModelEntry{}, false
+	}
+	for targetID, target := range c.manifest.Targets {
+		for _, concreteID := range target.Surfaces {
+			if concreteID == id {
+				return ModelEntry{
+					CanonicalID:      targetID,
+					Family:           target.Family,
+					SWEBenchVerified: target.SWEBenchVerified,
+					LiveCodeBench:    target.LiveCodeBench,
+					BenchmarkAsOf:    target.BenchmarkAsOf,
+				}, true
+			}
+		}
+	}
+	return ModelEntry{}, false
+}
+
 // AllConcreteModels returns a map from concrete model ID to catalog target ID
 // for every active target that has a mapping for the given surface. The map is
 // safe to use as a membership set for ranking discovered models.

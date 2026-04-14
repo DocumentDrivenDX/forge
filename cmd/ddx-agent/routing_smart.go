@@ -13,6 +13,8 @@ import (
 
 	"github.com/DocumentDrivenDX/agent"
 	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	"github.com/DocumentDrivenDX/agent/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/observations"
 	oaiProvider "github.com/DocumentDrivenDX/agent/provider/openai"
 	"github.com/DocumentDrivenDX/agent/session"
 )
@@ -42,18 +44,21 @@ func (h smartRouteHistory) ReliabilityScore() float64 {
 }
 
 type smartRouteCandidate struct {
-	Provider         string    `json:"provider"`
-	Model            string    `json:"model,omitempty"`
-	Healthy          bool      `json:"healthy"`
-	Reason           string    `json:"reason,omitempty"`
-	Priority         int       `json:"priority,omitempty"`
-	Reliability      float64   `json:"reliability"`
-	AvgDurationMs    float64   `json:"avg_duration_ms,omitempty"`
-	OutputTokensPerS float64   `json:"output_tokens_per_second,omitempty"`
-	RecentSelections int       `json:"recent_selections,omitempty"`
-	AvgCostPer1KTok  *float64  `json:"avg_cost_per_1k_tokens,omitempty"`
-	Score            float64   `json:"score,omitempty"`
-	LastSelectedAt   time.Time `json:"last_selected_at,omitempty"`
+	Provider              string    `json:"provider"`
+	Model                 string    `json:"model,omitempty"`
+	Healthy               bool      `json:"healthy"`
+	Reason                string    `json:"reason,omitempty"`
+	Priority              int       `json:"priority,omitempty"`
+	Reliability           float64   `json:"reliability"`
+	AvgDurationMs         float64   `json:"avg_duration_ms,omitempty"`
+	OutputTokensPerS      float64   `json:"output_tokens_per_second,omitempty"`
+	RecentSelections      int       `json:"recent_selections,omitempty"`
+	AvgCostPer1KTok       *float64  `json:"avg_cost_per_1k_tokens,omitempty"`
+	Score                 float64   `json:"score,omitempty"`
+	LastSelectedAt        time.Time `json:"last_selected_at,omitempty"`
+	SWEBenchVerified      float64   `json:"swe_bench_verified,omitempty"`
+	ObservedTokensPerSec  float64   `json:"observed_tokens_per_sec,omitempty"`
+	CapabilityScore       float64   `json:"capability_score,omitempty"`
 }
 
 type smartRoutePlan struct {
@@ -92,11 +97,12 @@ func routingProbeTimeout(cfg *agentConfig.Config) time.Duration {
 	return defaultRoutingProbeTimeout
 }
 
-func routingWeights(cfg *agentConfig.Config) (reliability, performance, load, cost float64) {
-	reliability = 0.40
-	performance = 0.25
-	load = 0.20
-	cost = 0.15
+func routingWeights(cfg *agentConfig.Config) (reliability, performance, load, cost, capability float64) {
+	reliability = 0.35
+	performance = 0.20
+	load = 0.15
+	cost = 0.20
+	capability = 0.10
 	if cfg == nil {
 		return
 	}
@@ -112,11 +118,14 @@ func routingWeights(cfg *agentConfig.Config) (reliability, performance, load, co
 	if cfg.Routing.CostWeight > 0 {
 		cost = cfg.Routing.CostWeight
 	}
-	total := reliability + performance + load + cost
-	if total <= 0 {
-		return 0.40, 0.25, 0.20, 0.15
+	if cfg.Routing.CapabilityWeight > 0 {
+		capability = cfg.Routing.CapabilityWeight
 	}
-	return reliability / total, performance / total, load / total, cost / total
+	total := reliability + performance + load + cost + capability
+	if total <= 0 {
+		return 0.35, 0.20, 0.15, 0.20, 0.10
+	}
+	return reliability / total, performance / total, load / total, cost / total, capability / total
 }
 
 func buildSmartRoutePlan(cfg *agentConfig.Config, workDir, routeKey, routeModelRef string, allowDeprecated bool, explicitRoute *agentConfig.ModelRouteConfig) (smartRoutePlan, error) {
@@ -151,11 +160,14 @@ func buildSmartRoutePlan(cfg *agentConfig.Config, workDir, routeKey, routeModelR
 		counter = 0
 	}
 
+	cat, _ := modelcatalog.Load(modelcatalog.LoadOptions{})
+	obs, _ := observations.LoadStore(observations.DefaultStorePath())
+
 	modelProbeCache := make(map[string]providerModelProbe)
 	plan.Candidates = make([]smartRouteCandidate, 0, len(route.Candidates))
 	finalCandidates := make([]agentConfig.ModelRouteCandidateConfig, 0, len(route.Candidates))
 	for _, candidate := range route.Candidates {
-		inspected, resolvedCandidate := inspectSmartRouteCandidate(cfg, routeKey, routeModelRef, allowDeprecated, candidate, history[candidate.Provider], healthState, modelProbeCache)
+		inspected, resolvedCandidate := inspectSmartRouteCandidate(cfg, routeKey, routeModelRef, allowDeprecated, candidate, history[candidate.Provider], healthState, modelProbeCache, cat, obs)
 		plan.Candidates = append(plan.Candidates, inspected)
 		finalCandidates = append(finalCandidates, resolvedCandidate)
 	}
@@ -199,7 +211,7 @@ func synthesizeIntentRoute(cfg *agentConfig.Config, requestedModel, requestedMod
 	}
 }
 
-func inspectSmartRouteCandidate(cfg *agentConfig.Config, routeKey, routeModelRef string, allowDeprecated bool, candidate agentConfig.ModelRouteCandidateConfig, history smartRouteHistory, healthState routeHealthState, modelProbeCache map[string]providerModelProbe) (smartRouteCandidate, agentConfig.ModelRouteCandidateConfig) {
+func inspectSmartRouteCandidate(cfg *agentConfig.Config, routeKey, routeModelRef string, allowDeprecated bool, candidate agentConfig.ModelRouteCandidateConfig, history smartRouteHistory, healthState routeHealthState, modelProbeCache map[string]providerModelProbe, cat *modelcatalog.Catalog, obs *observations.Store) (smartRouteCandidate, agentConfig.ModelRouteCandidateConfig) {
 	report := smartRouteCandidate{
 		Provider:         candidate.Provider,
 		Model:            candidate.Model,
@@ -253,6 +265,22 @@ func inspectSmartRouteCandidate(cfg *agentConfig.Config, routeKey, routeModelRef
 		candidate.Model = matchedModel
 	}
 	report.Reason = reason
+
+	// Populate catalog-sourced benchmark data.
+	resolvedModel := report.Model
+	if cat != nil && resolvedModel != "" {
+		if entry, ok := cat.LookupModel(resolvedModel); ok {
+			report.SWEBenchVerified = entry.SWEBenchVerified
+		}
+	}
+
+	// Populate observed speed from the observations store.
+	if obs != nil && resolvedModel != "" {
+		if speed, ok := obs.MeanSpeed(observations.Key{ProviderSystem: candidate.Provider, Model: resolvedModel}); ok {
+			report.ObservedTokensPerSec = speed
+		}
+	}
+
 	return report, candidate
 }
 
@@ -267,13 +295,17 @@ func scoreSmartRouteCandidates(plan *smartRoutePlan, counter int, cfg *agentConf
 		return nil
 	}
 
-	reliabilityWeight, performanceWeight, loadWeight, costWeight := routingWeights(cfg)
+	reliabilityWeight, performanceWeight, loadWeight, costWeight, capabilityWeight := routingWeights(cfg)
 
 	minDuration, maxDuration := 0.0, 0.0
 	minCost, maxCost := 0.0, 0.0
+	minObsSpeed, maxObsSpeed := 0.0, 0.0
+	minBench, maxBench := 0.0, 0.0
 	maxSelections := 0
 	firstDuration := true
 	firstCost := true
+	firstObsSpeed := true
+	firstBench := true
 	for _, idx := range healthy {
 		candidate := plan.Candidates[idx]
 		if candidate.AvgDurationMs > 0 {
@@ -303,6 +335,32 @@ func scoreSmartRouteCandidates(plan *smartRoutePlan, counter int, cfg *agentConf
 				}
 			}
 		}
+		if candidate.ObservedTokensPerSec > 0 {
+			if firstObsSpeed {
+				minObsSpeed, maxObsSpeed = candidate.ObservedTokensPerSec, candidate.ObservedTokensPerSec
+				firstObsSpeed = false
+			} else {
+				if candidate.ObservedTokensPerSec < minObsSpeed {
+					minObsSpeed = candidate.ObservedTokensPerSec
+				}
+				if candidate.ObservedTokensPerSec > maxObsSpeed {
+					maxObsSpeed = candidate.ObservedTokensPerSec
+				}
+			}
+		}
+		if candidate.SWEBenchVerified > 0 {
+			if firstBench {
+				minBench, maxBench = candidate.SWEBenchVerified, candidate.SWEBenchVerified
+				firstBench = false
+			} else {
+				if candidate.SWEBenchVerified < minBench {
+					minBench = candidate.SWEBenchVerified
+				}
+				if candidate.SWEBenchVerified > maxBench {
+					maxBench = candidate.SWEBenchVerified
+				}
+			}
+		}
 		if candidate.RecentSelections > maxSelections {
 			maxSelections = candidate.RecentSelections
 		}
@@ -310,8 +368,16 @@ func scoreSmartRouteCandidates(plan *smartRoutePlan, counter int, cfg *agentConf
 
 	for _, idx := range healthy {
 		candidate := &plan.Candidates[idx]
+
+		// Performance: prefer observed speed when available, fall back to session history latency.
 		performanceScore := 0.5
-		if !firstDuration && candidate.AvgDurationMs > 0 {
+		if !firstObsSpeed && candidate.ObservedTokensPerSec > 0 {
+			if maxObsSpeed == minObsSpeed {
+				performanceScore = 1.0
+			} else {
+				performanceScore = (candidate.ObservedTokensPerSec - minObsSpeed) / (maxObsSpeed - minObsSpeed)
+			}
+		} else if !firstDuration && candidate.AvgDurationMs > 0 {
 			if maxDuration == minDuration {
 				performanceScore = 1.0
 			} else {
@@ -333,6 +399,17 @@ func scoreSmartRouteCandidates(plan *smartRoutePlan, counter int, cfg *agentConf
 			}
 		}
 
+		// Capability: normalize swe_bench_verified across healthy candidates.
+		capScore := 0.5 // neutral when no data
+		if !firstBench && candidate.SWEBenchVerified > 0 {
+			if maxBench == minBench {
+				capScore = 1.0
+			} else {
+				capScore = (candidate.SWEBenchVerified - minBench) / (maxBench - minBench)
+			}
+		}
+		candidate.CapabilityScore = capScore
+
 		priorityScore := 0.0
 		if candidate.Priority > 0 {
 			priorityScore = float64(candidate.Priority) / 1000
@@ -342,6 +419,7 @@ func scoreSmartRouteCandidates(plan *smartRoutePlan, counter int, cfg *agentConf
 			performanceScore*performanceWeight +
 			loadScore*loadWeight +
 			costScore*costWeight +
+			capScore*capabilityWeight +
 			priorityScore
 	}
 

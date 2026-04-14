@@ -10,11 +10,12 @@ import (
 
 func TestRoutingWeights_Defaults(t *testing.T) {
 	cfg := &agentConfig.Config{}
-	rel, perf, load, cost := routingWeights(cfg)
-	assert.Equal(t, 0.40, rel)
-	assert.Equal(t, 0.25, perf)
-	assert.Equal(t, 0.20, load)
-	assert.Equal(t, 0.15, cost)
+	rel, perf, load, cost, cap := routingWeights(cfg)
+	assert.InDelta(t, 0.35, rel, 0.001)
+	assert.InDelta(t, 0.20, perf, 0.001)
+	assert.InDelta(t, 0.15, load, 0.001)
+	assert.InDelta(t, 0.20, cost, 0.001)
+	assert.InDelta(t, 0.10, cap, 0.001)
 }
 
 func TestRoutingWeights_Custom(t *testing.T) {
@@ -22,16 +23,18 @@ func TestRoutingWeights_Custom(t *testing.T) {
 		Routing: agentConfig.RoutingConfig{
 			ReliabilityWeight: 0.5,
 			PerformanceWeight: 0.2,
-			LoadWeight:        0.2,
+			LoadWeight:        0.1,
 			CostWeight:        0.1,
+			CapabilityWeight:  0.1,
 		},
 	}
-	rel, perf, load, cost := routingWeights(cfg)
-	// Should be normalized
+	rel, perf, load, cost, cap := routingWeights(cfg)
+	// Should be normalized (total = 1.0)
 	assert.InDelta(t, 0.50, rel, 0.001)
 	assert.InDelta(t, 0.20, perf, 0.001)
-	assert.InDelta(t, 0.20, load, 0.001)
+	assert.InDelta(t, 0.10, load, 0.001)
 	assert.InDelta(t, 0.10, cost, 0.001)
+	assert.InDelta(t, 0.10, cap, 0.001)
 }
 
 func TestRoutingWeights_SumToOne(t *testing.T) {
@@ -40,11 +43,12 @@ func TestRoutingWeights_SumToOne(t *testing.T) {
 			ReliabilityWeight: 0.3,
 			PerformanceWeight: 0.3,
 			LoadWeight:        0.2,
-			CostWeight:        0.2,
+			CostWeight:        0.1,
+			CapabilityWeight:  0.1,
 		},
 	}
-	rel, perf, load, cost := routingWeights(cfg)
-	total := rel + perf + load + cost
+	rel, perf, load, cost, cap := routingWeights(cfg)
+	total := rel + perf + load + cost + cap
 	assert.InDelta(t, 1.0, total, 0.001)
 }
 
@@ -357,4 +361,53 @@ func TestProviderModelProbe_Available(t *testing.T) {
 
 	probe.err = assert.AnError
 	assert.False(t, probe.available())
+}
+
+func TestScoreSmartRouteCandidates_CapabilityBreaksTie(t *testing.T) {
+	// Two candidates with same reliability and cost but different SWEBenchVerified;
+	// the higher benchmark score candidate should win.
+	plan := &smartRoutePlan{
+		Candidates: []smartRouteCandidate{
+			{
+				Provider:         "provider-a",
+				Model:            "model-a",
+				Healthy:          true,
+				Reliability:      0.9,
+				SWEBenchVerified: 40.0, // lower capability
+			},
+			{
+				Provider:         "provider-b",
+				Model:            "model-b",
+				Healthy:          true,
+				Reliability:      0.9,
+				SWEBenchVerified: 70.0, // higher capability
+			},
+		},
+	}
+
+	cfg := &agentConfig.Config{
+		Routing: agentConfig.RoutingConfig{
+			// Give capability significant weight to ensure it breaks the tie.
+			ReliabilityWeight: 0.35,
+			PerformanceWeight: 0.20,
+			LoadWeight:        0.15,
+			CostWeight:        0.20,
+			CapabilityWeight:  0.10,
+		},
+	}
+
+	order := scoreSmartRouteCandidates(plan, 0, cfg)
+	assert.NotEmpty(t, order)
+	// provider-b has higher SWEBenchVerified so it should be ranked first.
+	assert.Equal(t, "provider-b", plan.Candidates[order[0]].Provider)
+	assert.Greater(t, plan.Candidates[order[0]].CapabilityScore, plan.Candidates[order[1]].CapabilityScore)
+}
+
+func TestRoutingWeights_CapabilityDefault(t *testing.T) {
+	cfg := &agentConfig.Config{}
+	rel, perf, load, cost, cap := routingWeights(cfg)
+	total := rel + perf + load + cost + cap
+	assert.InDelta(t, 1.0, total, 0.001, "default weights must sum to 1.0")
+	assert.Greater(t, cap, 0.0, "capability weight must be positive")
+	assert.InDelta(t, 0.10, cap, 0.001, "default capability weight is ~0.10")
 }
