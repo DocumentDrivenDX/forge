@@ -366,14 +366,132 @@ func (c *Config) BuildProvider(name string) (agent.Provider, error) {
 }
 
 // BuildTelemetry constructs the telemetry runtime from config.
+// Pricing entries from the model catalog are seeded into RuntimePricing as
+// fallback defaults; user-configured entries in ddx-agent.yaml take precedence.
 func (c *Config) BuildTelemetry() telemetry.Telemetry {
+	pricing := c.buildRuntimePricing()
 	return telemetry.New(telemetry.Config{
 		Enabled:        c.Telemetry.Enabled,
-		Pricing:        c.Telemetry.Pricing,
+		Pricing:        pricing,
 		TracerProvider: c.Telemetry.TracerProvider,
 		MeterProvider:  c.Telemetry.MeterProvider,
 		Shutdown:       c.Telemetry.Shutdown,
 	})
+}
+
+// surfaceToProviderSystem maps a model catalog surface name to the provider
+// system string used in telemetry.RuntimePricing.
+func surfaceToProviderSystem(surface string) (string, bool) {
+	switch surface {
+	case string(modelcatalog.SurfaceAgentAnthropic):
+		return "anthropic", true
+	case string(modelcatalog.SurfaceAgentOpenAI):
+		return "openai", true
+	default:
+		return "", false
+	}
+}
+
+// buildRuntimePricing constructs a RuntimePricing map seeded from catalog/static
+// pricing as defaults, then overlaid with any user-configured entries.
+func (c *Config) buildRuntimePricing() telemetry.RuntimePricing {
+	pricing := make(telemetry.RuntimePricing)
+
+	// Seed from the model catalog. Prefer the catalog loaded per user config;
+	// fall back to DefaultPricing from the static table.
+	cat, err := c.LoadModelCatalog()
+	if err == nil {
+		seedFromCatalog(pricing, cat)
+	} else {
+		seedFromDefaultPricing(pricing)
+	}
+
+	// Overlay user-configured pricing — user config always wins.
+	for providerSystem, models := range c.Telemetry.Pricing {
+		if _, exists := pricing[providerSystem]; !exists {
+			pricing[providerSystem] = make(map[string]telemetry.Cost)
+		}
+		for model, cost := range models {
+			pricing[providerSystem][model] = cost
+		}
+	}
+
+	if len(pricing) == 0 {
+		return nil
+	}
+	return pricing
+}
+
+// seedFromCatalog populates dst with per-model pricing from the catalog for the
+// agent.anthropic and agent.openai surfaces. Only entries not already present
+// in dst are written (caller overlays user config afterward).
+func seedFromCatalog(dst telemetry.RuntimePricing, cat *modelcatalog.Catalog) {
+	catalogPricing := cat.PricingFor()
+
+	surfaces := []struct {
+		surface        modelcatalog.Surface
+		providerSystem string
+	}{
+		{modelcatalog.SurfaceAgentAnthropic, "anthropic"},
+		{modelcatalog.SurfaceAgentOpenAI, "openai"},
+	}
+
+	for _, s := range surfaces {
+		models := cat.AllConcreteModels(s.surface)
+		for concreteModel := range models {
+			p, ok := catalogPricing[concreteModel]
+			if !ok {
+				continue
+			}
+			if _, exists := dst[s.providerSystem]; !exists {
+				dst[s.providerSystem] = make(map[string]telemetry.Cost)
+			}
+			if _, exists := dst[s.providerSystem][concreteModel]; !exists {
+				dst[s.providerSystem][concreteModel] = telemetry.Cost{
+					InputPerMTok:  p.InputPerMTok,
+					OutputPerMTok: p.OutputPerMTok,
+					Currency:      "USD",
+					PricingRef:    s.providerSystem + "/" + concreteModel,
+				}
+			}
+		}
+	}
+}
+
+// seedFromDefaultPricing populates dst with entries from the static
+// DefaultPricing table using well-known model ID prefixes to infer the
+// provider system.
+func seedFromDefaultPricing(dst telemetry.RuntimePricing) {
+	for modelID, p := range agent.DefaultPricing {
+		providerSystem := defaultPricingProviderSystem(modelID)
+		if providerSystem == "" {
+			continue
+		}
+		if _, exists := dst[providerSystem]; !exists {
+			dst[providerSystem] = make(map[string]telemetry.Cost)
+		}
+		if _, exists := dst[providerSystem][modelID]; !exists {
+			dst[providerSystem][modelID] = telemetry.Cost{
+				InputPerMTok:  p.InputPerMTok,
+				OutputPerMTok: p.OutputPerMTok,
+				Currency:      "USD",
+				PricingRef:    providerSystem + "/" + modelID,
+			}
+		}
+	}
+}
+
+// defaultPricingProviderSystem infers the provider system for a model ID from
+// the static DefaultPricing table using well-known model ID prefixes.
+func defaultPricingProviderSystem(modelID string) string {
+	switch {
+	case strings.HasPrefix(modelID, "claude-"):
+		return "anthropic"
+	case strings.HasPrefix(modelID, "gpt-"), strings.HasPrefix(modelID, "o3"), strings.HasPrefix(modelID, "o1"):
+		return "openai"
+	default:
+		return ""
+	}
 }
 
 // ResolveProviderConfig applies per-run overrides to a named provider config.
