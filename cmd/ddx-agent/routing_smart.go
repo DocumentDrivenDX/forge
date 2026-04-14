@@ -63,6 +63,7 @@ type smartRoutePlan struct {
 	Strategy          string                `json:"strategy"`
 	Candidates        []smartRouteCandidate `json:"candidates"`
 	Order             []int                 `json:"-"`
+	scorer            CandidateScorer       `json:"-"`
 }
 
 type providerModelProbe struct {
@@ -119,13 +120,14 @@ func routingWeights(cfg *agentConfig.Config) (reliability, performance, load, co
 	return reliability / total, performance / total, load / total, cost / total
 }
 
-func buildSmartRoutePlan(cfg *agentConfig.Config, workDir, routeKey, routeModelRef string, allowDeprecated bool, explicitRoute *agentConfig.ModelRouteConfig) (smartRoutePlan, error) {
+func buildSmartRoutePlan(cfg *agentConfig.Config, workDir, routeKey, routeModelRef string, allowDeprecated bool, explicitRoute *agentConfig.ModelRouteConfig, scorer CandidateScorer) (smartRoutePlan, error) {
 	now := time.Now().UTC()
 	plan := smartRoutePlan{
 		RouteKey:          routeKey,
 		RequestedModel:    routeKey,
 		RequestedModelRef: routeModelRef,
 		Strategy:          "smart",
+		scorer:            scorer,
 	}
 
 	var route agentConfig.ModelRouteConfig
@@ -343,6 +345,30 @@ func scoreSmartRouteCandidates(plan *smartRoutePlan, counter int, cfg *agentConf
 			loadScore*loadWeight +
 			costScore*costWeight +
 			priorityScore
+
+		if plan.scorer != nil {
+			adjusted := plan.scorer.Score(candidate.Provider, candidate.Model, candidate.Score)
+			if adjusted < 0 {
+				candidate.Healthy = false
+				candidate.Reason = "excluded by scorer"
+				continue
+			}
+			candidate.Score = adjusted
+		}
+	}
+
+	// Re-filter healthy after scorer may have excluded candidates.
+	if plan.scorer != nil {
+		filtered := healthy[:0]
+		for _, idx := range healthy {
+			if plan.Candidates[idx].Healthy {
+				filtered = append(filtered, idx)
+			}
+		}
+		healthy = filtered
+		if len(healthy) == 0 {
+			return nil
+		}
 	}
 
 	sort.SliceStable(healthy, func(i, j int) bool {
@@ -655,7 +681,7 @@ func cmdRouteStatus(workDir string, args []string) int {
 	if route, ok := cfg.GetModelRoute(routeKey); ok {
 		explicitRoute = &route
 	}
-	plan, err := buildSmartRoutePlan(cfg, workDir, routeKey, routeModelRef, false, explicitRoute)
+	plan, err := buildSmartRoutePlan(cfg, workDir, routeKey, routeModelRef, false, explicitRoute, nil)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
