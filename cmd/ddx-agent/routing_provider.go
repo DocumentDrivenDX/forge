@@ -196,7 +196,6 @@ func (p *routeProvider) recordAttempt(provider string, attempts []string, failov
 
 func (p *routeProvider) markCandidateFailure(provider string) {
 	state, _ := loadRouteHealthState(p.workDir, p.routeKey)
-	delete(state.Failures, provider)
 	if state.Failures == nil {
 		state.Failures = make(map[string]time.Time)
 	}
@@ -353,7 +352,9 @@ func saveRouteHealthState(workDir, routeKey string, state routeHealthState) erro
 	if err != nil {
 		return err
 	}
-	return safefs.WriteFile(path, data, 0o600)
+	// WriteFileAtomic prevents readers from seeing a partially-written file
+	// if the process is interrupted between write and flush.
+	return safefs.WriteFileAtomic(path, data, 0o600)
 }
 
 func routeHealthCooldown(cfg *agentConfig.Config) time.Duration {

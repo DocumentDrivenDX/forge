@@ -1,6 +1,10 @@
 package safefs
 
-import "os"
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+)
 
 // ReadFile reads a file from a user-selected path.
 // #nosec G304 -- callers intentionally operate on user-selected paths.
@@ -24,6 +28,42 @@ func MkdirAll(path string, perm os.FileMode) error {
 // #nosec G302 -- update downloads must be made executable.
 func Chmod(name string, mode os.FileMode) error {
 	return os.Chmod(name, mode)
+}
+
+// WriteFileAtomic writes data to name atomically by writing to a temporary file
+// in the same directory and then renaming it into place. This prevents readers
+// from observing a partially-written file if the process is interrupted.
+// #nosec G304 -- callers intentionally operate on user-selected paths.
+func WriteFileAtomic(name string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(name)
+	tmp, err := os.CreateTemp(dir, ".tmp-safefs-*")
+	if err != nil {
+		return fmt.Errorf("safefs: create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+	// Best-effort cleanup on failure.
+	ok := false
+	defer func() {
+		if !ok {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("safefs: write temp file: %w", err)
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("safefs: chmod temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("safefs: close temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, name); err != nil {
+		return fmt.Errorf("safefs: rename temp file: %w", err)
+	}
+	ok = true
+	return nil
 }
 
 // Remove deletes a file if it exists.

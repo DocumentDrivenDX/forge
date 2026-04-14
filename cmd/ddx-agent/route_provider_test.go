@@ -349,3 +349,62 @@ func TestNewRouteProvider_CopiesData(t *testing.T) {
 	assert.Equal(t, "local", rp.candidates[0].Provider)
 	assert.Equal(t, 0, rp.order[0])
 }
+
+// TestRouteHealthState_CooldownEnforcement verifies the full save/load/enforce
+// cycle: a provider recorded as failed within cooldown is excluded; one whose
+// failure timestamp is older than the cooldown window is re-admitted.
+func TestRouteHealthState_CooldownEnforcement(t *testing.T) {
+	workDir := t.TempDir()
+	routeKey := "cooldown-test-route"
+	cooldown := 30 * time.Second
+
+	candidates := []agentConfig.ModelRouteCandidateConfig{
+		{Provider: "in-cooldown"},
+		{Provider: "expired-cooldown"},
+		{Provider: "healthy"},
+	}
+
+	// Persist health state: in-cooldown failed 10s ago, expired-cooldown 60s ago.
+	state := routeHealthState{
+		Failures: map[string]time.Time{
+			"in-cooldown":      time.Now().Add(-10 * time.Second),
+			"expired-cooldown": time.Now().Add(-60 * time.Second),
+		},
+	}
+	err := saveRouteHealthState(workDir, routeKey, state)
+	assert.NoError(t, err)
+
+	// Load it back and compute eligible candidates, simulating what
+	// buildSmartRoutePlan / routeAttemptOrder do on the next invocation.
+	loaded, err := loadRouteHealthState(workDir, routeKey)
+	assert.NoError(t, err)
+
+	eligible := healthyCandidateIndexes(candidates, loaded, cooldown)
+
+	// "in-cooldown" must be excluded; "expired-cooldown" and "healthy" must be included.
+	assert.NotContains(t, eligible, 0, "in-cooldown provider should be excluded during cooldown window")
+	assert.Contains(t, eligible, 1, "expired-cooldown provider should be re-admitted after cooldown expires")
+	assert.Contains(t, eligible, 2, "healthy provider should always be eligible")
+}
+
+// TestRouteHealthState_AtomicWrite verifies that saveRouteHealthState produces
+// a valid, loadable file (confirming atomic rename path completes without error).
+func TestRouteHealthState_AtomicWrite(t *testing.T) {
+	workDir := t.TempDir()
+	routeKey := "atomic-write-route"
+
+	state := routeHealthState{
+		Failures: map[string]time.Time{
+			"provider-a": time.Now().Add(-5 * time.Second),
+		},
+	}
+
+	err := saveRouteHealthState(workDir, routeKey, state)
+	assert.NoError(t, err)
+
+	loaded, err := loadRouteHealthState(workDir, routeKey)
+	assert.NoError(t, err)
+	assert.Len(t, loaded.Failures, 1)
+	_, ok := loaded.Failures["provider-a"]
+	assert.True(t, ok, "provider-a failure timestamp must survive save/load roundtrip")
+}
