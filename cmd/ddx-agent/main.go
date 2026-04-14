@@ -419,7 +419,7 @@ func buildRouteSelection(cfg *agentConfig.Config, workDir, routeKey, routeModelR
 	if route, ok := cfg.GetModelRoute(routeKey); ok {
 		explicitRoute = &route
 	}
-	plan, err := buildSmartRoutePlan(cfg, workDir, routeKey, routeModelRef, allowDeprecated, explicitRoute)
+	plan, err := buildSmartRoutePlan(cfg, workDir, routeKey, routeModelRef, allowDeprecated, explicitRoute, nil)
 	if err != nil {
 		return providerSelection{}, nil, agentConfig.ProviderConfig{}, err
 	}
