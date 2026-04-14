@@ -321,10 +321,16 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				resp.Attempt.ProviderSystem != "" &&
 				resp.Attempt.ResolvedModel != "" {
 				if configuredCost, ok := runtimeTelemetry.ResolveCost(resp.Attempt.ProviderSystem, resp.Attempt.ResolvedModel); ok {
+					amount := configuredCost.Amount
+					if amount == nil && (configuredCost.InputPerMTok > 0 || configuredCost.OutputPerMTok > 0) {
+						computed := float64(resp.Usage.Input)/1_000_000*configuredCost.InputPerMTok +
+							float64(resp.Usage.Output)/1_000_000*configuredCost.OutputPerMTok
+						amount = &computed
+					}
 					resp.Attempt.Cost = &CostAttribution{
 						Source:     CostSourceConfigured,
 						Currency:   configuredCost.Currency,
-						Amount:     configuredCost.Amount,
+						Amount:     amount,
 						PricingRef: configuredCost.PricingRef,
 					}
 				}

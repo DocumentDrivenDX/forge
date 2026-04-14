@@ -114,11 +114,16 @@ type Telemetry interface {
 }
 
 // Cost captures runtime-specific configured pricing for an exact model match.
+// When Amount is set it represents a pre-computed total cost in Currency. When
+// only InputPerMTok / OutputPerMTok are set, callers must multiply by the
+// actual token usage to derive the total cost.
 type Cost struct {
-	Source     string   `json:"source,omitempty" yaml:"-"`
-	Amount     *float64 `json:"amount,omitempty"`
-	Currency   string   `json:"currency,omitempty"`
-	PricingRef string   `json:"pricing_ref,omitempty"`
+	Source        string   `json:"source,omitempty" yaml:"-"`
+	Amount        *float64 `json:"amount,omitempty"`
+	Currency      string   `json:"currency,omitempty"`
+	PricingRef    string   `json:"pricing_ref,omitempty"`
+	InputPerMTok  float64  `json:"input_per_mtok,omitempty"  yaml:"input_per_mtok,omitempty"`
+	OutputPerMTok float64  `json:"output_per_mtok,omitempty" yaml:"output_per_mtok,omitempty"`
 }
 
 // RuntimePricing maps provider system -> resolved model -> exact configured
@@ -323,11 +328,13 @@ func (r *runtime) ResolveCost(providerSystem, resolvedModel string) (Cost, bool)
 		return Cost{}, false
 	}
 
+	// Require at least a pre-computed amount or per-MTok rates to be meaningful.
+	if cost.Amount == nil && cost.InputPerMTok == 0 && cost.OutputPerMTok == 0 {
+		return Cost{}, false
+	}
+
 	if cost.Source == "" {
 		cost.Source = "configured"
-	}
-	if cost.Amount == nil {
-		return Cost{}, false
 	}
 	if cost.Currency == "" {
 		cost.Currency = "USD"
