@@ -628,7 +628,7 @@ func TestConsumeStream_UnlimitedReasoningByteLimit(t *testing.T) {
 	seq := 0
 	start := time.Now()
 	resp, err := consumeStream(context.Background(), sp, nil, nil, Options{}, nil, "test", start, &seq, streamThresholds{
-		reasoningByteLimit:    0, // unlimited
+		reasoningByteLimit:    0,                // unlimited
 		reasoningStallTimeout: 10 * time.Minute, // high to avoid stall
 	})
 	require.NoError(t, err)
@@ -649,7 +649,7 @@ func TestConsumeStream_UnlimitedReasoningStallTimeout(t *testing.T) {
 	seq := 0
 	start := time.Now()
 	resp, err := consumeStream(context.Background(), sp, nil, nil, Options{}, nil, "test", start, &seq, streamThresholds{
-		reasoningStallTimeout: 0, // unlimited
+		reasoningStallTimeout: 0,                // unlimited
 		reasoningByteLimit:    10 * 1024 * 1024, // high to avoid overflow
 	})
 	require.NoError(t, err)
