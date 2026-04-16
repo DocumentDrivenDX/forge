@@ -65,7 +65,7 @@ func TestIsCompactionSummary(t *testing.T) {
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 	assert.True(t, cfg.Enabled)
-	assert.Equal(t, 8192, cfg.ContextWindow)
+	assert.Equal(t, 131072, cfg.ContextWindow)
 	assert.Equal(t, 8192, cfg.ReserveTokens)
 	assert.Equal(t, 95, cfg.EffectivePercent)
 	assert.Equal(t, 2000, cfg.MaxToolResultChars)

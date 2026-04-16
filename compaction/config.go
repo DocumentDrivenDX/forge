@@ -7,7 +7,9 @@ import (
 )
 
 // DefaultContextWindow is used when no context window is configured.
-const DefaultContextWindow = 8192
+// Most modern models support at least 128k; 8k caused premature compaction
+// and stuck loops on models where LM Studio doesn't report context length.
+const DefaultContextWindow = 131072
 
 // DefaultReserveTokens is the token budget reserved for the model response.
 const DefaultReserveTokens = 8192

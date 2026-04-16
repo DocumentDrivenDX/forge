@@ -45,11 +45,13 @@ models:
     swe_bench_verified: 77.2
   qwen3.5-27b:
     provider_system: openai
+    context_window: 262144
     cost_input_per_mtok: 0.10
     cost_output_per_mtok: 0.30
     swe_bench_verified: 59.0
   qwen3.5-14b:
     provider_system: openai
+    context_window: 262144
     cost_input_per_mtok: 0.07
     cost_output_per_mtok: 0.20
     swe_bench_verified: 52.0
@@ -192,6 +194,7 @@ targets:
 
   qwen3-coder-next:
     family: qwen3-coder
+    context_window: 262144
     aliases:
       - qwen-coder-next
       - qwen3-coder
