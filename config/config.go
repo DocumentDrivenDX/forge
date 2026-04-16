@@ -38,6 +38,13 @@ type ProviderConfig struct {
 	// ThinkingLevel is a named intensity level (off/low/medium/high).
 	// Resolved to ThinkingBudget if ThinkingBudget is 0.
 	ThinkingLevel string `yaml:"thinking_level,omitempty"`
+	// MaxTokens is the maximum number of tokens the model may generate per turn.
+	// Zero means use the provider's default.
+	MaxTokens int `yaml:"max_tokens,omitempty"`
+	// ContextWindow is the model's context window in tokens. Used to configure
+	// automatic compaction: the compactor triggers when message history approaches
+	// this limit. Zero means use the compaction package default (8192).
+	ContextWindow int `yaml:"context_window,omitempty"`
 }
 
 // ImportMetadata records the last import source for drift detection.

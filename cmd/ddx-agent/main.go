@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
+	"github.com/DocumentDrivenDX/agent/compaction"
 	agentConfig "github.com/DocumentDrivenDX/agent/config"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/modelcatalog"
@@ -157,7 +158,7 @@ func run() int {
 		ModelRef:        *modelRef,
 		AllowDeprecated: *allowDeprecatedModel,
 	}
-	selection, p, _, err := resolveProviderForRun(cfg, wd, *backendFlag, *providerFlag, overrides)
+	selection, p, pc, err := resolveProviderForRun(cfg, wd, *backendFlag, *providerFlag, overrides)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 2
@@ -194,6 +195,34 @@ func run() int {
 		return 2
 	}
 
+	// Signal context is created early so discovery can be cancelled on interrupt.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	// Resolve model limits: explicit config takes precedence; fall back to
+	// live API discovery for LM Studio and OpenRouter providers.
+	resolvedContextWindow := pc.ContextWindow
+	resolvedMaxTokens := pc.MaxTokens
+	if resolvedContextWindow == 0 || resolvedMaxTokens == 0 {
+		limits := oaiProvider.LookupModelLimits(ctx, pc.BaseURL, pc.APIKey, pc.Headers, selection.ResolvedModel)
+		if resolvedContextWindow == 0 {
+			resolvedContextWindow = limits.ContextLength
+		}
+		if resolvedMaxTokens == 0 {
+			resolvedMaxTokens = limits.MaxCompletionTokens
+		}
+	}
+
+	// Build compaction config from resolved context window.
+	compactionCfg := compaction.DefaultConfig()
+	if resolvedContextWindow > 0 {
+		compactionCfg.ContextWindow = resolvedContextWindow
+		if resolvedMaxTokens > 0 {
+			compactionCfg.ReserveTokens = resolvedMaxTokens
+		}
+	}
+	compactor := compaction.NewCompactor(compactionCfg)
+
 	// Build request
 	req := agent.Request{
 		Prompt:                promptText,
@@ -214,11 +243,9 @@ func run() int {
 		Telemetry:             cfg.BuildTelemetry(),
 		ReasoningByteLimit:    cfg.ReasoningByteLimit,
 		ReasoningStallTimeout: reasoningStallTimeout,
+		MaxTokens:             resolvedMaxTokens,
+		Compactor:             compactor,
 	}
-
-	// Run with signal handling
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
 
 	result, err := agent.Run(ctx, req)
 	if err != nil {

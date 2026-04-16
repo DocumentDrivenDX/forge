@@ -111,7 +111,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	})
 
 	seq := 1
-	opts := Options{}
+	opts := Options{MaxTokens: req.MaxTokens}
 
 	// Tool-call loop detection: abort when the same fingerprint repeats consecutively.
 	const toolCallLoopLimit = 3

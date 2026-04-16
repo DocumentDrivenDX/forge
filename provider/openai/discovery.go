@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -130,6 +131,121 @@ func SelectModel(ranked []ScoredModel) string {
 		return ""
 	}
 	return ranked[0].ID
+}
+
+// ModelLimits holds the context and output limits discovered from a provider API.
+// Zero values mean the limit could not be determined.
+type ModelLimits struct {
+	// ContextLength is the model's context window in tokens.
+	ContextLength int
+	// MaxCompletionTokens is the maximum number of output tokens per turn.
+	MaxCompletionTokens int
+}
+
+// LookupModelLimits queries the provider API to discover context and output
+// limits for the given model. Returns zero values on any error — callers should
+// apply their own defaults when the returned values are zero.
+//
+// Supported providers:
+//   - LM Studio: queries /api/v0/models/{model} for loaded_context_length
+//   - OpenRouter: queries /api/v1/models and finds the matching entry
+func LookupModelLimits(ctx context.Context, baseURL, apiKey string, headers map[string]string, model string) ModelLimits {
+	system, _, _ := openAIIdentity(baseURL)
+	switch system {
+	case "lmstudio":
+		return lmstudioLimits(ctx, baseURL, model)
+	case "openrouter":
+		return openrouterLimits(ctx, apiKey, headers, model)
+	default:
+		return ModelLimits{}
+	}
+}
+
+// getAndDecode performs a GET request with optional Bearer auth and extra
+// headers, decodes the JSON response into out, and returns any error.
+func getAndDecode(ctx context.Context, timeout time.Duration, endpoint, apiKey string, headers map[string]string, out any) error {
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// lmstudioLimits queries LM Studio's extended /api/v0/models/{model} endpoint.
+func lmstudioLimits(ctx context.Context, baseURL, model string) ModelLimits {
+	// Strip /v1 to get the LM Studio server root; path-escape the model ID to
+	// handle namespaced IDs like "qwen/qwen3.5-27b".
+	root := strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1")
+	endpoint := root + "/api/v0/models/" + url.PathEscape(model)
+
+	var info struct {
+		LoadedContextLength int `json:"loaded_context_length"`
+		MaxContextLength    int `json:"max_context_length"`
+	}
+	if err := getAndDecode(ctx, 5*time.Second, endpoint, "", nil, &info); err != nil {
+		return ModelLimits{}
+	}
+
+	// Prefer the actually-loaded context over the theoretical model maximum.
+	contextLen := info.LoadedContextLength
+	if contextLen == 0 {
+		contextLen = info.MaxContextLength
+	}
+	return ModelLimits{ContextLength: contextLen}
+}
+
+// openrouterLimits queries the OpenRouter /api/v1/models list and finds the
+// entry matching the configured model.
+func openrouterLimits(ctx context.Context, apiKey string, headers map[string]string, model string) ModelLimits {
+	var list struct {
+		Data []struct {
+			ID            string `json:"id"`
+			ContextLength int    `json:"context_length"`
+			TopProvider   struct {
+				MaxCompletionTokens int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
+		} `json:"data"`
+	}
+	if err := getAndDecode(ctx, 10*time.Second, "https://openrouter.ai/api/v1/models", apiKey, headers, &list); err != nil {
+		return ModelLimits{}
+	}
+
+	// Normalize ID by lowercasing and replacing hyphens with dots so that
+	// version variants like "4-5" and "4.5" compare equal.
+	normalizeID := func(s string) string {
+		return strings.ToLower(strings.ReplaceAll(s, "-", "."))
+	}
+	normModel := normalizeID(model)
+	for _, m := range list.Data {
+		if strings.EqualFold(m.ID, model) || normalizeID(m.ID) == normModel {
+			return ModelLimits{
+				ContextLength:       m.ContextLength,
+				MaxCompletionTokens: m.TopProvider.MaxCompletionTokens,
+			}
+		}
+	}
+	return ModelLimits{}
 }
 
 // NormalizeModelID resolves a caller-supplied model name against the server's

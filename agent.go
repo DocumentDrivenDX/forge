@@ -301,6 +301,10 @@ type Request struct {
 	// ResolvedModel is the resolved concrete model selected before the run.
 	ResolvedModel string
 
+	// MaxTokens is the maximum number of tokens the model may generate per turn.
+	// Zero means no explicit limit (provider default applies).
+	MaxTokens int
+
 	// NoStream disables streaming even if the provider supports it.
 	NoStream bool
 
