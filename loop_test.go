@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -171,6 +172,16 @@ func (p *cancelingIdentityProvider) Chat(ctx context.Context, messages []Message
 		p.cancel()
 	}
 	return Response{}, errors.New("forced provider failure")
+}
+
+type streamingIdentityProvider struct {
+	*mockStreamingProvider
+	provider string
+	model    string
+}
+
+func (p *streamingIdentityProvider) SessionStartMetadata() (string, string) {
+	return p.provider, p.model
 }
 
 func findResponseAttempt(t *testing.T, data []byte) map[string]any {
@@ -1538,6 +1549,76 @@ func TestRun_ToolSpanRecordsErrors(t *testing.T) {
 	assert.NotEmpty(t, attrString(t, toolSpan.Attributes(), telemetry.KeyErrorType))
 }
 
+func TestRun_ReasoningOverflowChatSpanRecordsContractErrorSemantics(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	tel := telemetry.New(telemetry.Config{TracerProvider: tp})
+
+	chunk := strings.Repeat("x", 4096)
+	var deltas []StreamDelta
+	for i := 0; i < 9; i++ {
+		deltas = append(deltas, StreamDelta{ReasoningContent: chunk})
+	}
+	sp := &streamingIdentityProvider{
+		mockStreamingProvider: &mockStreamingProvider{deltas: deltas},
+		provider:              "openai",
+		model:                 "test-overflow-model",
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:             "test",
+		Provider:           sp,
+		Telemetry:          tel,
+		ReasoningByteLimit: 32 * 1024,
+		RequestedModel:     "test-overflow-model",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrReasoningOverflow)
+	assert.Equal(t, StatusError, result.Status)
+
+	ended := recorder.Ended()
+	require.Len(t, ended, 2)
+	chatSpan := spansWithOperation(t, ended, "chat")[0]
+	assertContractErrorSpan(t, chatSpan, ErrReasoningOverflow.Error())
+	assert.Contains(t, chatSpan.Status().Description, "test-overflow-model")
+}
+
+func TestRun_ReasoningStallChatSpanRecordsContractErrorSemantics(t *testing.T) {
+	recorder := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(recorder))
+	tel := telemetry.New(telemetry.Config{TracerProvider: tp})
+
+	sp := &streamingIdentityProvider{
+		mockStreamingProvider: &mockStreamingProvider{
+			delayBetween: 30 * time.Millisecond,
+			deltas: []StreamDelta{
+				{ReasoningContent: "thinking..."},
+				{ReasoningContent: "still thinking..."},
+				{ReasoningContent: "more thinking..."},
+			},
+		},
+		provider: "openai",
+		model:    "test-stall-model",
+	}
+
+	result, err := Run(context.Background(), Request{
+		Prompt:                "test",
+		Provider:              sp,
+		Telemetry:             tel,
+		ReasoningStallTimeout: 50 * time.Millisecond,
+		RequestedModel:        "test-stall-model",
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrReasoningStall)
+	assert.Equal(t, StatusError, result.Status)
+
+	ended := recorder.Ended()
+	require.Len(t, ended, 2)
+	chatSpan := spansWithOperation(t, ended, "chat")[0]
+	assertContractErrorSpan(t, chatSpan, ErrReasoningStall.Error())
+	assert.Contains(t, chatSpan.Status().Description, "test-stall-model")
+}
+
 func TestRun_SessionEndEventIncludesKnownCost(t *testing.T) {
 	sessionCost := 0.0234
 	provider := &mockProvider{
@@ -1753,6 +1834,26 @@ func attrFloat(t *testing.T, attrs []attribute.KeyValue, key string) float64 {
 
 	require.Failf(t, "attribute not found", "missing %q", key)
 	return 0
+}
+
+func assertContractErrorSpan(t *testing.T, span sdktrace.ReadOnlySpan, wantErr string) {
+	t.Helper()
+
+	require.Equal(t, codes.Error, span.Status().Code)
+	assert.Contains(t, span.Status().Description, wantErr)
+	assert.NotEmpty(t, attrString(t, span.Attributes(), telemetry.KeyErrorType))
+
+	events := span.Events()
+	require.NotEmpty(t, events, "failed span should record an exception event")
+
+	foundException := false
+	for _, event := range events {
+		if event.Name == "exception" {
+			foundException = true
+			break
+		}
+	}
+	assert.True(t, foundException, "failed span should include an exception event")
 }
 
 func spanAttrString(attrs []attribute.KeyValue, key string) (string, bool) {
