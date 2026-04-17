@@ -148,12 +148,18 @@ type ModelLimits struct {
 //
 // Supported providers:
 //   - LM Studio: queries /api/v0/models/{model} for loaded_context_length
+//   - oMLX: queries /v1/models/status and finds the matching entry
 //   - OpenRouter: queries /api/v1/models and finds the matching entry
 func LookupModelLimits(ctx context.Context, baseURL, apiKey string, headers map[string]string, model string) ModelLimits {
-	system, _, _ := openAIIdentity(baseURL)
-	switch system {
+	return lookupModelLimitsWithFlavor(ctx, baseURL, apiKey, headers, model, "")
+}
+
+func lookupModelLimitsWithFlavor(ctx context.Context, baseURL, apiKey string, headers map[string]string, model, flavor string) ModelLimits {
+	switch resolveProviderFlavor(ctx, baseURL, flavor) {
 	case "lmstudio":
 		return lmstudioLimits(ctx, baseURL, model)
+	case "omlx":
+		return omlxLimits(ctx, baseURL, model)
 	case "openrouter":
 		return openrouterLimits(ctx, apiKey, headers, model)
 	default:
@@ -215,6 +221,33 @@ func lmstudioLimits(ctx context.Context, baseURL, model string) ModelLimits {
 	return ModelLimits{ContextLength: contextLen}
 }
 
+// omlxLimits queries oMLX's extended /v1/models/status endpoint.
+func omlxLimits(ctx context.Context, baseURL, model string) ModelLimits {
+	base := strings.TrimRight(baseURL, "/")
+	endpoint := base + "/models/status"
+
+	var status struct {
+		Models []struct {
+			ID               string `json:"id"`
+			MaxContextWindow int    `json:"max_context_window"`
+			MaxTokens        int    `json:"max_tokens"`
+		} `json:"models"`
+	}
+	if err := getAndDecode(ctx, 5*time.Second, endpoint, "", nil, &status); err != nil {
+		return ModelLimits{}
+	}
+
+	for _, entry := range status.Models {
+		if strings.EqualFold(entry.ID, model) {
+			return ModelLimits{
+				ContextLength:       entry.MaxContextWindow,
+				MaxCompletionTokens: entry.MaxTokens,
+			}
+		}
+	}
+	return ModelLimits{}
+}
+
 // openrouterLimits queries the OpenRouter /api/v1/models list and finds the
 // entry matching the configured model.
 func openrouterLimits(ctx context.Context, apiKey string, headers map[string]string, model string) ModelLimits {
@@ -246,6 +279,47 @@ func openrouterLimits(ctx context.Context, apiKey string, headers map[string]str
 		}
 	}
 	return ModelLimits{}
+}
+
+func resolveProviderFlavor(ctx context.Context, baseURL, flavor string) string {
+	if flavor != "" {
+		return strings.ToLower(strings.TrimSpace(flavor))
+	}
+
+	if probed := probeProviderFlavor(ctx, baseURL); probed != "" {
+		return probed
+	}
+
+	system, _, _ := openAIIdentity(baseURL)
+	return system
+}
+
+func probeProviderFlavor(ctx context.Context, baseURL string) string {
+	if isOMLX(ctx, baseURL) {
+		return "omlx"
+	}
+	if isLMStudio(ctx, baseURL) {
+		return "lmstudio"
+	}
+	return ""
+}
+
+func isOMLX(ctx context.Context, baseURL string) bool {
+	base := strings.TrimRight(baseURL, "/")
+	endpoint := base + "/models/status"
+	var status struct {
+		Models []json.RawMessage `json:"models"`
+	}
+	return getAndDecode(ctx, 2*time.Second, endpoint, "", nil, &status) == nil && status.Models != nil
+}
+
+func isLMStudio(ctx context.Context, baseURL string) bool {
+	root := strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1")
+	endpoint := root + "/api/v0/models"
+	var list struct {
+		Data []json.RawMessage `json:"data"`
+	}
+	return getAndDecode(ctx, 2*time.Second, endpoint, "", nil, &list) == nil && list.Data != nil
 }
 
 // NormalizeModelID resolves a caller-supplied model name against the server's
