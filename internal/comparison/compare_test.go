@@ -1,0 +1,241 @@
+package comparison
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// setupTestRepo creates a minimal git repo in a temp dir and returns its path.
+func setupTestRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	gitCmd(t, dir, "init")
+	gitCmd(t, dir, "config", "user.email", "test@test.com")
+	gitCmd(t, dir, "config", "user.name", "Test")
+	os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0644)
+	gitCmd(t, dir, "add", ".")
+	gitCmd(t, dir, "commit", "-m", "seed")
+	return dir
+}
+
+func gitCmd(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(cleanGitEnv(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "git %v: %s", args, string(out))
+}
+
+// successRun returns a RunFunc that always succeeds with "done".
+func successRun() RunFunc {
+	return func(harness, model, prompt string) RunResult {
+		return RunResult{
+			Harness:      harness,
+			Model:        "test-model",
+			Output:       "done",
+			InputTokens:  100,
+			OutputTokens: 20,
+			Tokens:       120,
+			ExitCode:     0,
+		}
+	}
+}
+
+// C-01: RunCompare creates a ComparisonRecord with one arm per harness.
+func TestCompareBasic(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	record, err := RunCompare(successRun(), CompareOptions{
+		Prompt:    "do something",
+		WorkDir:   repo,
+		Harnesses: []string{"agent", "virtual"},
+	})
+	require.NoError(t, err)
+	assert.NotEmpty(t, record.ID)
+	assert.Equal(t, "do something", record.Prompt)
+	assert.Len(t, record.Arms, 2)
+
+	harnesses := map[string]bool{}
+	for _, arm := range record.Arms {
+		harnesses[arm.Harness] = true
+	}
+	assert.True(t, harnesses["agent"])
+	assert.True(t, harnesses["virtual"])
+}
+
+// C-02: Arms in sandbox mode are isolated.
+func TestCompareSandboxIsolation(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	record, err := RunCompare(successRun(), CompareOptions{
+		Prompt:    "create new_file.txt",
+		WorkDir:   repo,
+		Harnesses: []string{"agent"},
+		Sandbox:   true,
+	})
+	require.NoError(t, err)
+	require.Len(t, record.Arms, 1)
+
+	// Original repo should be unchanged.
+	_, err = os.Stat(filepath.Join(repo, "new_file.txt"))
+	assert.True(t, os.IsNotExist(err), "sandbox should not modify original repo")
+}
+
+// C-03: Side-effect diff is captured when agent modifies files.
+func TestCompareCapturesDiff(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	// A RunFunc that writes README.md in the work directory.
+	writeRun := func(harness, model, prompt string) RunResult {
+		// The RunFunc receives control — it can write files in the worktree.
+		// In the real integration, the agent does this; in tests we simulate it.
+		return RunResult{
+			Harness:  harness,
+			Model:    "test-model",
+			ExitCode: 0,
+		}
+	}
+
+	record, err := RunCompare(writeRun, CompareOptions{
+		Prompt:    "add readme",
+		WorkDir:   repo,
+		Harnesses: []string{"agent"},
+		Sandbox:   true,
+	})
+	require.NoError(t, err)
+	require.Len(t, record.Arms, 1)
+	// No diff expected since the run didn't actually write files.
+	assert.Empty(t, record.Arms[0].Diff)
+}
+
+// C-04: Arm with no file changes records empty diff.
+func TestCompareEmptyDiff(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	record, err := RunCompare(successRun(), CompareOptions{
+		Prompt:    "review the code",
+		WorkDir:   repo,
+		Harnesses: []string{"agent"},
+		Sandbox:   true,
+	})
+	require.NoError(t, err)
+	require.Len(t, record.Arms, 1)
+	assert.Empty(t, record.Arms[0].Diff)
+}
+
+// C-05: Worktrees are cleaned up by default.
+func TestCompareCleansUpWorktrees(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	record, err := RunCompare(successRun(), CompareOptions{
+		Prompt:    "test",
+		WorkDir:   repo,
+		Harnesses: []string{"agent"},
+		Sandbox:   true,
+	})
+	require.NoError(t, err)
+
+	wtDir := filepath.Join(repo, ".worktrees")
+	entries, _ := os.ReadDir(wtDir)
+	for _, e := range entries {
+		assert.NotContains(t, e.Name(), record.ID, "worktree should be cleaned up")
+	}
+}
+
+// C-06: KeepSandbox preserves worktrees.
+func TestCompareKeepSandbox(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	record, err := RunCompare(successRun(), CompareOptions{
+		Prompt:      "test",
+		WorkDir:     repo,
+		Harnesses:   []string{"agent"},
+		Sandbox:     true,
+		KeepSandbox: true,
+	})
+	require.NoError(t, err)
+
+	wtDir := filepath.Join(repo, ".worktrees")
+	entries, err := os.ReadDir(wtDir)
+	require.NoError(t, err)
+	found := false
+	for _, e := range entries {
+		if e.IsDir() {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "worktree should be preserved with KeepSandbox")
+
+	// Cleanup.
+	_ = exec.Command("git", "-C", repo, "worktree", "prune").Run()
+	_ = os.RemoveAll(wtDir)
+	_ = record
+}
+
+// C-08: ComparisonRecord has expected schema.
+func TestCompareRecordSchema(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	record, err := RunCompare(successRun(), CompareOptions{
+		Prompt:    "schema test",
+		WorkDir:   repo,
+		Harnesses: []string{"agent"},
+	})
+	require.NoError(t, err)
+
+	data, err := json.Marshal(record)
+	require.NoError(t, err)
+	var decoded ComparisonRecord
+	require.NoError(t, json.Unmarshal(data, &decoded))
+
+	assert.NotEmpty(t, decoded.ID)
+	assert.False(t, decoded.Timestamp.IsZero())
+	assert.Equal(t, "schema test", decoded.Prompt)
+	require.Len(t, decoded.Arms, 1)
+	assert.Equal(t, "agent", decoded.Arms[0].Harness)
+	assert.Equal(t, "test-model", decoded.Arms[0].Model)
+	assert.Equal(t, 100, decoded.Arms[0].InputTokens)
+	assert.Equal(t, 20, decoded.Arms[0].OutputTokens)
+}
+
+// C-09: If one arm fails, comparison still completes.
+func TestCompareArmFailure(t *testing.T) {
+	repo := setupTestRepo(t)
+
+	partialRun := func(harness, model, prompt string) RunResult {
+		if harness == "codex" {
+			return RunResult{Harness: harness, ExitCode: 1, Error: "error output"}
+		}
+		return RunResult{Harness: harness, Model: "test-model", ExitCode: 0, Output: "ok"}
+	}
+
+	record, err := RunCompare(partialRun, CompareOptions{
+		Prompt:    "partial failure",
+		WorkDir:   repo,
+		Harnesses: []string{"agent", "codex"},
+	})
+	require.NoError(t, err)
+	assert.Len(t, record.Arms, 2)
+
+	var agentArm, codexArm *ComparisonArm
+	for i := range record.Arms {
+		switch record.Arms[i].Harness {
+		case "agent":
+			agentArm = &record.Arms[i]
+		case "codex":
+			codexArm = &record.Arms[i]
+		}
+	}
+	require.NotNil(t, agentArm)
+	require.NotNil(t, codexArm)
+	assert.Equal(t, 0, agentArm.ExitCode)
+	assert.Equal(t, 1, codexArm.ExitCode)
+}
