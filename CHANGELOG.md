@@ -3,6 +3,38 @@
 All notable changes to ddx-agent are recorded here.
 Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
 
+## [v0.3.14] — 2026-04-18
+
+### Fixed
+- **Filter SSE comment frames before the `ssestream` decoder.**
+  `openai-go`'s SSE decoder dispatches an event on any blank line —
+  including the terminator of a comment-only frame like
+  `: keep-alive\n\n`. `Stream.Next` then `json.Unmarshal`s empty bytes
+  and surfaces `unexpected end of JSON input`, aborting the stream.
+  `omlx` and other servers emit these comment frames during
+  reasoning-model warmup. Per the WHATWG SSE spec, empty-data events
+  must be silently ignored. Fix adds `sseCommentFilter` +
+  `sseFilterMiddleware` to `provider/openai` that strips comment lines
+  and suppresses the blank-line dispatch when the current frame has not
+  yet seen a field line, so the decoder never observes an empty-event
+  dispatch. Flavor-agnostic — applies to all openai-compat
+  counterparties. Upstream removal triggers (`openai/openai-go` PRs
+  #555 / #643, issues #556 / #618) are referenced in the filter source
+  so the shim can be deleted once the SDK ships a fix.
+  (`agent-f237e07b`)
+
+### Added
+- **`AGENT_DEBUG_WIRE_STREAM_FULL=1`** — opt-in env var that disables
+  the 64 KB cumulative cap on `teeBody`, so the entire SSE stream is
+  captured for post-mortem analysis. Default behavior unchanged.
+  (`agent-f237e07b`, acceptance item 5)
+
+### Tests
+- `TestChatStream_SurvivesSSECommentFramesAndLongSilence` —
+  regression test asserting that a frame sequence of (keep-alive
+  comment, role delta, keep-alive comment, content delta, done)
+  completes without error and delivers content.
+
 ## [v0.3.13] — 2026-04-18
 
 ### Fixed
