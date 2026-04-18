@@ -60,6 +60,8 @@ providers:
     type: openai-compat
     base_url: http://vidar:1234/v1
     api_key: lmstudio
+    thinking_level: low
+    flavor: lmstudio
 
   bragi:
     type: openai-compat
@@ -82,6 +84,13 @@ providers:
   anthropic:
     type: anthropic
     api_key: ${ANTHROPIC_API_KEY}
+
+  vidar-omlx:
+    type: openai-compat
+    base_url: http://vidar:1235/v1
+    model: Qwen3.5-27B-4bit
+    thinking_level: medium
+    flavor: omlx
 
 routing:
   default_model_ref: code-medium
@@ -119,6 +128,18 @@ preset: agent
 max_iterations: 20
 session_log_dir: .agent/sessions
 ```
+
+#### Provider Config Fields
+
+Per-provider optional fields (in addition to `type`, `base_url`, `api_key`, `headers`, `model`):
+
+| Field | Type | Description |
+|---|---|---|
+| `thinking_budget` | int | Explicit max reasoning tokens; overrides `thinking_level` when set |
+| `thinking_level` | string | `off` / `low` / `medium` / `high` — resolved to a token budget at runtime |
+| `max_tokens` | int | Max output tokens per turn; `0` = use provider default |
+| `context_window` | int | Explicit context window override; `0` = attempt live discovery |
+| `flavor` | string | Server flavor hint: `lmstudio`, `omlx`, `openrouter`, `ollama` |
 
 ### Resolution Model
 
@@ -184,6 +205,36 @@ expanded at config load time. No shell evaluation.
 flat config still maps to a single provider named `default`. Existing
 `backends`/`default_backend` config is translated into internal model routes
 during migration and emits a deprecation warning.
+
+**D10: Provider limit discovery is live and flavor-gated.** When
+`context_window` or `max_tokens` are zero, the CLI calls `LookupModelLimits`
+against the provider's API to discover them. Explicit config values always win.
+Discovery is keyed by server flavor:
+
+- **LM Studio** — `GET /api/v0/models/{model}`; prefers `loaded_context_length`
+- **omlx** — `GET /v1/models/status`; returns `max_context_window` and
+  `max_tokens` per model
+- **OpenRouter** — `GET /api/v1/models` (public list)
+
+Undiscoverable values stay zero and the compaction layer uses its own defaults.
+
+**D11: Flavor field replaces fragile port heuristics.** Port-based provider
+detection (e.g. 1234 = lmstudio, 1235 = omlx) fails when servers run on
+non-default ports (omlx defaults to 8000). The `flavor` field lets operators
+declare the server type explicitly. When flavor is absent the system:
+
+1. Tries URL-based detection first (reliable for `openrouter.ai`, ollama on
+   11434, etc.)
+2. Fires concurrent probes to `/v1/models/status` and `/api/v0/models` with a
+   3-second timeout to distinguish omlx vs LM Studio on ambiguous ports
+3. Falls back to port heuristics as a last resort
+
+**D12: omlx is a first-class supported provider.** omlx is a local inference
+runtime that speaks the OpenAI-compatible chat API and exposes additional
+endpoints: `GET /v1/models/status` returns per-model `max_context_window` and
+`max_tokens`. Set `flavor: omlx` to use dedicated limit discovery and avoid
+probe ambiguity. See the `vidar-omlx` provider entry in the config example
+above.
 
 ## CLI UX
 
@@ -270,3 +321,7 @@ Expected package split:
   manifest bundles, explicit update flow, and the initial effort-tier baseline
   of backend pools with model routes
 - `agent-94b5d420` covers the shared-catalog design lineage
+- D10–D12 (provider limit discovery, flavor detection, omlx support) implemented
+  in `config/config.go` (`ThinkingBudget`, `ThinkingLevel`, `MaxTokens`,
+  `ContextWindow`, `Flavor` fields) and the `LookupModelLimits` call-site in
+  the CLI layer

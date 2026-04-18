@@ -101,7 +101,8 @@ type CompactionConfig struct {
 
     // EffectivePercent is the percentage of ContextWindow to actually use.
     // Default: 95. Provides safety margin since models may fail slightly
-    // below their advertised limit.
+    // below their advertised limit. Set via the top-level config field
+    // `compaction_percent` (e.g., compaction_percent: 75).
     EffectivePercent int
 }
 ```
@@ -117,6 +118,99 @@ type Request struct {
     Compaction *CompactionConfig
 }
 ```
+
+### CLI Context Window Resolution
+
+The production CLI (`cmd/ddx-agent/main.go`) resolves `ContextWindow` and
+`ReserveTokens` before constructing the `CompactionConfig`. This wiring was
+previously undocumented.
+
+#### Resolution order
+
+**Step 1 — Explicit config.** The provider config fields `context_window` and
+`max_tokens` (surfaced as `pc.ContextWindow` and `pc.MaxTokens`) are used
+directly if non-zero.
+
+**Step 2 — Live API discovery.** If either value is still zero after step 1,
+the CLI calls:
+
+```go
+limits := oaiProvider.LookupModelLimits(ctx, pc.BaseURL, pc.APIKey, pc.Flavor, pc.Headers, selection.ResolvedModel)
+```
+
+`LookupModelLimits` queries the live provider API (LM Studio, omlx, or
+OpenRouter) to discover the actual loaded context window and maximum output
+tokens for the model. The two resolved values are then filled in independently:
+
+```go
+if resolvedContextWindow == 0 {
+    resolvedContextWindow = limits.ContextLength
+}
+if resolvedMaxTokens == 0 {
+    resolvedMaxTokens = limits.MaxCompletionTokens
+}
+```
+
+**Step 3 — Zero means use package defaults.** Any value that remains zero
+after discovery leaves the corresponding `CompactionConfig` field at zero, and
+the compaction package falls back to its own defaults (`ContextWindow: 8192`,
+`ReserveTokens: 8192`).
+
+#### Discovery gate
+
+The live API call is gated:
+
+```go
+if resolvedContextWindow == 0 || resolvedMaxTokens == 0 {
+    limits := oaiProvider.LookupModelLimits(...)
+    ...
+}
+```
+
+A provider with both `context_window` and `max_tokens` set explicitly in
+config incurs **zero** additional network round-trips at startup.
+
+#### CompactionConfig fields set by the CLI
+
+```go
+compactionCfg := compaction.DefaultConfig()
+if resolvedContextWindow > 0 {
+    compactionCfg.ContextWindow = resolvedContextWindow
+    if resolvedMaxTokens > 0 {
+        compactionCfg.ReserveTokens = resolvedMaxTokens
+    }
+}
+if cfg.CompactionPercent > 0 {
+    compactionCfg.EffectivePercent = cfg.CompactionPercent
+}
+```
+
+`ReserveTokens` is set to the provider's maximum output tokens (not a
+fixed constant) so the compaction trigger reserves exactly as many tokens as
+the model is allowed to generate per turn.
+
+#### `compaction_percent` top-level config field
+
+`compaction_percent` is a top-level config field (parallel to
+`max_iterations`, `preset`, etc.) that overrides `CompactionConfig.EffectivePercent`.
+
+```yaml
+compaction_percent: 75   # trigger compaction at 75% of context window
+```
+
+When unset (zero), the compaction package default of 95% applies.
+
+#### `req.MaxTokens`
+
+The resolved max output tokens are also passed directly to the agent request:
+
+```go
+req.MaxTokens = resolvedMaxTokens
+```
+
+This ensures the provider enforces the per-turn output limit independently of
+compaction, keeping both the provider and compaction trigger in sync on the
+same token budget.
 
 ### Trigger Logic
 
