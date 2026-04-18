@@ -747,6 +747,7 @@ func buildProviderFromConfig(pc ProviderConfig) (agent.Provider, error) {
 			KnownModels:    knownModels,
 			Headers:        pc.Headers,
 			ThinkingBudget: budget,
+			Flavor:         pc.Flavor,
 		}), nil
 	case "anthropic":
 		return anthropic.New(anthropic.Config{

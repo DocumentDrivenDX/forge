@@ -27,7 +27,8 @@ type Provider struct {
 	baseURL        string            // stored for lazy model discovery
 	apiKey         string            // stored for lazy model discovery
 	providerName   string
-	providerSystem string
+	providerSystem string // URL-heuristic tag; eager, zero-cost, used in hot telemetry paths
+	configFlavor   string // explicit Config.Flavor when set; empty means auto-detect via probe
 	serverAddress  string
 	serverPort     int
 	thinkingBudget int
@@ -36,6 +37,10 @@ type Provider struct {
 	discoverOnce     sync.Once
 	discoverErr      error
 	discoveredModels []ScoredModel // full ranked list; populated on first use when model == ""
+
+	// lazy flavor detection — probe runs at most once per Provider instance
+	flavorOnce     sync.Once
+	detectedFlavor string
 }
 
 // Config holds configuration for the OpenAI-compatible provider.
@@ -51,6 +56,10 @@ type Config struct {
 	KnownModels    map[string]string
 	Headers        map[string]string // extra HTTP headers (OpenRouter, Azure, etc.)
 	ThinkingBudget int               // max reasoning tokens for thinking models (0 = unset)
+	// Flavor is an optional explicit server-type hint ("lmstudio", "omlx",
+	// "openrouter", "ollama"). When set, DetectedFlavor() returns this value
+	// without probing. When empty, DetectedFlavor() runs a one-time probe.
+	Flavor string
 }
 
 // New creates a new OpenAI-compatible provider.
@@ -82,10 +91,39 @@ func New(cfg Config) *Provider {
 		apiKey:         cfg.APIKey,
 		providerName:   "openai-compat",
 		providerSystem: providerSystem,
+		configFlavor:   cfg.Flavor,
 		serverAddress:  serverAddress,
 		serverPort:     serverPort,
 		thinkingBudget: cfg.ThinkingBudget,
 	}
+}
+
+// DetectedFlavor returns the effective server flavor for this provider.
+// Resolution order:
+//
+//  1. Config.Flavor (if set at construction) — returned verbatim, no probe.
+//  2. Cached probe result — computed on first call by contacting
+//     /v1/models/status (omlx) and /api/v0/models (lmstudio).
+//  3. URL-heuristic providerSystem — fallback when probe is inconclusive.
+//
+// This accessor is intended for pre-dispatch gating (capability introspection,
+// routing decisions) where the caller is willing to block once on a short
+// network probe. Do not use it in per-response hot paths; use
+// ChatStartMetadata() for telemetry, which is eager and non-blocking.
+func (p *Provider) DetectedFlavor() string {
+	p.flavorOnce.Do(func() {
+		if p.configFlavor != "" {
+			p.detectedFlavor = strings.ToLower(strings.TrimSpace(p.configFlavor))
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		p.detectedFlavor = resolveProviderFlavor(ctx, p.baseURL, "")
+	})
+	if p.detectedFlavor != "" {
+		return p.detectedFlavor
+	}
+	return p.providerSystem
 }
 
 // DiscoveredModels returns the full ranked list of models discovered from the

@@ -434,3 +434,58 @@ func TestResolveProviderFlavor_ExplicitFlavorBypassesProbe(t *testing.T) {
 	assert.Equal(t, "omlx", resolveProviderFlavor(context.Background(), srv.URL+"/v1", "omlx"))
 	assert.Equal(t, "lmstudio", resolveProviderFlavor(context.Background(), srv.URL+"/v1", "LMStudio"))
 }
+
+func TestDetectedFlavor_ExplicitConfigFlavorWins(t *testing.T) {
+	// Server advertises omlx (probe would return "omlx") but Config.Flavor is
+	// set to "lmstudio" — caller-set wins per agent-92f0f324 AC item 3.
+	srv := omlxServer("any", 0, 0)
+	defer srv.Close()
+
+	p := New(Config{BaseURL: srv.URL + "/v1", Flavor: "lmstudio"})
+	assert.Equal(t, "lmstudio", p.DetectedFlavor())
+}
+
+func TestDetectedFlavor_ProbeDetectsOmlx(t *testing.T) {
+	// No Config.Flavor — DetectedFlavor() must probe and return "omlx".
+	srv := omlxServer("any", 0, 0)
+	defer srv.Close()
+
+	p := New(Config{BaseURL: srv.URL + "/v1"})
+	assert.Equal(t, "omlx", p.DetectedFlavor())
+}
+
+func TestDetectedFlavor_FallsBackToProviderSystemWhenProbeInconclusive(t *testing.T) {
+	// Server returns 404 to both probes. Without Config.Flavor set,
+	// DetectedFlavor() must fall back to the URL-heuristic providerSystem.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	p := New(Config{BaseURL: srv.URL + "/v1"})
+	// httptest.Server gives a 127.0.0.1 host, so openAIIdentity will return
+	// "local" (no well-known port) for this URL. DetectedFlavor must not
+	// return empty; the providerSystem fallback guarantees a non-empty string.
+	assert.NotEmpty(t, p.DetectedFlavor())
+}
+
+func TestDetectedFlavor_CachesResult(t *testing.T) {
+	// Count probe hits. DetectedFlavor() must probe only once per Provider.
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/models/status" {
+			hits++
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"models":[]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	p := New(Config{BaseURL: srv.URL + "/v1"})
+	_ = p.DetectedFlavor()
+	_ = p.DetectedFlavor()
+	_ = p.DetectedFlavor()
+	assert.Equal(t, 1, hits, "DetectedFlavor probe must fire only once per Provider")
+}
