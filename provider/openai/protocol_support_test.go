@@ -73,13 +73,13 @@ func TestSupportsThinking_PerFlavor(t *testing.T) {
 		flavor string
 		want   bool
 	}{
-		{"lmstudio", true},       // original target; field was added for this
-		{"omlx", false},          // wire-proved to terminate silently
-		{"openrouter", false},    // passthrough to backends that don't know it
-		{"openai", false},        // uses reasoning_effort, not `thinking`
-		{"ollama", false},        // doesn't support it
+		{"lmstudio", true},        // original target; field was added for this
+		{"omlx", false},           // wire-proved to terminate silently
+		{"openrouter", false},     // passthrough to backends that don't know it
+		{"openai", false},         // uses reasoning_effort, not `thinking`
+		{"ollama", false},         // doesn't support it
 		{"unknown-flavor", false}, // zero-value fallback (conservative)
-		{"", false},              // empty flavor fallback
+		{"", false},               // empty flavor fallback
 	}
 	for _, tc := range cases {
 		t.Run(tc.flavor, func(t *testing.T) {
