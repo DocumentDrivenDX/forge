@@ -1,0 +1,314 @@
+package agent
+
+import (
+	"context"
+	"io"
+	"time"
+
+	"github.com/DocumentDrivenDX/agent/internal/harnesses"
+	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
+)
+
+// DdxAgent is the entire public Go surface of the ddx-agent module.
+// See CONTRACT-003 for the full specification.
+type DdxAgent interface {
+	Execute(ctx context.Context, req ServiceExecuteRequest) (<-chan ServiceEvent, error)
+	TailSessionLog(ctx context.Context, sessionID string) (<-chan ServiceEvent, error)
+	ListHarnesses(ctx context.Context) ([]HarnessInfo, error)
+	ListProviders(ctx context.Context) ([]ProviderInfo, error)
+	ListModels(ctx context.Context, filter ModelFilter) ([]ModelInfo, error)
+	HealthCheck(ctx context.Context, target HealthTarget) error
+	ResolveRoute(ctx context.Context, req RouteRequest) (*RouteDecision, error)
+	RouteStatus(ctx context.Context) (*RouteStatusReport, error)
+}
+
+// ServiceOptions configures a DdxAgent instance.
+type ServiceOptions struct {
+	ConfigPath string    // optional override; default $XDG_CONFIG_HOME/ddx-agent/config.yaml
+	Logger     io.Writer // optional; agent writes structured session logs internally regardless
+}
+
+// QuotaState is a live quota snapshot for a harness. Nil means not applicable.
+type QuotaState struct {
+	Windows     []harnesses.QuotaWindow `json:"windows"`
+	CapturedAt  time.Time               `json:"captured_at"`
+	Fresh       bool                    `json:"fresh"`
+}
+
+// HarnessInfo describes a registered harness as defined in CONTRACT-003.
+type HarnessInfo struct {
+	Name                 string
+	Type                 string // "native" | "subprocess"
+	Available            bool
+	Path                 string
+	Error                string
+	IsLocal              bool
+	IsSubscription       bool
+	ExactPinSupport      bool
+	SupportedPermissions []string // subset of {"safe","supervised","unrestricted"}
+	SupportedEfforts     []string // subset of {"low","medium","high"}
+	CostClass            string   // "local" | "cheap" | "medium" | "expensive"
+	Quota                *QuotaState
+}
+
+// CooldownState describes an active routing cooldown for a provider.
+type CooldownState struct {
+	Reason    string    // "consecutive_failures" | "manual" | etc.
+	Until     time.Time // when the cooldown expires
+	FailCount int       // number of consecutive failures that triggered the cooldown
+	LastError string    // last recorded error message, if available
+}
+
+// ProviderInfo describes a provider with live status per CONTRACT-003.
+type ProviderInfo struct {
+	Name          string
+	Type          string         // "openai-compat" | "anthropic" | "virtual"
+	BaseURL       string
+	Status        string         // "connected" | "unreachable" | "error: <msg>"
+	ModelCount    int
+	Capabilities  []string       // e.g. {"tool_use","streaming","json_mode"}
+	IsDefault     bool           // matches the configured default_provider
+	DefaultModel  string         // per-provider configured default model, if any
+	CooldownState *CooldownState // nil if not in cooldown
+}
+
+// ModelInfo describes a model (stub; populated by ListModels bead).
+type ModelInfo struct {
+	ID           string
+	Provider     string
+	Harness      string
+	ContextLength int
+	Capabilities []string
+	Available    bool
+	IsDefault    bool
+}
+
+// ModelFilter filters ListModels results.
+type ModelFilter struct {
+	Harness  string
+	Provider string
+}
+
+// HealthTarget identifies what to health-check.
+type HealthTarget struct {
+	Type string // "harness" | "provider"
+	Name string
+}
+
+// RouteRequest specifies a routing query.
+type RouteRequest struct {
+	Model       string
+	Provider    string
+	Harness     string
+	ModelRef    string
+	Effort      string
+	Permissions string
+}
+
+// RouteDecision is the result of ResolveRoute.
+type RouteDecision struct {
+	Harness    string
+	Provider   string
+	Model      string
+	Reason     string
+}
+
+// RouteStatusReport is returned by RouteStatus.
+type RouteStatusReport struct {
+	GeneratedAt time.Time
+}
+
+// ServiceEvent is a contract-level event (mirrors harnesses.Event).
+type ServiceEvent = harnesses.Event
+
+// ServiceExecuteRequest is the public ExecuteRequest type (stub for non-Execute methods).
+type ServiceExecuteRequest struct {
+	Prompt      string
+	SystemPrompt string
+	Model       string
+	Provider    string
+	Harness     string
+	WorkDir     string
+	Effort      string
+	Permissions string
+}
+
+// service is the concrete DdxAgent implementation.
+type service struct {
+	opts     ServiceOptions
+	registry *harnesses.Registry
+}
+
+// New constructs a DdxAgent.
+func New(opts ServiceOptions) (DdxAgent, error) {
+	return &service{
+		opts:     opts,
+		registry: harnesses.NewRegistry(),
+	}, nil
+}
+
+// harnessType returns "native" for HTTP/embedded harnesses, "subprocess" for CLI-invoked ones.
+func harnessType(cfg harnesses.HarnessConfig) string {
+	if cfg.IsHTTPProvider || cfg.IsLocal {
+		return "native"
+	}
+	return "subprocess"
+}
+
+// supportedPermissions extracts the permission levels from PermissionArgs keys,
+// returning them in canonical order.
+func supportedPermissions(cfg harnesses.HarnessConfig) []string {
+	if len(cfg.PermissionArgs) == 0 {
+		return nil
+	}
+	order := []string{"safe", "supervised", "unrestricted"}
+	var out []string
+	for _, level := range order {
+		if _, ok := cfg.PermissionArgs[level]; ok {
+			out = append(out, level)
+		}
+	}
+	return out
+}
+
+// supportedEfforts filters ReasoningLevels to the standard effort tiers.
+func supportedEfforts(cfg harnesses.HarnessConfig) []string {
+	allowed := map[string]bool{"low": true, "medium": true, "high": true}
+	var out []string
+	for _, level := range cfg.ReasoningLevels {
+		if allowed[level] {
+			out = append(out, level)
+		}
+	}
+	return out
+}
+
+// claudeQuotaState reads the durable Claude quota cache and converts it to QuotaState.
+func claudeQuotaState() *QuotaState {
+	snap, ok := claudeharness.ReadClaudeQuota()
+	if !ok || snap == nil {
+		return nil
+	}
+	decision := claudeharness.DecideClaudeQuotaRouting(snap, time.Now(), 0)
+	qs := &QuotaState{
+		CapturedAt: snap.CapturedAt,
+		Fresh:      decision.Fresh,
+	}
+	if snap.FiveHourLimit > 0 {
+		var used float64
+		if snap.FiveHourLimit > 0 {
+			used = float64(snap.FiveHourLimit-snap.FiveHourRemaining) / float64(snap.FiveHourLimit) * 100
+		}
+		qs.Windows = append(qs.Windows, harnesses.QuotaWindow{
+			Name:          "5h",
+			WindowMinutes: 300,
+			UsedPercent:   used,
+			State:         harnesses.QuotaStateFromUsedPercent(int(used)),
+		})
+	}
+	if snap.WeeklyLimit > 0 {
+		var used float64
+		if snap.WeeklyLimit > 0 {
+			used = float64(snap.WeeklyLimit-snap.WeeklyRemaining) / float64(snap.WeeklyLimit) * 100
+		}
+		qs.Windows = append(qs.Windows, harnesses.QuotaWindow{
+			Name:          "7d",
+			WindowMinutes: 10080,
+			UsedPercent:   used,
+			State:         harnesses.QuotaStateFromUsedPercent(int(used)),
+		})
+	}
+	return qs
+}
+
+// ListHarnesses returns metadata for every registered harness.
+func (s *service) ListHarnesses(_ context.Context) ([]HarnessInfo, error) {
+	statuses := s.registry.Discover()
+
+	// Index statuses by name for O(1) lookup.
+	statusByName := make(map[string]harnesses.HarnessStatus, len(statuses))
+	for _, st := range statuses {
+		statusByName[st.Name] = st
+	}
+
+	// Emit in registry preference order.
+	names := s.registry.Names()
+	out := make([]HarnessInfo, 0, len(names))
+
+	for _, name := range names {
+		cfg, ok := s.registry.Get(name)
+		if !ok {
+			continue
+		}
+		st := statusByName[name]
+
+		info := HarnessInfo{
+			Name:                 name,
+			Type:                 harnessType(cfg),
+			Available:            st.Available,
+			Path:                 st.Path,
+			Error:                st.Error,
+			IsLocal:              cfg.IsLocal,
+			IsSubscription:       cfg.IsSubscription,
+			ExactPinSupport:      cfg.ExactPinSupport,
+			SupportedPermissions: supportedPermissions(cfg),
+			SupportedEfforts:     supportedEfforts(cfg),
+			CostClass:            cfg.CostClass,
+		}
+
+		// Populate live Quota for harnesses that have durable quota caches.
+		switch name {
+		case "claude":
+			info.Quota = claudeQuotaState()
+		case "codex":
+			// Codex quota is only available via PTY/tmux probe (expensive);
+			// we don't invoke it inline — leave nil unless a fresh cache exists.
+			// A future bead can add a codex quota cache analogous to claude's.
+		}
+
+		out = append(out, info)
+	}
+
+	return out, nil
+}
+
+// ListProviders stub — to be implemented by agent-3afb76bb bead.
+func (s *service) ListProviders(_ context.Context) ([]ProviderInfo, error) {
+	return nil, nil
+}
+
+// ListModels stub — to be implemented in a future bead.
+func (s *service) ListModels(_ context.Context, _ ModelFilter) ([]ModelInfo, error) {
+	return nil, nil
+}
+
+// HealthCheck stub — to be implemented by agent-3afb76bb bead.
+func (s *service) HealthCheck(_ context.Context, _ HealthTarget) error {
+	return nil
+}
+
+// ResolveRoute is a stub; to be implemented in a future bead.
+func (s *service) ResolveRoute(_ context.Context, _ RouteRequest) (*RouteDecision, error) {
+	return nil, nil
+}
+
+// RouteStatus is a stub; to be implemented in a future bead.
+func (s *service) RouteStatus(_ context.Context) (*RouteStatusReport, error) {
+	return &RouteStatusReport{GeneratedAt: time.Now()}, nil
+}
+
+// Execute is a stub; to be implemented in a future bead.
+func (s *service) Execute(_ context.Context, _ ServiceExecuteRequest) (<-chan ServiceEvent, error) {
+	ch := make(chan ServiceEvent)
+	close(ch)
+	return ch, nil
+}
+
+// TailSessionLog is a stub; to be implemented in a future bead.
+func (s *service) TailSessionLog(_ context.Context, _ string) (<-chan ServiceEvent, error) {
+	ch := make(chan ServiceEvent)
+	close(ch)
+	return ch, nil
+}
+
+
