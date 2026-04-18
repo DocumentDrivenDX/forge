@@ -114,13 +114,39 @@ provider (Claude). This implements PRD P0 requirements 3-4.
 23. A `thinking_level` of `off` disables reasoning tokens entirely; `low`,
     `medium`, and `high` map to provider-tuned budget values
 
+#### Protocol Capability Introspection
+
+24. Providers expose protocol-capability accessors that report what the
+    server+flavor combination can actually honor, so callers can gate dispatch
+    on supported features rather than dispatch-and-fail:
+    - `SupportsTools() bool` — `/v1/chat/completions` accepts a `tools` field
+      and returns structured `tool_calls`
+    - `SupportsStream() bool` — `stream: true` returns a well-formed SSE
+      stream with incremental `choices[0].delta` chunks
+    - `SupportsStructuredOutput() bool` — honors `response_format: json_object`
+      or equivalent JSON-mode / tool-use-required semantics
+25. Capability flags are flavor-keyed (lmstudio / omlx / openrouter / ollama /
+    openai). Unknown flavors return `false` conservatively so routing rejects
+    rather than dispatches-and-fails.
+26. Protocol capability is distinct from routing capability (the benchmark-
+    quality score used by smart-routing scoring). These axes do not interact.
+
+#### Debug and Observability
+
+27. A process-wide opt-in debug mode (`AGENT_DEBUG_WIRE=1`) dumps every HTTP
+    request and response at the openai-go transport boundary to stderr (or a
+    file via `AGENT_DEBUG_WIRE_FILE=<path>`). Default off, zero cost when
+    disabled. Authorization Bearer tokens are redacted before any event is
+    written. Complements session events (`EventLLMRequest`/`EventLLMResponse`)
+    which capture the logical view; wire dump captures the HTTP view.
+
 #### Anthropic Provider
 
-24. Connects to Anthropic's Messages API
-25. Sends tools in Anthropic's tool-use format
-26. Handles Anthropic-specific response structure (content blocks)
-27. Reports token usage from response
-28. Uses `github.com/anthropics/anthropic-sdk-go`
+28. Connects to Anthropic's Messages API
+29. Sends tools in Anthropic's tool-use format
+30. Handles Anthropic-specific response structure (content blocks)
+31. Reports token usage from response
+32. Uses `github.com/anthropics/anthropic-sdk-go`
 
 ### Non-Functional Requirements
 

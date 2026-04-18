@@ -236,6 +236,28 @@ endpoints: `GET /v1/models/status` returns per-model `max_context_window` and
 probe ambiguity. See the `vidar-omlx` provider entry in the config example
 above.
 
+**D13: Protocol capabilities are flavor-keyed and conservative.** The provider
+exposes `SupportsTools()`, `SupportsStream()`, and `SupportsStructuredOutput()`
+accessors that return the effective capability for the resolved flavor.
+Downstream routing consults these before dispatch to avoid dispatch-and-fail on
+mismatched prompts (e.g. 80k-token prompt against a 32k-context model, or
+tool-using prompt against a flavor without tool translation). Unknown flavors
+return `false` for all protocol flags so routing rejects rather than dispatches.
+This surface is distinct from the benchmark-based capability scoring used by
+smart-routing (`CapabilityScore` / `CapabilityWeight`); the two axes do not
+interact.
+
+**D14: `DetectedFlavor()` layers on top of `providerSystem` without replacing
+it.** `providerSystem` (URL-heuristic, eager, non-blocking) remains the source
+of truth for per-response telemetry and cost attribution because those fire on
+every response and cannot afford a network probe. `DetectedFlavor()` is the
+probe-confirmed accessor used for pre-dispatch gating (capability flags,
+routing tags, introspection). It runs the probe at most once per provider via
+`sync.Once`, caches the result, and falls back to `providerSystem` when the
+probe is inconclusive. The two accessors serve different audiences by design;
+callers of telemetry must not migrate to `DetectedFlavor()` without a
+CONTRACT-001 review.
+
 ## CLI UX
 
 ### Prompt Preset Selection
