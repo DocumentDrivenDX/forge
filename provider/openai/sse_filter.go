@@ -30,6 +30,15 @@ import (
 //
 // Bead: agent-f237e07b. Wire evidence: vidar-omlx keep-alive frames during
 // Qwen3 reasoning warmup.
+//
+// Upstream tracking (as of 2026-04-18, openai-go v1.12.0 — latest):
+//   - Issue openai/openai-go#556 — "SSE Stream Crashes on Empty Events"
+//   - Issue openai/openai-go#618 — "eventStreamDecoder can emit incomplete JSON"
+//   - PR openai/openai-go#555   — first proposed fix (open, stalled)
+//   - PR openai/openai-go#643   — proposed fix matching this analysis (open)
+//
+// Remove this filter and the middleware wiring in openai.go once one of those
+// PRs merges and we bump the openai-go dependency to the release containing it.
 
 // sseCommentFilter wraps an SSE response body, stripping comment-only frames
 // so they do not cause empty-event dispatches in the downstream decoder.
