@@ -22,10 +22,43 @@ type DdxAgent interface {
 	RouteStatus(ctx context.Context) (*RouteStatusReport, error)
 }
 
+// ServiceConfig provides provider and routing data to the service without
+// creating an import cycle from the root package into agent/config.
+// Callers wrap their loaded *config.Config in a type that satisfies this interface.
+type ServiceConfig interface {
+	// ProviderNames returns provider names in stable order (default first).
+	ProviderNames() []string
+	// DefaultProviderName returns the name of the configured default provider.
+	DefaultProviderName() string
+	// Provider returns the raw config values for a named provider.
+	Provider(name string) (ServiceProviderEntry, bool)
+	// ModelRouteNames returns configured model-route names.
+	ModelRouteNames() []string
+	// ModelRouteCandidates returns the provider names referenced by a route.
+	ModelRouteCandidates(routeName string) []string
+	// HealthCooldown returns the configured cooldown duration (0 = use default 30s).
+	HealthCooldown() time.Duration
+	// WorkDir is the base directory for file-backed health state.
+	WorkDir() string
+}
+
+// ServiceProviderEntry carries the minimal provider data the service needs.
+type ServiceProviderEntry struct {
+	Type    string // "openai-compat" | "anthropic"
+	BaseURL string
+	APIKey  string
+	Model   string // configured default model (may be empty)
+}
+
 // ServiceOptions configures a DdxAgent instance.
 type ServiceOptions struct {
 	ConfigPath string    // optional override; default $XDG_CONFIG_HOME/ddx-agent/config.yaml
 	Logger     io.Writer // optional; agent writes structured session logs internally regardless
+
+	// ServiceConfig, when non-nil, supplies provider and routing data for
+	// ListProviders and HealthCheck. Pass a value wrapping the loaded config.
+	// When nil, those methods return an error.
+	ServiceConfig ServiceConfig
 }
 
 // QuotaState is a live quota snapshot for a harness. Nil means not applicable.
@@ -272,19 +305,11 @@ func (s *service) ListHarnesses(_ context.Context) ([]HarnessInfo, error) {
 	return out, nil
 }
 
-// ListProviders stub — to be implemented by agent-3afb76bb bead.
-func (s *service) ListProviders(_ context.Context) ([]ProviderInfo, error) {
-	return nil, nil
-}
+// ListProviders and HealthCheck are implemented in service_providers.go.
 
 // ListModels stub — to be implemented in a future bead.
 func (s *service) ListModels(_ context.Context, _ ModelFilter) ([]ModelInfo, error) {
 	return nil, nil
-}
-
-// HealthCheck stub — to be implemented by agent-3afb76bb bead.
-func (s *service) HealthCheck(_ context.Context, _ HealthTarget) error {
-	return nil
 }
 
 // ResolveRoute is a stub; to be implemented in a future bead.
