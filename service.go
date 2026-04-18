@@ -51,7 +51,15 @@ type ServiceProviderEntry struct {
 }
 
 // ServiceOptions configures a DdxAgent instance.
+//
+// SeamOptions is embedded so production builds (no testseam tag) get an
+// empty struct — making it a compile-time error to set seam fields without
+// the build tag. Test builds inherit the four CONTRACT-003 seams
+// (FakeProvider, PromptAssertionHook, CompactionAssertionHook,
+// ToolWiringHook) automatically.
 type ServiceOptions struct {
+	SeamOptions
+
 	ConfigPath string    // optional override; default $XDG_CONFIG_HOME/ddx-agent/config.yaml
 	Logger     io.Writer // optional; agent writes structured session logs internally regardless
 
@@ -63,9 +71,9 @@ type ServiceOptions struct {
 
 // QuotaState is a live quota snapshot for a harness. Nil means not applicable.
 type QuotaState struct {
-	Windows     []harnesses.QuotaWindow `json:"windows"`
-	CapturedAt  time.Time               `json:"captured_at"`
-	Fresh       bool                    `json:"fresh"`
+	Windows    []harnesses.QuotaWindow `json:"windows"`
+	CapturedAt time.Time               `json:"captured_at"`
+	Fresh      bool                    `json:"fresh"`
 }
 
 // HarnessInfo describes a registered harness as defined in CONTRACT-003.
@@ -95,9 +103,9 @@ type CooldownState struct {
 // ProviderInfo describes a provider with live status per CONTRACT-003.
 type ProviderInfo struct {
 	Name          string
-	Type          string         // "openai-compat" | "anthropic" | "virtual"
+	Type          string // "openai-compat" | "anthropic" | "virtual"
 	BaseURL       string
-	Status        string         // "connected" | "unreachable" | "error: <msg>"
+	Status        string // "connected" | "unreachable" | "error: <msg>"
 	ModelCount    int
 	Capabilities  []string       // e.g. {"tool_use","streaming","json_mode"}
 	IsDefault     bool           // matches the configured default_provider
@@ -157,10 +165,10 @@ type RouteRequest struct {
 
 // RouteDecision is the result of ResolveRoute.
 type RouteDecision struct {
-	Harness    string
-	Provider   string
-	Model      string
-	Reason     string
+	Harness  string
+	Provider string
+	Model    string
+	Reason   string
 }
 
 // RouteStatusReport is returned by RouteStatus.
@@ -379,12 +387,7 @@ func (s *service) RouteStatus(_ context.Context) (*RouteStatusReport, error) {
 	return &RouteStatusReport{GeneratedAt: time.Now()}, nil
 }
 
-// Execute is a stub; to be implemented in a future bead.
-func (s *service) Execute(_ context.Context, _ ServiceExecuteRequest) (<-chan ServiceEvent, error) {
-	ch := make(chan ServiceEvent)
-	close(ch)
-	return ch, nil
-}
+// Execute is implemented in service_execute.go.
 
 // TailSessionLog is a stub; to be implemented in a future bead.
 func (s *service) TailSessionLog(_ context.Context, _ string) (<-chan ServiceEvent, error) {
@@ -392,5 +395,3 @@ func (s *service) TailSessionLog(_ context.Context, _ string) (<-chan ServiceEve
 	close(ch)
 	return ch, nil
 }
-
-
