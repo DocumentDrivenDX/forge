@@ -27,7 +27,7 @@ targets:
       agent.openai: gpt-5.4
     surface_policy:
       agent.openai:
-        effort_default: high
+        reasoning_default: high
 `), 0o644))
 
 	outDir := t.TempDir()

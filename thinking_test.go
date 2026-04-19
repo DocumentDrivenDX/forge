@@ -1,25 +1,9 @@
 package agent
 
-import (
-	"testing"
-)
+import "testing"
 
-func TestResolveThinkingBudget(t *testing.T) {
-	tests := []struct {
-		level ThinkingLevel
-		want  int
-	}{
-		{ThinkingLevelOff, 0},
-		{ThinkingLevelLow, 2048},
-		{ThinkingLevelMedium, 8192},
-		{ThinkingLevelHigh, 32768},
-		{"unknown", 0},
-		{"", 0},
-	}
-	for _, tt := range tests {
-		got := ResolveThinkingBudget(tt.level)
-		if got != tt.want {
-			t.Errorf("ResolveThinkingBudget(%q) = %d, want %d", tt.level, got, tt.want)
-		}
+func TestReasoningTokens(t *testing.T) {
+	if got := ReasoningTokens(1234); got != Reasoning("1234") {
+		t.Fatalf("ReasoningTokens(1234) = %q, want 1234", got)
 	}
 }

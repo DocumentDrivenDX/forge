@@ -103,20 +103,43 @@ provider (Claude). This implements PRD P0 requirements 3-4.
       `context_length` and `top_provider.max_completion_tokens`
     - Other flavors: no probe; falls through to zero
 
-#### Thinking / Reasoning Configuration
+#### Reasoning Configuration
 
-22. Per-provider config accepts two optional fields for extended-reasoning
-    models (e.g., Qwen3, DeepSeek-R1):
-    - `thinking_budget: int` — explicit max reasoning token budget; takes
-      precedence when non-zero
-    - `thinking_level: string` — named level (off / low / medium / high)
-      resolved to a budget when `thinking_budget` is zero
-23. A `thinking_level` of `off` disables reasoning tokens entirely; `low`,
-    `medium`, and `high` map to provider-tuned budget values
+22. `reasoning` is the single public model-reasoning control for provider
+    configuration, CLI execution, service requests, and embedding callers.
+    Provider-specific terms such as `thinking`, `effort`, `variant`, and token
+    budgets are adapter terminology only.
+23. `reasoning` accepts one scalar value:
+    - Named values: `auto`, `off`, `low`, `medium`, `high`
+    - Extended named values when the selected provider or harness advertises
+      support, including `minimal`, `xhigh` / `x-high`, and `max`
+    - Numeric values such as `0`, `2048`, or `8192`
+24. Normalization and tri-state semantics:
+    - Empty or unset means no caller preference.
+    - `auto` means resolve model, catalog, or provider defaults.
+    - `off`, `none`, `false`, and numeric `0` mean explicit reasoning off.
+    - Positive integers mean an explicit max reasoning-token budget, or a
+      documented provider-equivalent numeric value.
+    - Spelling variants may normalize where safe, for example `x-high` to
+      `xhigh`, but explicit extended requests must not be silently downgraded.
+25. Portable named-to-token defaults are `low=2048`, `medium=8192`, and
+    `high=32768`. Provider, model, or catalog metadata may override these
+    defaults with a more specific map.
+26. Providers that only accept numeric reasoning controls must map named values
+    to numeric budgets using capability-aware model metadata and must enforce
+    model-specific maximum reasoning-token limits. `max` resolves at the
+    provider or harness boundary to the selected model/provider maximum, and is
+    accepted only when that maximum is known.
+27. Unsupported providers or models may drop reasoning controls that came from
+    `auto` or default policy. Explicit unsupported reasoning values and
+    explicit over-limit numeric values fail clearly rather than silently
+    downgrading.
+28. Provider configuration exposes only `reasoning`; older split provider
+    config names are rejected with a clear error.
 
 #### Protocol Capability Introspection
 
-24. Providers expose protocol-capability accessors that report what the
+29. Providers expose protocol-capability accessors that report what the
     server+flavor combination can actually honor, so callers can gate dispatch
     on supported features rather than dispatch-and-fail:
     - `SupportsTools() bool` — `/v1/chat/completions` accepts a `tools` field
@@ -125,15 +148,15 @@ provider (Claude). This implements PRD P0 requirements 3-4.
       stream with incremental `choices[0].delta` chunks
     - `SupportsStructuredOutput() bool` — honors `response_format: json_object`
       or equivalent JSON-mode / tool-use-required semantics
-25. Capability flags are flavor-keyed (lmstudio / omlx / openrouter / ollama /
+30. Capability flags are flavor-keyed (lmstudio / omlx / openrouter / ollama /
     openai). Unknown flavors return `false` conservatively so routing rejects
     rather than dispatches-and-fails.
-26. Protocol capability is distinct from routing capability (the benchmark-
+31. Protocol capability is distinct from routing capability (the benchmark-
     quality score used by smart-routing scoring). These axes do not interact.
 
 #### Debug and Observability
 
-27. A process-wide opt-in debug mode (`AGENT_DEBUG_WIRE=1`) dumps every HTTP
+32. A process-wide opt-in debug mode (`AGENT_DEBUG_WIRE=1`) dumps every HTTP
     request and response at the openai-go transport boundary to stderr (or a
     file via `AGENT_DEBUG_WIRE_FILE=<path>`). Default off, zero cost when
     disabled. Authorization Bearer tokens are redacted before any event is
@@ -142,11 +165,11 @@ provider (Claude). This implements PRD P0 requirements 3-4.
 
 #### Anthropic Provider
 
-28. Connects to Anthropic's Messages API
-29. Sends tools in Anthropic's tool-use format
-30. Handles Anthropic-specific response structure (content blocks)
-31. Reports token usage from response
-32. Uses `github.com/anthropics/anthropic-sdk-go`
+33. Connects to Anthropic's Messages API
+34. Sends tools in Anthropic's tool-use format
+35. Handles Anthropic-specific response structure (content blocks)
+36. Reports token usage from response
+37. Uses `github.com/anthropics/anthropic-sdk-go`
 
 ### Non-Functional Requirements
 

@@ -124,13 +124,13 @@ type HarnessInfo struct {
 	IsSubscription       bool
 	ExactPinSupport      bool
 	SupportedPermissions []string
-	SupportedEfforts     []string
+	SupportedReasoning   []string
 	CostClass            string
 }
 
 // ExecuteRequest is the internal request carried into Harness.Execute. It
 // is intentionally narrower than the public ExecuteRequest in CONTRACT-003:
-// the agent's routing layer is expected to resolve provider/model/effort
+// the agent's routing layer is expected to resolve provider/model/reasoning
 // /permissions/timeouts before invoking a harness, so the harness sees a
 // concrete, ready-to-run request.
 type ExecuteRequest struct {
@@ -154,8 +154,9 @@ type ExecuteRequest struct {
 	// Permissions is "safe" | "supervised" | "unrestricted". Empty defaults to "safe".
 	Permissions string
 
-	// Effort is "low" | "medium" | "high". Empty defers to the harness default.
-	Effort string
+	// Reasoning is the normalized public reasoning scalar. Empty/off means no
+	// adapter flag should be emitted.
+	Reasoning string
 
 	// Timeout is the wall-clock cap for the entire request. 0 disables.
 	Timeout time.Duration

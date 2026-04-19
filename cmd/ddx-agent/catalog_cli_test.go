@@ -24,13 +24,15 @@ type fakeCatalogServer struct {
 }
 
 type recordedChatRequest struct {
-	Model string `json:"model"`
+	Model    string         `json:"model"`
+	Thinking map[string]any `json:"thinking,omitempty"`
 }
 
 type fakeOpenAIServer struct {
-	server     *httptest.Server
-	mu         sync.Mutex
-	modelsSeen []string
+	server          *httptest.Server
+	mu              sync.Mutex
+	modelsSeen      []string
+	thinkingBudgets []int
 }
 
 func newFakeOpenAIServer(t *testing.T) *fakeOpenAIServer {
@@ -50,6 +52,11 @@ func newFakeOpenAIServer(t *testing.T) *fakeOpenAIServer {
 
 			fake.mu.Lock()
 			fake.modelsSeen = append(fake.modelsSeen, req.Model)
+			if budget, ok := req.Thinking["budget_tokens"].(float64); ok {
+				fake.thinkingBudgets = append(fake.thinkingBudgets, int(budget))
+			} else {
+				fake.thinkingBudgets = append(fake.thinkingBudgets, 0)
+			}
 			fake.mu.Unlock()
 
 			w.Header().Set("Content-Type", "application/json")
@@ -67,6 +74,15 @@ func newFakeOpenAIServer(t *testing.T) *fakeOpenAIServer {
 	}))
 	t.Cleanup(fake.server.Close)
 	return fake
+}
+
+func (f *fakeOpenAIServer) lastReasoningBudget() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.thinkingBudgets) == 0 {
+		return 0
+	}
+	return f.thinkingBudgets[len(f.thinkingBudgets)-1]
 }
 
 func newFakeCatalogServer(t *testing.T, files map[string]string) *fakeCatalogServer {
@@ -353,6 +369,156 @@ default: local
 	assert.Equal(t, "override-fast-model", fake.lastModel())
 }
 
+func TestCLI_ReasoningCatalogDefaultsAndOverrides(t *testing.T) {
+	fake := newFakeOpenAIServer(t)
+	workDir := t.TempDir()
+	manifestPath := filepath.Join(workDir, "models.yaml")
+	writeTempManifest(t, manifestPath, `
+version: 4
+generated_at: 2026-04-19T00:00:00Z
+models:
+  cheap-model:
+    reasoning_max_tokens: 32768
+  smart-model:
+    reasoning_max_tokens: 32768
+profiles:
+  cheap:
+    target: cheap-target
+  smart:
+    target: smart-target
+targets:
+  cheap-target:
+    family: demo
+    surfaces:
+      agent.openai: cheap-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: off
+  smart-target:
+    family: demo
+    surfaces:
+      agent.openai: smart-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: high
+`)
+	writeTempConfig(t, workDir, `
+model_catalog:
+  manifest: `+manifestPath+`
+providers:
+  local:
+    type: openai-compat
+    base_url: `+fake.baseURL()+`
+    api_key: test
+    flavor: lmstudio
+default: local
+`)
+
+	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "cheap")
+	require.NoError(t, err, string(out))
+	assert.Equal(t, "cheap-model", fake.lastModel())
+	assert.Equal(t, 0, fake.lastReasoningBudget())
+
+	out, err = runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart")
+	require.NoError(t, err, string(out))
+	assert.Equal(t, "smart-model", fake.lastModel())
+	assert.Equal(t, 32768, fake.lastReasoningBudget())
+
+	out, err = runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart", "--reasoning", "8192")
+	require.NoError(t, err, string(out))
+	assert.Equal(t, 8192, fake.lastReasoningBudget())
+
+	out, err = runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart", "--reasoning", "max")
+	require.NoError(t, err, string(out))
+	assert.Equal(t, 32768, fake.lastReasoningBudget())
+}
+
+func TestCLI_ReasoningOffAliasesOverrideCatalogDefault(t *testing.T) {
+	for _, value := range []string{"off", "none", "false", "0"} {
+		t.Run(value, func(t *testing.T) {
+			fake := newFakeOpenAIServer(t)
+			workDir := t.TempDir()
+			manifestPath := filepath.Join(workDir, "models.yaml")
+			writeTempManifest(t, manifestPath, `
+version: 4
+generated_at: 2026-04-19T00:00:00Z
+models:
+  smart-model:
+    reasoning_max_tokens: 32768
+profiles:
+  smart:
+    target: smart-target
+targets:
+  smart-target:
+    family: demo
+    surfaces:
+      agent.openai: smart-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: high
+`)
+			writeTempConfig(t, workDir, `
+model_catalog:
+  manifest: `+manifestPath+`
+providers:
+  local:
+    type: openai-compat
+    base_url: `+fake.baseURL()+`
+    api_key: test
+    flavor: lmstudio
+default: local
+`)
+
+			out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart", "--reasoning", value)
+			require.NoError(t, err, string(out))
+			assert.Equal(t, 0, fake.lastReasoningBudget())
+		})
+	}
+}
+
+func TestCLI_ReasoningValidation(t *testing.T) {
+	fake := newFakeOpenAIServer(t)
+	workDir := t.TempDir()
+	manifestPath := filepath.Join(workDir, "models.yaml")
+	writeTempManifest(t, manifestPath, `
+version: 4
+generated_at: 2026-04-19T00:00:00Z
+models:
+  smart-model:
+    reasoning_max_tokens: 32768
+profiles:
+  smart:
+    target: smart-target
+targets:
+  smart-target:
+    family: demo
+    surfaces:
+      agent.openai: smart-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: high
+`)
+	writeTempConfig(t, workDir, `
+model_catalog:
+  manifest: `+manifestPath+`
+providers:
+  local:
+    type: openai-compat
+    base_url: `+fake.baseURL()+`
+    api_key: test
+    flavor: lmstudio
+default: local
+`)
+
+	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart", "--reasoning", "bogus")
+	require.Error(t, err)
+	assert.Contains(t, string(out), `unsupported value "bogus"`)
+
+	out, err = runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart", "--reasoning", "99999")
+	require.Error(t, err)
+	assert.Contains(t, string(out), "exceeds maximum 32768")
+}
+
 func TestCLI_ModelRef_ExplicitModelBypassesCatalog(t *testing.T) {
 	fake := newFakeOpenAIServer(t)
 	workDir := t.TempDir()
@@ -417,7 +583,7 @@ targets:
       agent.openai: gpt-5.4
     surface_policy:
       agent.openai:
-        effort_default: high
+        reasoning_default: high
 `
 	server := newFakeCatalogServer(t, map[string]string{
 		"stable/index.json":  catalogIndexJSON("models.yaml", manifest, "2026-04-11.1", 2),
@@ -448,7 +614,7 @@ targets:
       agent.openai: gpt-5.4
     surface_policy:
       agent.openai:
-        effort_default: high
+        reasoning_default: high
 `
 	server := newFakeCatalogServer(t, map[string]string{
 		"stable/index.json":  catalogIndexJSON("models.yaml", manifest, "2026-04-11.1", 2),

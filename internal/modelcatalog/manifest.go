@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"gopkg.in/yaml.v3"
 )
 
@@ -28,13 +29,15 @@ type LoadOptions struct {
 
 // ModelEntry holds per-model metadata introduced in manifest v4.
 type ModelEntry struct {
-	ProviderSystem    string  `yaml:"provider_system,omitempty"`
-	CostInputPerMTok  float64 `yaml:"cost_input_per_mtok,omitempty"`
-	CostOutputPerMTok float64 `yaml:"cost_output_per_mtok,omitempty"`
-	SWEBenchVerified  float64 `yaml:"swe_bench_verified,omitempty"`
-	OpenRouterRefID   string  `yaml:"openrouter_ref_id,omitempty"`
-	SpeedTokensPerSec float64 `yaml:"speed_tokens_per_sec,omitempty"`
-	ContextWindow     int     `yaml:"context_window,omitempty"`
+	ProviderSystem     string                      `yaml:"provider_system,omitempty"`
+	CostInputPerMTok   float64                     `yaml:"cost_input_per_mtok,omitempty"`
+	CostOutputPerMTok  float64                     `yaml:"cost_output_per_mtok,omitempty"`
+	SWEBenchVerified   float64                     `yaml:"swe_bench_verified,omitempty"`
+	OpenRouterRefID    string                      `yaml:"openrouter_ref_id,omitempty"`
+	SpeedTokensPerSec  float64                     `yaml:"speed_tokens_per_sec,omitempty"`
+	ContextWindow      int                         `yaml:"context_window,omitempty"`
+	ReasoningMaxTokens int                         `yaml:"reasoning_max_tokens,omitempty"`
+	ReasoningBudgets   map[reasoning.Reasoning]int `yaml:"reasoning_budgets,omitempty"`
 }
 
 type manifest struct {
@@ -124,11 +127,11 @@ type targetEntry struct {
 }
 
 type surfacePolicyEntry struct {
-	EffortDefault string `yaml:"effort_default,omitempty"`
+	ReasoningDefault reasoning.Reasoning `yaml:"reasoning_default,omitempty"`
 }
 
 func (s surfacePolicyEntry) toResolved() SurfacePolicy {
-	return SurfacePolicy{EffortDefault: strings.TrimSpace(s.EffortDefault)}
+	return SurfacePolicy{ReasoningDefault: s.ReasoningDefault}
 }
 
 // Default loads the embedded default catalog snapshot.
@@ -250,8 +253,8 @@ func validateManifest(m manifest) error {
 			if _, ok := target.Surfaces[surface]; !ok {
 				return fmt.Errorf("target %q surface_policy %q has no matching surface mapping", targetID, surface)
 			}
-			if strings.TrimSpace(policy.EffortDefault) == "" {
-				return fmt.Errorf("target %q surface_policy %q must define effort_default", targetID, surface)
+			if policy.ReasoningDefault == "" {
+				return fmt.Errorf("target %q surface_policy %q must define reasoning_default", targetID, surface)
 			}
 		}
 
@@ -280,6 +283,23 @@ func validateManifest(m manifest) error {
 				return fmt.Errorf("alias %q for target %q collides with %s", alias, targetID, owner)
 			}
 			reserved[alias] = fmt.Sprintf("alias for target %q", targetID)
+		}
+	}
+
+	for modelID, model := range m.Models {
+		if strings.TrimSpace(modelID) == "" {
+			return fmt.Errorf("model ID must not be empty")
+		}
+		if model.ReasoningMaxTokens < 0 {
+			return fmt.Errorf("model %q reasoning_max_tokens must be >= 0", modelID)
+		}
+		for level, budget := range model.ReasoningBudgets {
+			if budget < 0 {
+				return fmt.Errorf("model %q reasoning_budgets %q must be >= 0", modelID, level)
+			}
+			if model.ReasoningMaxTokens > 0 && budget > model.ReasoningMaxTokens {
+				return fmt.Errorf("model %q reasoning_budgets %q exceeds reasoning_max_tokens", modelID, level)
+			}
 		}
 	}
 

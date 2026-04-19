@@ -12,16 +12,16 @@ func newTestRoutingEngine() Inputs {
 	return Inputs{
 		Harnesses: []HarnessEntry{
 			{
-				Name:             "agent",
-				Surface:          "embedded-openai",
-				CostClass:        "local",
-				IsLocal:          true,
-				ExactPinSupport:  true,
-				Available:        true,
-				QuotaOK:          true,
-				SupportedEfforts: []string{"low", "medium", "high"},
-				SupportedPerms:   []string{"safe", "supervised", "unrestricted"},
-				SupportsTools:    true,
+				Name:               "agent",
+				Surface:            "embedded-openai",
+				CostClass:          "local",
+				IsLocal:            true,
+				ExactPinSupport:    true,
+				Available:          true,
+				QuotaOK:            true,
+				SupportedReasoning: []string{"low", "medium", "high"},
+				SupportedPerms:     []string{"safe", "supervised", "unrestricted"},
+				SupportsTools:      true,
 				Providers: []ProviderEntry{
 					{
 						Name:          "vidar-omlx",
@@ -41,30 +41,30 @@ func newTestRoutingEngine() Inputs {
 				},
 			},
 			{
-				Name:             "codex",
-				Surface:          "codex",
-				CostClass:        "medium",
-				IsSubscription:   true,
-				ExactPinSupport:  true,
-				Available:        true,
-				QuotaOK:          true,
-				SupportedEfforts: []string{"low", "medium", "high"},
-				SupportedPerms:   []string{"safe", "supervised", "unrestricted"},
-				SupportsTools:    true,
-				DefaultModel:     "gpt-5.4",
+				Name:               "codex",
+				Surface:            "codex",
+				CostClass:          "medium",
+				IsSubscription:     true,
+				ExactPinSupport:    true,
+				Available:          true,
+				QuotaOK:            true,
+				SupportedReasoning: []string{"low", "medium", "high"},
+				SupportedPerms:     []string{"safe", "supervised", "unrestricted"},
+				SupportsTools:      true,
+				DefaultModel:       "gpt-5.4",
 			},
 			{
-				Name:             "claude",
-				Surface:          "claude",
-				CostClass:        "medium",
-				IsSubscription:   true,
-				ExactPinSupport:  true,
-				Available:        true,
-				QuotaOK:          true,
-				SupportedEfforts: []string{"low", "medium", "high"},
-				SupportedPerms:   []string{"safe", "supervised", "unrestricted"},
-				SupportsTools:    true,
-				DefaultModel:     "claude-sonnet-4-6",
+				Name:               "claude",
+				Surface:            "claude",
+				CostClass:          "medium",
+				IsSubscription:     true,
+				ExactPinSupport:    true,
+				Available:          true,
+				QuotaOK:            true,
+				SupportedReasoning: []string{"low", "medium", "high"},
+				SupportedPerms:     []string{"safe", "supervised", "unrestricted"},
+				SupportsTools:      true,
+				DefaultModel:       "claude-sonnet-4-6",
 			},
 		},
 		CatalogResolver: func(ref, surface string) (string, bool) {
@@ -216,11 +216,11 @@ func TestSmellCapabilityGating(t *testing.T) {
 		}
 	})
 
-	t.Run("effort", func(t *testing.T) {
-		// A harness with no SupportedEfforts must reject effort=high.
+	t.Run("reasoning", func(t *testing.T) {
+		// A harness with no SupportedReasoning must reject reasoning=high.
 		in := newTestRoutingEngine()
 		in.Harnesses = append(in.Harnesses, HarnessEntry{
-			Name:            "no-effort-harness",
+			Name:            "no-reasoning-harness",
 			Surface:         "test",
 			CostClass:       "medium",
 			Available:       true,
@@ -228,16 +228,44 @@ func TestSmellCapabilityGating(t *testing.T) {
 			ExactPinSupport: true,
 			DefaultModel:    "x",
 		})
-		req := Request{Profile: "standard", Effort: "high"}
+		req := Request{Profile: "standard", Reasoning: "high"}
 		dec, err := Resolve(req, in)
 		if err != nil {
 			t.Fatalf("Resolve: %v", err)
 		}
-		// no-effort-harness must be ineligible.
 		for _, c := range dec.Candidates {
-			if c.Harness == "no-effort-harness" && c.Eligible {
-				t.Errorf("no-effort-harness must be ineligible when Effort=high")
+			if c.Harness == "no-reasoning-harness" && c.Eligible {
+				t.Errorf("no-reasoning-harness must be ineligible when Reasoning=high")
 			}
+		}
+	})
+
+	t.Run("reasoning off imposes no requirement", func(t *testing.T) {
+		cap := Capabilities{}
+		for _, value := range []string{"off", "0", "none", "false"} {
+			if got := CheckGating(cap, Request{Reasoning: value}); got != "" {
+				t.Fatalf("Reasoning=%q should not gate candidate, got %q", value, got)
+			}
+		}
+	})
+
+	t.Run("extended reasoning requires advertised support", func(t *testing.T) {
+		cap := Capabilities{SupportedReasoning: []string{"low", "medium", "high", "xhigh", "max"}}
+		if got := CheckGating(cap, Request{Reasoning: "x-high"}); got != "" {
+			t.Fatalf("x-high should normalize to advertised xhigh, got %q", got)
+		}
+		if got := CheckGating(Capabilities{SupportedReasoning: []string{"low"}}, Request{Reasoning: "max"}); got == "" {
+			t.Fatal("max should reject candidates that do not advertise it")
+		}
+	})
+
+	t.Run("numeric reasoning gates against max", func(t *testing.T) {
+		cap := Capabilities{MaxReasoningTokens: 4096}
+		if got := CheckGating(cap, Request{Reasoning: "2048"}); got != "" {
+			t.Fatalf("numeric value under max should pass, got %q", got)
+		}
+		if got := CheckGating(cap, Request{Reasoning: "8192"}); got == "" {
+			t.Fatal("numeric value over max should fail")
 		}
 	})
 }

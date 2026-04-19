@@ -42,7 +42,7 @@ prompt behavior and must not be reused for model policy or routing.
   as an alias or tier/profile
 - **Canonical target** — the stable policy target the catalog wants a given
   reference to resolve to; one target may project to different concrete models
-  and effort defaults on different consumer surfaces
+  and reasoning defaults on different consumer surfaces
 - **Model route** — a routing entry keyed by requested model or canonical
   target that chooses among one or more concrete providers for a run
 - **Route candidate** — one concrete provider option within a model route, with
@@ -92,8 +92,11 @@ prompt behavior and must not be reused for model policy or routing.
    - canonical policy targets
    - deprecated or stale targets with replacement metadata
    - consumer-surface mappings where a canonical target needs different
-     concrete strings and may carry different effort defaults for different
+     concrete strings and may carry different reasoning defaults for different
      downstream integrations
+   - per-model reasoning capability metadata, including supported named values,
+     numeric maximums, and named-to-token maps when a provider/model cannot
+     derive safe limits from live metadata
 9. Catalog data is stored in a structured manifest maintained separately from
    Go logic inside the agent repo.
 10. DDX Agent ships an embedded snapshot of that manifest and may also load an
@@ -113,39 +116,57 @@ prompt behavior and must not be reused for model policy or routing.
       embedded runtime
     - callers own cross-harness orchestration and guardrails
     - HELIX owns stage intent only
+16. The catalog uses `reasoning_default` for model-reasoning policy.
+17. `reasoning_default` is a single scalar using the same value grammar as the
+    public CLI/config/API `reasoning` field: `auto`, `off`, `low`, `medium`,
+    `high`, supported extended values such as `minimal`, `xhigh` / `x-high`,
+    and `max`, or numeric values such as `0`, `2048`, and `8192`.
+18. Catalog defaults are tiered by expected capability and cost:
+    - Below-smart tiers (`cheap`, `fast`, `standard`, `code-economy`, and
+      `code-medium`) default to `reasoning=off`; this explicitly includes
+      local/economy Qwen-family targets.
+    - Smart tiers (`smart` and `code-high`) default to `reasoning=high`.
+    - Explicit caller `reasoning` always wins over tier defaults, including
+      supported requests above high such as `xhigh`, `x-high`, or `max`, and
+      explicit numeric values.
+19. Catalog candidates for numeric-only reasoning providers must publish
+    per-model maximums or named-value maps unless the provider can derive safe
+    limits from live metadata. The router must fail clearly on explicit
+    unsupported or over-limit requests and may drop only auto/default reasoning
+    controls for unsupported candidates.
 
 #### Phase 2A (P2): Model Routes
 
-14. `Config` may specify model routes keyed by requested model or canonical
+20. `Config` may specify model routes keyed by requested model or canonical
     target, distinct from prompt presets and direct provider names.
-15. A model route resolves to:
+21. A model route resolves to:
     - one route key equal to the requested model or canonical target
     - one or more provider candidates
     - optional provider-specific concrete model overrides
     - one selection strategy
-16. Supported phase-2A strategies are:
+22. Supported phase-2A strategies are:
     - `priority-round-robin` — use the highest-priority healthy tier and rotate
       within that tier between requests
     - `ordered-failover` — prefer candidates in configured order and advance
       only when the current candidate is unavailable
-17. Model-route resolution happens in the config/CLI layer. `agent.Run()`
+23. Model-route resolution happens in the config/CLI layer. `agent.Run()`
     still receives one concrete `Provider` per attempt.
-18. The selected concrete provider, requested model input, resolved model
+24. The selected concrete provider, requested model input, resolved model
     reference, route key, and resolved concrete model are recorded in the
     `Result`.
-19. Existing `backends`, `default_backend`, and `--backend` surfaces are
+25. Existing `backends`, `default_backend`, and `--backend` surfaces are
     deprecated compatibility inputs during migration and must emit warnings.
 
 #### Phase 2B (P2, later): Health Tracking and Passive Failover
 
-20. DDX Agent may track recent failures and temporarily back off unhealthy
+26. DDX Agent may track recent failures and temporarily back off unhealthy
     candidates using a bounded cooldown window.
-21. A failed provider candidate may be skipped for the current request and a
+27. A failed provider candidate may be skipped for the current request and a
     later candidate attempted only for transport/auth/upstream availability
     failures.
-22. Prompt-shape, tool-schema, or other deterministic request errors must not
+28. Prompt-shape, tool-schema, or other deterministic request errors must not
     trigger cross-provider failover.
-23. Callers continue to pass only model intent (`model_ref` or exact pin) into the
+29. Callers continue to pass only model intent (`model_ref` or exact pin) into the
     embedded harness. Callers must not duplicate inner provider-selection logic.
 
 ### Non-Functional Requirements
@@ -197,7 +218,7 @@ prompt behavior and must not be reused for model policy or routing.
 | ID | Criterion | Suggested Verification |
 |----|-----------|------------------------|
 | AC-FEAT-004-01 | Direct named-provider resolution selects the configured provider before the run starts, and unknown provider names fail during config/CLI resolution rather than inside `agent.Run()`. | `go test ./config ./cmd/ddx-agent ./...` |
-| AC-FEAT-004-02 | Model references resolve through the embedded or external manifest to the correct consumer-surface model string and per-surface effort metadata, and missing references/surfaces fail deterministically before the run. | `go test ./modelcatalog ./config ./cmd/ddx-agent ./...` |
+| AC-FEAT-004-02 | Model references resolve through the embedded or external manifest to the correct consumer-surface model string and per-surface reasoning metadata, and missing references/surfaces fail deterministically before the run. | `go test ./internal/modelcatalog ./internal/config ./cmd/ddx-agent ./...` |
 | AC-FEAT-004-03 | Deprecated or stale model references are rejected by default, surface replacement metadata, and can be explicitly allowed only when the caller opts in. | `go test ./modelcatalog ./config ./cmd/ddx-agent ./...` |
 | AC-FEAT-004-04 | An explicit concrete `--model` or provider-level pin bypasses catalog policy for that run while leaving catalog-backed resolution unchanged for other runs. | `go test ./config ./cmd/ddx-agent ./...` |
 | AC-FEAT-004-05 | Model routes keyed by requested model or canonical target choose provider candidates deterministically for `priority-round-robin` and `ordered-failover`, reject empty/unknown routes before the run, and preserve direct-provider override behavior. | `go test ./config ./cmd/ddx-agent ./...` |
@@ -205,7 +226,7 @@ prompt behavior and must not be reused for model policy or routing.
 | AC-FEAT-004-07 | The selected concrete provider, requested model input, resolved model reference, route key, and resolved concrete model are recorded in the run result and session artifacts so callers and downstream analytics can attribute the actual embedded-provider choice without reproducing the route logic. | `go test ./cmd/ddx-agent ./session ./...` |
 | AC-FEAT-004-08 | Deprecated `backends`, `default_backend`, and `--backend` inputs still resolve during the migration window, emit a deprecation warning, and map to the same provider choice as the equivalent model-route configuration. | `go test ./config ./cmd/ddx-agent ./...` |
 | AC-FEAT-004-09 | Catalog publication produces an immutable versioned manifest bundle plus a stable channel pointer, and ordinary request execution never fetches remote manifest data implicitly. | `go test ./modelcatalog ./cmd/ddx-agent ./...` |
-| AC-FEAT-004-10 | The starter shared catalog publishes `code-high`, `code-medium`, and `code-economy` policy tiers with compatibility aliases `smart`, `fast`, and `cheap`, and projects the current concrete model/effort pairs onto supported surfaces. | `go test ./modelcatalog ./config ./cmd/ddx-agent ./...` |
+| AC-FEAT-004-10 | The starter shared catalog publishes `code-high`, `code-medium`, and `code-economy` policy tiers with compatibility aliases `smart`, `fast`, and `cheap`, and projects the current concrete model/reasoning pairs onto supported surfaces. Below-smart tiers default to `reasoning=off`; smart/code-high defaults to `reasoning=high`; explicit caller values win when supported. | `go test ./internal/modelcatalog ./internal/config ./cmd/ddx-agent ./...` |
 
 ## Dependencies
 

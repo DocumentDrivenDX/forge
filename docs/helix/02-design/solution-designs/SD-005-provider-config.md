@@ -60,7 +60,7 @@ providers:
     type: openai-compat
     base_url: http://vidar:1234/v1
     api_key: lmstudio
-    thinking_level: low
+    reasoning: off
     flavor: lmstudio
 
   bragi:
@@ -89,7 +89,7 @@ providers:
     type: openai-compat
     base_url: http://vidar:1235/v1
     model: Qwen3.5-27B-4bit
-    thinking_level: medium
+    reasoning: off
     flavor: omlx
 
 routing:
@@ -102,15 +102,19 @@ model_routes:
     candidates:
       - provider: vidar
         model: gpt-5.4-mini
+        reasoning_default: off
         priority: 100
       - provider: bragi
         model: gpt-5.4-mini
+        reasoning_default: off
         priority: 100
       - provider: grendel
         model: gpt-5.4-mini
+        reasoning_default: off
         priority: 100
       - provider: openrouter
         model: gpt-5.4-mini
+        reasoning_default: off
         priority: 10
 
   code-high:
@@ -118,9 +122,11 @@ model_routes:
     candidates:
       - provider: anthropic
         model: opus-4.6
+        reasoning_default: high
         priority: 100
       - provider: openrouter
         model: gpt-5.4
+        reasoning_default: high
         priority: 50
 
 default: vidar
@@ -135,11 +141,54 @@ Per-provider optional fields (in addition to `type`, `base_url`, `api_key`, `hea
 
 | Field | Type | Description |
 |---|---|---|
-| `thinking_budget` | int | Explicit max reasoning tokens; overrides `thinking_level` when set |
-| `thinking_level` | string | `off` / `low` / `medium` / `high` — resolved to a token budget at runtime |
+| `reasoning` | scalar string/int | Single public reasoning control: `auto`, `off`, `low`, `medium`, `high`, supported extended values such as `minimal`, `xhigh` / `x-high`, and `max`, or numeric values such as `0`, `2048`, and `8192` |
 | `max_tokens` | int | Max output tokens per turn; `0` = use provider default |
 | `context_window` | int | Explicit context window override; `0` = attempt live discovery |
 | `flavor` | string | Server flavor hint: `lmstudio`, `omlx`, `openrouter`, `ollama` |
+
+Older split provider config names are rejected with a clear error. Provider-
+specific wire terms such as `thinking`, `effort`, `variant`, and token budgets
+are adapter implementation details, not public config.
+
+#### Reasoning Values
+
+`reasoning` is intentionally one scalar rather than separate public level and
+budget fields.
+
+- Empty or unset means no caller preference.
+- `auto` means resolve model, catalog, or provider defaults.
+- `off`, `none`, `false`, and numeric `0` mean explicit reasoning off.
+- `low`, `medium`, and `high` use portable fallback budgets of 2048, 8192, and
+  32768 tokens when provider/catalog metadata does not publish a better map.
+- Extended names such as `minimal`, `xhigh`, `x-high`, and `max` are accepted
+  only when the selected provider or harness advertises support. `x-high`
+  normalizes to `xhigh`; explicit extended requests are never silently
+  downgraded.
+- Positive integers mean an explicit max reasoning-token budget, or a
+  documented provider-equivalent numeric value.
+
+Providers that only accept numeric reasoning controls must map named values to
+numeric budgets with capability-aware model metadata and must enforce
+model-specific maximum reasoning-token limits. `max` resolves at the provider
+or harness boundary to the selected model/provider maximum and is accepted only
+when that maximum is known. Auto/default reasoning controls may be dropped for
+unsupported providers/models, but explicit unsupported or over-limit values
+fail clearly.
+
+The Go public surface should expose the same single scalar as a typed value,
+for example `type Reasoning string` with constants and
+`ReasoningTokens(n int) Reasoning`. The implementation should put parsing,
+normalization, constants, and policy representation in a shared leaf package
+such as `internal/reasoning`; root `agent` may re-export the public type and
+helpers, while `internal/modelcatalog` imports the leaf package directly to
+avoid root-agent/internal-modelcatalog import cycles.
+
+Model catalog metadata uses `reasoning_default`. Below-smart tiers (`cheap`,
+`fast`, `standard`, `code-economy`, and `code-medium`) default to
+`reasoning=off`, including local/economy Qwen
+targets such as Qwen3.6. `smart` and `code-high` default to `reasoning=high`.
+Explicit caller values always win when supported, including numeric values and
+values above high such as `xhigh`, `x-high`, or `max`.
 
 ### Resolution Model
 
@@ -258,6 +307,15 @@ probe is inconclusive. The two accessors serve different audiences by design;
 callers of telemetry must not migrate to `DetectedFlavor()` without a
 CONTRACT-001 review.
 
+**D15: `reasoning` is the public model-reasoning control.** The public surface
+uses one scalar (`reasoning`) for named and numeric values. Config uses
+`reasoning`; catalog metadata uses `reasoning_default`; the CLI uses
+`--reasoning`. Provider and harness adapters may translate the resolved value
+to wire or subprocess knobs named `thinking`, `effort`, `variant`, or numeric
+budgets, but those names are not preferred public controls. Unsupported
+auto/default controls may be dropped; explicit unsupported or over-limit
+values fail clearly.
+
 ## CLI UX
 
 ### Prompt Preset Selection
@@ -295,7 +353,13 @@ Built-in preset details are defined by SD-003 and implemented in
 ddx-agent run --provider vidar "prompt"
 ddx-agent run --provider anthropic --model opus-4.6 "prompt"
 ddx-agent run --model-ref code-high "prompt"
+ddx-agent run --model-ref code-high --reasoning max "prompt"
+ddx-agent run --model-ref code-medium --reasoning off "prompt"
+ddx-agent run --provider vidar --reasoning 8192 "prompt"
 ```
+
+The public CLI flag is `--reasoning <value>`. Do not introduce alternate public
+reasoning flags.
 
 ### Model-Route Selection
 
@@ -326,11 +390,14 @@ detailed package/API shape is defined in
 
 Expected package split:
 
-- `config/` — load provider config, route config, and optional manifest
-  override path
-- `modelcatalog/` — load, validate, and resolve shared model policy
+- `internal/config/` — load provider config, route config, and optional
+  manifest override path in the current repository layout
+- `internal/modelcatalog/` — load, validate, and resolve shared model policy
+- `internal/reasoning/` — shared leaf package for the Reasoning scalar,
+  parser, normalization, constants, `ReasoningTokens(n)`, and resolved policy
+  representation
 - `cmd/ddx-agent/` — resolve `--provider`, `--model-ref`, or `--model` into
-  one concrete provider/model pair
+  one concrete provider/model/reasoning policy
 
 ## Traceability
 
@@ -340,10 +407,11 @@ Expected package split:
   manifest format, and consumer examples
 - `plan-2026-04-10-model-first-routing.md` captures the converged replacement
 - `plan-2026-04-10-catalog-distribution-and-refresh.md` defines published
-  manifest bundles, explicit update flow, and the initial effort-tier baseline
-  of backend pools with model routes
+  manifest bundles, explicit update flow, and the initial reasoning-tier
+  baseline of backend pools with model routes
 - `agent-94b5d420` covers the shared-catalog design lineage
-- D10–D12 (provider limit discovery, flavor detection, omlx support) implemented
-  in `config/config.go` (`ThinkingBudget`, `ThinkingLevel`, `MaxTokens`,
-  `ContextWindow`, `Flavor` fields) and the `LookupModelLimits` call-site in
-  the CLI layer
+- D10–D12 (provider limit discovery, flavor detection, omlx support) are
+  implemented in `internal/config/config.go`, `internal/provider/openai`, and
+  the `LookupModelLimits` call-site in the CLI layer
+- D15 (reasoning contract) is implemented through `reasoning`,
+  `reasoning_default`, and CLI `--reasoning`

@@ -422,6 +422,186 @@ func TestChatStream_ToolDefinitionsAreSentToAPI(t *testing.T) {
 	assert.Equal(t, "Read file contents", fn["description"])
 }
 
+func TestThinkingSerializationReasoningPolicy(t *testing.T) {
+	tests := []struct {
+		name              string
+		configReasoning   agent.Reasoning
+		opts              agent.Options
+		wantThinking      bool
+		wantBudget        int
+		wantErr           bool
+		wantNoHTTPRequest bool
+	}{
+		{
+			name:            "unset preserves provider config",
+			configReasoning: agent.ReasoningTokens(8192),
+			wantThinking:    true,
+			wantBudget:      8192,
+		},
+		{
+			name:            "explicit off suppresses provider config",
+			configReasoning: agent.ReasoningTokens(8192),
+			opts:            agent.Options{Reasoning: agent.ReasoningOff},
+		},
+		{
+			name:            "numeric zero suppresses provider config",
+			configReasoning: agent.ReasoningTokens(8192),
+			opts:            agent.Options{Reasoning: agent.ReasoningTokens(0)},
+		},
+		{
+			name:            "explicit request wins over provider default",
+			configReasoning: agent.ReasoningTokens(8192),
+			opts:            agent.Options{Reasoning: agent.ReasoningTokens(1234)},
+			wantThinking:    true,
+			wantBudget:      1234,
+		},
+		{
+			name:         "low maps to portable budget",
+			opts:         agent.Options{Reasoning: agent.ReasoningLow},
+			wantThinking: true,
+			wantBudget:   2048,
+		},
+		{
+			name:         "medium maps to portable budget",
+			opts:         agent.Options{Reasoning: agent.ReasoningMedium},
+			wantThinking: true,
+			wantBudget:   8192,
+		},
+		{
+			name:         "high maps to portable budget",
+			opts:         agent.Options{Reasoning: agent.ReasoningHigh},
+			wantThinking: true,
+			wantBudget:   32768,
+		},
+		{
+			name:         "numeric tokens pass through",
+			opts:         agent.Options{Reasoning: agent.ReasoningTokens(4321)},
+			wantThinking: true,
+			wantBudget:   4321,
+		},
+		{
+			name:              "unsupported extended value fails before request",
+			opts:              agent.Options{Reasoning: agent.ReasoningXHigh},
+			wantErr:           true,
+			wantNoHTTPRequest: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name+"/chat", func(t *testing.T) {
+			body, err := captureOpenAIChatBody(t, "lmstudio", tt.configReasoning, tt.opts)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantNoHTTPRequest {
+					assert.Nil(t, body)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assertReasoningWireBudget(t, body, tt.wantThinking, tt.wantBudget)
+		})
+		t.Run(tt.name+"/stream", func(t *testing.T) {
+			body, err := captureOpenAIStreamBody(t, "lmstudio", tt.configReasoning, tt.opts)
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.wantNoHTTPRequest {
+					assert.Nil(t, body)
+				}
+				return
+			}
+			require.NoError(t, err)
+			assertReasoningWireBudget(t, body, tt.wantThinking, tt.wantBudget)
+		})
+	}
+}
+
+func TestReasoningSerializationUnsupportedFlavors(t *testing.T) {
+	for _, flavor := range []string{"omlx", "openrouter", "openai", "ollama"} {
+		t.Run(flavor+"/default provider budget drops", func(t *testing.T) {
+			body, err := captureOpenAIChatBody(t, flavor, agent.ReasoningTokens(8192), agent.Options{})
+			require.NoError(t, err)
+			assertReasoningWireBudget(t, body, false, 0)
+		})
+		t.Run(flavor+"/explicit request fails before serialization", func(t *testing.T) {
+			body, err := captureOpenAIChatBody(t, flavor, "", agent.Options{Reasoning: agent.ReasoningLow})
+			require.Error(t, err)
+			assert.Nil(t, body)
+		})
+	}
+}
+
+func captureOpenAIChatBody(t *testing.T, flavor string, providerReasoning agent.Reasoning, opts agent.Options) ([]byte, error) {
+	t.Helper()
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = body
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl-1",
+			"model":"gpt-4o",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}
+		}`))
+	}))
+	defer srv.Close()
+
+	p := openai.New(openai.Config{
+		BaseURL:   srv.URL + "/v1",
+		APIKey:    "test",
+		Model:     "gpt-4o",
+		Flavor:    flavor,
+		Reasoning: providerReasoning,
+	})
+	_, err := p.Chat(context.Background(), []agent.Message{{Role: agent.RoleUser, Content: "hello"}}, nil, opts)
+	return capturedBody, err
+}
+
+func captureOpenAIStreamBody(t *testing.T, flavor string, providerReasoning agent.Reasoning, opts agent.Options) ([]byte, error) {
+	t.Helper()
+	var capturedBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		capturedBody = body
+		streamSSE(w, []string{
+			`{"id":"chatcmpl-1","model":"gpt-4o","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":5,"total_tokens":17}}`,
+		})
+	}))
+	defer srv.Close()
+
+	p := openai.New(openai.Config{
+		BaseURL:   srv.URL + "/v1",
+		APIKey:    "test",
+		Model:     "gpt-4o",
+		Flavor:    flavor,
+		Reasoning: providerReasoning,
+	})
+	ch, err := p.ChatStream(context.Background(), []agent.Message{{Role: agent.RoleUser, Content: "hello"}}, nil, opts)
+	if err != nil {
+		return capturedBody, err
+	}
+	for delta := range ch {
+		if delta.Err != nil {
+			return capturedBody, delta.Err
+		}
+	}
+	return capturedBody, nil
+}
+
+func assertReasoningWireBudget(t *testing.T, body []byte, wantThinking bool, wantBudget int) {
+	t.Helper()
+	require.NotNil(t, body)
+	var reqBody map[string]interface{}
+	require.NoError(t, json.Unmarshal(body, &reqBody))
+	thinking, ok := reqBody["thinking"].(map[string]interface{})
+	if !wantThinking {
+		assert.False(t, ok, "request body must not include thinking: %s", string(body))
+		return
+	}
+	require.True(t, ok, "request body must include thinking: %s", string(body))
+	assert.Equal(t, "enabled", thinking["type"])
+	assert.Equal(t, float64(wantBudget), thinking["budget_tokens"])
+}
+
 func TestNew_LocalOpenAICompatibleBaseURLsResolveProviderIdentity(t *testing.T) {
 	tests := []struct {
 		name    string

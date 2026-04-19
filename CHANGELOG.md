@@ -42,7 +42,8 @@ Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
   Wire capture (via `AGENT_DEBUG_WIRE=1`) from DocumentDrivenDX/ddx
   `ddx-6a5dfe35` confirmed that `provider/openai/openai.go` was
   unconditionally injecting the non-standard `thinking` body field
-  whenever `ThinkingBudget > 0`, regardless of destination flavor.
+  whenever a provider-level positive reasoning budget was configured,
+  regardless of destination flavor.
   omlx silently terminates the SSE stream after the first delta when
   `thinking` is present — client-side OpenAI Go SDK then surfaces
   `unexpected end of JSON input`. Fix gates the field injection on

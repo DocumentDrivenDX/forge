@@ -262,13 +262,13 @@ targets:
       codex: gpt-5.4
     surface_policy:
       agent.anthropic:
-        effort_default: high
+        reasoning_default: high
       claude-code:
-        effort_default: high
+        reasoning_default: high
       agent.openai:
-        effort_default: high
+        reasoning_default: high
       codex:
-        effort_default: high
+        reasoning_default: high
 
   code-medium:
     family: coding-tier
@@ -281,13 +281,13 @@ targets:
       codex: gpt-5.4-mini
     surface_policy:
       agent.anthropic:
-        effort_default: medium
+        reasoning_default: medium
       claude-code:
-        effort_default: medium
+        reasoning_default: medium
       agent.openai:
-        effort_default: medium
+        reasoning_default: medium
       codex:
-        effort_default: medium
+        reasoning_default: medium
 
   code-economy:
     family: coding-tier
@@ -299,11 +299,11 @@ targets:
       agent.openai: qwen3.5-27b
     surface_policy:
       agent.anthropic:
-        effort_default: medium
+        reasoning_default: medium
       claude-code:
-        effort_default: medium
+        reasoning_default: medium
       agent.openai:
-        effort_default: high
+        reasoning_default: high
 ```
 
 Notes:
@@ -415,4 +415,3 @@ Notes:
   - resolved surface projection
 - `catalog update` should log the installed version, checksum, source URL/path,
   and replacement outcome.
-

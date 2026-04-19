@@ -452,23 +452,20 @@ func TestTranslate_ThinkingModelAutoConfig(t *testing.T) {
 	result, err := Translate(tmpDir)
 	require.NoError(t, err)
 
-	// qwen3.5-27b → thinking_level: medium
-	assert.Equal(t, "medium", result.Providers["vidar"].ThinkingLevel, "qwen3 model should get thinking_level")
-	// deepseek-r1 variant → thinking_level: medium
-	assert.Equal(t, "medium", result.Providers["bragi"].ThinkingLevel, "deepseek-r1 model should get thinking_level")
-	// llama3.1 → no thinking_level
-	assert.Equal(t, "", result.Providers["grendel"].ThinkingLevel, "non-thinking model should not get thinking_level")
+	assert.Equal(t, "medium", string(result.Providers["vidar"].Reasoning), "qwen3 model should get reasoning")
+	assert.Equal(t, "medium", string(result.Providers["bragi"].Reasoning), "deepseek-r1 model should get reasoning")
+	assert.Equal(t, "", string(result.Providers["grendel"].Reasoning), "non-reasoning model should not get reasoning")
 }
 
-func TestIsThinkingModel(t *testing.T) {
+func TestIsReasoningModel(t *testing.T) {
 	thinking := []string{"qwen3.5-27b", "qwen3-coder-30b", "Qwen3-72B", "deepseek-r1", "deepseek-r1-distill-qwen-32b", "deepseek_r1", "qwq-32b"}
 	notThinking := []string{"qwen2.5-coder", "llama3.1-8b", "gpt-4o", "claude-sonnet-4-6", "gemma-4-26b", "qwen3.5-27b-claude-4.6-opus-distilled-mlx"}
 
 	for _, m := range thinking {
-		assert.True(t, isThinkingModel(m), "expected %q to be a thinking model", m)
+		assert.True(t, isReasoningModel(m), "expected %q to be a reasoning model", m)
 	}
 	for _, m := range notThinking {
-		assert.False(t, isThinkingModel(m), "expected %q to NOT be a thinking model", m)
+		assert.False(t, isReasoningModel(m), "expected %q to NOT be a reasoning model", m)
 	}
 }
 

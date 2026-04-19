@@ -72,6 +72,7 @@ type recordingProvider struct {
 	callCount int
 	calls     [][]Message
 	toolCalls [][]ToolDef
+	opts      []Options
 }
 
 func (r *recordingProvider) Chat(ctx context.Context, messages []Message, tools []ToolDef, opts Options) (Response, error) {
@@ -84,12 +85,27 @@ func (r *recordingProvider) Chat(ctx context.Context, messages []Message, tools 
 		toolCopy := append([]ToolDef(nil), tools...)
 		r.toolCalls = append(r.toolCalls, toolCopy)
 	}
+	r.opts = append(r.opts, opts)
 	if r.callCount >= len(r.responses) {
 		return Response{Content: "no more responses"}, nil
 	}
 	resp := r.responses[r.callCount]
 	r.callCount++
 	return resp, nil
+}
+
+func TestRunForwardsRequestReasoningToProviderOptions(t *testing.T) {
+	p := &recordingProvider{responses: []Response{{Content: "done"}}}
+	_, err := Run(context.Background(), Request{
+		Prompt:    "hello",
+		Provider:  p,
+		Reasoning: ReasoningLow,
+		MaxTokens: 17,
+	})
+	require.NoError(t, err)
+	require.Len(t, p.opts, 1)
+	assert.Equal(t, ReasoningLow, p.opts[0].Reasoning)
+	assert.Equal(t, 17, p.opts[0].MaxTokens)
 }
 
 // retryProvider is a test provider that returns a sequence of outcomes.

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -176,7 +177,7 @@ targets:
       agent.openai: gpt-5.4
     surface_policy:
       agent.openai:
-        effort_default: high
+        reasoning_default: high
 `), 0o644))
 
 	cfg := Defaults()
@@ -1000,31 +1001,29 @@ func TestImportMetadata(t *testing.T) {
 	assert.Contains(t, string(data), "a1b2c3d4")
 }
 
-func TestBuildProvider_ThinkingLevel_ResolvesToBudget(t *testing.T) {
+func TestBuildProvider_Reasoning_PropagatesConfig(t *testing.T) {
 	cfg := Config{
 		Providers: map[string]ProviderConfig{
-			"thinking": {
-				Type:          "openai-compat",
-				BaseURL:       "http://localhost:1234/v1",
-				Model:         "qwen3.5-27b",
-				ThinkingLevel: "medium",
+			"reasoning": {
+				Type:      "openai-compat",
+				BaseURL:   "http://localhost:1234/v1",
+				Model:     "qwen3.5-27b",
+				Reasoning: reasoning.ReasoningMedium,
 			},
 		},
-		Default: "thinking",
+		Default: "reasoning",
 	}
 
-	pc, ok := cfg.GetProvider("thinking")
+	pc, ok := cfg.GetProvider("reasoning")
 	require.True(t, ok)
-	assert.Equal(t, "medium", pc.ThinkingLevel)
-	assert.Equal(t, 0, pc.ThinkingBudget) // raw budget unset
+	assert.Equal(t, reasoning.ReasoningMedium, pc.Reasoning)
 
-	// BuildProvider should resolve the level to 8192
-	p, err := cfg.BuildProvider("thinking")
+	p, err := cfg.BuildProvider("reasoning")
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 }
 
-func TestLoad_ThinkingLevel_ParsedFromYAML(t *testing.T) {
+func TestLoad_Reasoning_ParsedFromYAML(t *testing.T) {
 	isolateHome(t)
 	dir := t.TempDir()
 	cfgDir := filepath.Join(dir, ".agent")
@@ -1036,7 +1035,7 @@ providers:
     type: openai-compat
     base_url: http://vidar:1234/v1
     model: qwen3.5-27b
-    thinking_level: medium
+    reasoning: medium
 default: vidar
 `), 0o644))
 
@@ -1045,33 +1044,32 @@ default: vidar
 
 	pc, ok := cfg.GetProvider("vidar")
 	require.True(t, ok)
-	assert.Equal(t, "medium", pc.ThinkingLevel)
-	assert.Equal(t, 0, pc.ThinkingBudget) // not set explicitly
+	assert.Equal(t, reasoning.ReasoningMedium, pc.Reasoning)
 
-	// Building the provider should succeed (level resolved to 8192 internally)
 	p, err := cfg.BuildProvider("vidar")
 	require.NoError(t, err)
 	assert.NotNil(t, p)
 }
 
-func TestBuildProvider_ThinkingBudgetWinsOverLevel(t *testing.T) {
-	cfg := Config{
-		Providers: map[string]ProviderConfig{
-			"both": {
-				Type:           "openai-compat",
-				BaseURL:        "http://localhost:1234/v1",
-				Model:          "qwen3",
-				ThinkingBudget: 4096, // explicit budget
-				ThinkingLevel:  "high",
-			},
-		},
-		Default: "both",
-	}
+func TestLoad_LegacyProviderReasoningKeysRejected(t *testing.T) {
+	isolateHome(t)
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, ".agent")
+	require.NoError(t, os.MkdirAll(cfgDir, 0o755))
 
-	// Provider should be built without error; explicit budget takes precedence.
-	p, err := cfg.BuildProvider("both")
-	require.NoError(t, err)
-	assert.NotNil(t, p)
+	require.NoError(t, os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
+providers:
+  vidar:
+    type: openai-compat
+    base_url: http://vidar:1234/v1
+    model: qwen3.5-27b
+    `+"thinking"+`_level: medium
+default: vidar
+`), 0o644))
+
+	_, err := Load(dir)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "use reasoning")
 }
 
 func TestLoad_ReasoningThresholds(t *testing.T) {
@@ -1290,7 +1288,7 @@ providers:
     flavor: omlx
     context_window: 262144
     max_tokens: 32768
-    thinking_level: medium
+    reasoning: medium
 default: vidar-omlx
 `), 0o644))
 
@@ -1302,7 +1300,7 @@ default: vidar-omlx
 	assert.Equal(t, "omlx", pc.Flavor)
 	assert.Equal(t, 262144, pc.ContextWindow)
 	assert.Equal(t, 32768, pc.MaxTokens)
-	assert.Equal(t, "medium", pc.ThinkingLevel)
+	assert.Equal(t, reasoning.ReasoningMedium, pc.Reasoning)
 
 	// Building the provider succeeds — validates that no field breaks wiring.
 	p, err := cfg.BuildProvider("vidar-omlx")

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 )
 
 // Surface identifies the consumer-specific naming surface for a model target.
@@ -32,7 +34,7 @@ type Catalog struct {
 
 // SurfacePolicy captures optional routing metadata for a resolved surface.
 type SurfacePolicy struct {
-	EffortDefault string
+	ReasoningDefault reasoning.Reasoning
 }
 
 // Metadata describes the loaded manifest.

@@ -6,7 +6,7 @@ prompt: |
 expected_tools:
   - read
 permissions: safe
-effort: low
+reasoning: low
 tags:
   - tool-use
   - error-handling

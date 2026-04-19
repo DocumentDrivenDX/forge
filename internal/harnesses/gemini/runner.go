@@ -51,7 +51,7 @@ func (r *Runner) Info() harnesses.HarnessInfo {
 		IsSubscription:       false,
 		ExactPinSupport:      true,
 		SupportedPermissions: []string{"safe"},
-		SupportedEfforts:     []string{"low", "medium", "high"},
+		SupportedReasoning:   nil,
 		CostClass:            "medium",
 	}
 	path := r.Binary

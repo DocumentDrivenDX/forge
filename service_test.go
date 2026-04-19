@@ -2,12 +2,16 @@ package agent_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	agent "github.com/DocumentDrivenDX/agent"
 )
 
 func TestListHarnesses_shape(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(fakeHome, ".config"))
 	svc, err := agent.New(agent.ServiceOptions{})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -47,9 +51,11 @@ func TestListHarnesses_shape(t *testing.T) {
 		assertContains(t, h.SupportedPermissions, "safe", "codex permissions")
 		assertContains(t, h.SupportedPermissions, "supervised", "codex permissions")
 		assertContains(t, h.SupportedPermissions, "unrestricted", "codex permissions")
-		assertContains(t, h.SupportedEfforts, "low", "codex efforts")
-		assertContains(t, h.SupportedEfforts, "medium", "codex efforts")
-		assertContains(t, h.SupportedEfforts, "high", "codex efforts")
+		assertContains(t, h.SupportedReasoning, "low", "codex reasoning")
+		assertContains(t, h.SupportedReasoning, "medium", "codex reasoning")
+		assertContains(t, h.SupportedReasoning, "high", "codex reasoning")
+		assertContains(t, h.SupportedReasoning, "xhigh", "codex reasoning")
+		assertContains(t, h.SupportedReasoning, "max", "codex reasoning")
 		if h.CostClass != "medium" {
 			t.Errorf("codex CostClass: want medium, got %q", h.CostClass)
 		}
@@ -68,8 +74,10 @@ func TestListHarnesses_shape(t *testing.T) {
 		h := byName["claude"]
 		assertContains(t, h.SupportedPermissions, "safe", "claude permissions")
 		assertContains(t, h.SupportedPermissions, "unrestricted", "claude permissions")
-		assertContains(t, h.SupportedEfforts, "low", "claude efforts")
-		assertContains(t, h.SupportedEfforts, "high", "claude efforts")
+		assertContains(t, h.SupportedReasoning, "low", "claude reasoning")
+		assertContains(t, h.SupportedReasoning, "high", "claude reasoning")
+		assertContains(t, h.SupportedReasoning, "xhigh", "claude reasoning")
+		assertContains(t, h.SupportedReasoning, "max", "claude reasoning")
 		if h.CostClass != "medium" {
 			t.Errorf("claude CostClass: want medium, got %q", h.CostClass)
 		}
@@ -130,9 +138,11 @@ func TestListHarnesses_shape(t *testing.T) {
 		assertContains(t, h.SupportedPermissions, "supervised", "opencode permissions")
 		assertContains(t, h.SupportedPermissions, "unrestricted", "opencode permissions")
 		// opencode has non-standard effort levels; only std ones count.
-		assertContains(t, h.SupportedEfforts, "low", "opencode efforts")
-		assertContains(t, h.SupportedEfforts, "medium", "opencode efforts")
-		assertContains(t, h.SupportedEfforts, "high", "opencode efforts")
+		assertContains(t, h.SupportedReasoning, "low", "opencode reasoning")
+		assertContains(t, h.SupportedReasoning, "medium", "opencode reasoning")
+		assertContains(t, h.SupportedReasoning, "high", "opencode reasoning")
+		assertContains(t, h.SupportedReasoning, "minimal", "opencode reasoning")
+		assertContains(t, h.SupportedReasoning, "max", "opencode reasoning")
 	})
 }
 

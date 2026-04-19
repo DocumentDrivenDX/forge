@@ -7,7 +7,7 @@ prompt: |
   explanation of around 500 words.
 expected_tools: []
 permissions: safe
-effort: medium
+reasoning: medium
 tags:
   - generation
   - long-output

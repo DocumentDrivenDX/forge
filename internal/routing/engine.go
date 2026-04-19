@@ -18,7 +18,7 @@ type Request struct {
 	Model       string // exact concrete model pin
 	Provider    string // soft preference (hard when Harness also set)
 	Harness     string // hard preference; constrains routing to one harness
-	Effort      string // "low" | "medium" | "high"
+	Reasoning   string // public reasoning scalar
 	Permissions string // "safe" | "supervised" | "unrestricted"
 
 	// EstimatedPromptTokens, when > 0, drives context-window gating.
@@ -42,18 +42,19 @@ func (r Request) MinContextWindow() int {
 // It is the routing engine's view of a registered harness; the engine does
 // not import the harnesses package directly to keep the dependency narrow.
 type HarnessEntry struct {
-	Name             string
-	Surface          string
-	CostClass        string
-	IsLocal          bool
-	IsSubscription   bool
-	IsHTTPProvider   bool
-	TestOnly         bool
-	ExactPinSupport  bool
-	DefaultModel     string
-	SupportedEfforts []string
-	SupportedPerms   []string
-	SupportsTools    bool
+	Name               string
+	Surface            string
+	CostClass          string
+	IsLocal            bool
+	IsSubscription     bool
+	IsHTTPProvider     bool
+	TestOnly           bool
+	ExactPinSupport    bool
+	DefaultModel       string
+	SupportedReasoning []string
+	MaxReasoningTokens int
+	SupportedPerms     []string
+	SupportsTools      bool
 
 	// Available reflects the harness's discovered availability.
 	Available bool
@@ -219,10 +220,11 @@ type rankedCandidate struct {
 // per (harness, provider, resolved-model) tuple.
 func buildHarnessCandidates(h HarnessEntry, req Request, in Inputs) []rankedCandidate {
 	caps := Capabilities{
-		SupportsTools:    h.SupportsTools,
-		SupportedEfforts: h.SupportedEfforts,
-		SupportedPerms:   h.SupportedPerms,
-		ExactPinSupport:  h.ExactPinSupport,
+		SupportsTools:      h.SupportsTools,
+		SupportedReasoning: h.SupportedReasoning,
+		MaxReasoningTokens: h.MaxReasoningTokens,
+		SupportedPerms:     h.SupportedPerms,
+		ExactPinSupport:    h.ExactPinSupport,
 	}
 
 	if !h.Available {

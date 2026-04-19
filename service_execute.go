@@ -355,6 +355,7 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 		MaxIterations:    maxIter,
 		ResolvedModel:    decision.Model,
 		SelectedProvider: decision.Provider,
+		Reasoning:        effectiveReasoning(req.Reasoning),
 	}
 	result, runErr := Run(cancelCtx, loopReq)
 
@@ -427,7 +428,7 @@ func (s *service) runSubprocess(ctx context.Context, req ServiceExecuteRequest, 
 		Model:         decision.Model,
 		WorkDir:       req.WorkDir,
 		Permissions:   req.Permissions,
-		Effort:        req.Effort,
+		Reasoning:     adapterReasoning(req.Reasoning),
 		Timeout:       req.Timeout,
 		IdleTimeout:   req.IdleTimeout,
 		SessionLogDir: req.SessionLogDir,

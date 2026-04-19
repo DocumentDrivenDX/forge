@@ -65,9 +65,10 @@ func (a *fakeProviderAdapter) Chat(ctx context.Context, messages []Message, tool
 			toolNames[i] = t.Name
 		}
 		freq := FakeRequest{
-			Messages: messages,
-			Tools:    toolNames,
-			Model:    opts.Model,
+			Messages:  messages,
+			Tools:     toolNames,
+			Model:     opts.Model,
+			Reasoning: opts.Reasoning,
 		}
 		fresp, err := a.fp.Dynamic(freq)
 		if err != nil {

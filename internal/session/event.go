@@ -17,6 +17,7 @@ type SessionStartData struct {
 	RequestedModelRef  string            `json:"requested_model_ref,omitempty"`
 	ResolvedModelRef   string            `json:"resolved_model_ref,omitempty"`
 	ResolvedModel      string            `json:"resolved_model,omitempty"`
+	Reasoning          agent.Reasoning   `json:"reasoning,omitempty"`
 	AttemptedProviders []string          `json:"attempted_providers,omitempty"`
 	FailoverCount      int               `json:"failover_count,omitempty"`
 	WorkDir            string            `json:"work_dir"`
@@ -66,6 +67,7 @@ type SessionEndData struct {
 	RequestedModelRef  string            `json:"requested_model_ref,omitempty"`
 	ResolvedModelRef   string            `json:"resolved_model_ref,omitempty"`
 	ResolvedModel      string            `json:"resolved_model,omitempty"`
+	Reasoning          agent.Reasoning   `json:"reasoning,omitempty"`
 	AttemptedProviders []string          `json:"attempted_providers,omitempty"`
 	FailoverCount      int               `json:"failover_count,omitempty"`
 	Metadata           map[string]string `json:"metadata,omitempty"`

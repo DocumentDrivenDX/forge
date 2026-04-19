@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
 )
 
@@ -36,10 +37,9 @@ var knownMappings = map[string]ProviderMapping{
 	"zai":  {AgentName: "z.ai", Type: "openai-compat", BaseURL: "https://api.z.ai/v1"},
 }
 
-// thinkingModelRe matches model IDs that support extended thinking / reasoning
-// tokens. When a provider's default model matches, thinking_level is set to
-// "medium" automatically during import.
-var thinkingModelRe = regexp.MustCompile(
+// reasoningModelRe matches model IDs that benefit from an explicit portable
+// reasoning default during import.
+var reasoningModelRe = regexp.MustCompile(
 	`(?i)^(qwen3|qwen-3|deepseek-r1|deepseek_r1|qwq)`,
 )
 
@@ -187,26 +187,24 @@ func translateProvider(def ProviderDefinition, cred AuthEntry) translatedProvide
 		pc.Model = def.Models[0]
 	}
 
-	// Auto-configure thinking_level for known reasoning models (Qwen3,
-	// DeepSeek-R1, QwQ). Only set when not already specified.
-	if pc.ThinkingLevel == "" && pc.Model != "" && isThinkingModel(pc.Model) {
-		pc.ThinkingLevel = "medium"
+	// Auto-configure reasoning for known reasoning models (Qwen3, DeepSeek-R1,
+	// QwQ). Only set when not already specified.
+	if pc.Reasoning == "" && pc.Model != "" && isReasoningModel(pc.Model) {
+		pc.Reasoning = reasoning.ReasoningMedium
 	}
 
 	return translatedProvider{Name: name, Config: pc}
 }
 
-// isThinkingModel reports whether modelID belongs to a model family that
-// supports extended thinking / reasoning tokens and benefits from an explicit
-// thinking budget in the provider config. Claude-distilled variants (e.g.
-// "qwen3-claude-opus-distilled") are excluded since they do not expose a
-// native thinking API.
-func isThinkingModel(modelID string) bool {
+// isReasoningModel reports whether modelID belongs to a model family that
+// benefits from an explicit reasoning default. Claude-distilled variants (e.g.
+// "qwen3-claude-opus-distilled") are excluded.
+func isReasoningModel(modelID string) bool {
 	lower := strings.ToLower(strings.TrimSpace(modelID))
 	if strings.Contains(lower, "claude") {
 		return false
 	}
-	return thinkingModelRe.MatchString(strings.TrimSpace(modelID))
+	return reasoningModelRe.MatchString(strings.TrimSpace(modelID))
 }
 
 // ComputeSourceHash computes a truncated SHA-256 hash of the source files.

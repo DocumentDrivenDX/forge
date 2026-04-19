@@ -22,6 +22,7 @@ import (
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	"github.com/DocumentDrivenDX/agent/internal/prompt"
 	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/internal/session"
 	"github.com/DocumentDrivenDX/agent/internal/tool"
@@ -54,6 +55,7 @@ func run() int {
 	backendFlag := fs.String("backend", "", "Deprecated named backend pool from config")
 	model := fs.String("model", "", "Model route key or explicit concrete model override")
 	modelRef := fs.String("model-ref", "", "Model catalog reference (alias, profile, or canonical target)")
+	reasoningFlag := fs.String("reasoning", "", "Reasoning control: auto, off, low, medium, high, xhigh, max, or token budget")
 	allowDeprecatedModel := fs.Bool("allow-deprecated-model", false, "Allow deprecated model catalog references")
 	maxIter := fs.Int("max-iter", 0, "Max iterations")
 	workDir := fs.String("work-dir", "", "Working directory")
@@ -163,6 +165,11 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 2
 	}
+	resolvedReasoning, err := resolveRunReasoning(cfg, selection, *reasoningFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 2
+	}
 
 	// Resolve max iterations
 	iterations := cfg.MaxIterations
@@ -255,6 +262,7 @@ func run() int {
 		ReasoningByteLimit:    cfg.ReasoningByteLimit,
 		ReasoningStallTimeout: reasoningStallTimeout,
 		MaxTokens:             resolvedMaxTokens,
+		Reasoning:             resolvedReasoning,
 		Compactor:             compactor,
 	}
 
@@ -307,6 +315,7 @@ func normalizeRunSubcommand(args []string) (bool, []string) {
 		"p":         true,
 		"preset":    true,
 		"provider":  true,
+		"reasoning": true,
 		"system":    true,
 		"work-dir":  true,
 	}
@@ -348,7 +357,51 @@ type providerSelection struct {
 	RequestedModelRef string
 	ResolvedModelRef  string
 	ResolvedModel     string
+	ReasoningDefault  agent.Reasoning
 	NoStream          bool
+}
+
+func resolveRunReasoning(cfg *agentConfig.Config, selection providerSelection, flagValue string) (agent.Reasoning, error) {
+	explicit := strings.TrimSpace(flagValue) != ""
+	if !explicit {
+		return selection.ReasoningDefault, nil
+	}
+	policy, err := reasoning.ParseString(flagValue)
+	if err != nil {
+		return "", err
+	}
+	if policy.Kind == reasoning.KindAuto {
+		if selection.ReasoningDefault != "" {
+			return selection.ReasoningDefault, nil
+		}
+		return agent.ReasoningAuto, nil
+	}
+	if policy.Kind == reasoning.KindTokens || policy.Value == reasoning.ReasoningMax {
+		maxTokens := lookupReasoningMaxTokens(cfg, selection.ResolvedModel)
+		if maxTokens > 0 {
+			if policy.Value == reasoning.ReasoningMax {
+				return agent.ReasoningTokens(maxTokens), nil
+			}
+			if policy.Tokens > maxTokens {
+				return "", fmt.Errorf("reasoning: token budget %d exceeds maximum %d for model %q", policy.Tokens, maxTokens, selection.ResolvedModel)
+			}
+		}
+	}
+	return agent.Reasoning(policy.Value), nil
+}
+
+func lookupReasoningMaxTokens(cfg *agentConfig.Config, model string) int {
+	if model == "" {
+		return 0
+	}
+	catalog, err := cfg.LoadModelCatalog()
+	if err != nil || catalog == nil {
+		return 0
+	}
+	if entry, ok := catalog.LookupModel(model); ok {
+		return entry.ReasoningMaxTokens
+	}
+	return 0
 }
 
 func resolveProviderForRun(cfg *agentConfig.Config, workDir, backendName, providerName string, overrides agentConfig.ProviderOverrides) (providerSelection, agent.Provider, agentConfig.ProviderConfig, error) {
@@ -383,6 +436,7 @@ func resolveProviderForRun(cfg *agentConfig.Config, workDir, backendName, provid
 		}
 		if resolved != nil {
 			selection.ResolvedModelRef = resolved.CanonicalID
+			selection.ReasoningDefault = agent.Reasoning(resolved.SurfacePolicy.ReasoningDefault)
 			if resolved.ConcreteModel != "" {
 				selection.ResolvedModel = resolved.ConcreteModel
 			}
@@ -407,11 +461,10 @@ func resolveProviderForRun(cfg *agentConfig.Config, workDir, backendName, provid
 	}
 	if resolved != nil {
 		selection.ResolvedModelRef = resolved.CanonicalID
+		selection.ReasoningDefault = agent.Reasoning(resolved.SurfacePolicy.ReasoningDefault)
 		if resolved.ConcreteModel != "" {
 			selection.ResolvedModel = resolved.ConcreteModel
 		}
-	} else if routeModelRef != "" {
-		selection.ResolvedModelRef = routeKey
 	}
 	return selection, p, pc, nil
 }
@@ -520,11 +573,20 @@ func buildRouteSelection(cfg *agentConfig.Config, workDir, routeKey, routeModelR
 	}
 	if resolved != nil {
 		selection.ResolvedModelRef = resolved.CanonicalID
+		selection.ReasoningDefault = agent.Reasoning(resolved.SurfacePolicy.ReasoningDefault)
 		if resolved.ConcreteModel != "" {
 			selection.ResolvedModel = resolved.ConcreteModel
 		}
 	} else if routeModelRef != "" {
 		selection.ResolvedModelRef = routeKey
+	}
+	if selection.ReasoningDefault == "" && routeModelRef != "" {
+		if catalogResolved, err := resolveCanonicalModelRef(cfg, routeModelRef, allowDeprecated); err == nil {
+			selection.ReasoningDefault = agent.Reasoning(catalogResolved.SurfacePolicy.ReasoningDefault)
+			if selection.ResolvedModelRef == "" || selection.ResolvedModelRef == routeKey {
+				selection.ResolvedModelRef = catalogResolved.CanonicalID
+			}
+		}
 	}
 	return selection, p, pc, nil
 }

@@ -5,7 +5,7 @@ prompt: |
 expected_tools:
   - ls
 permissions: safe
-effort: low
+reasoning: low
 tags:
   - tool-use
   - single-call

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/telemetry"
 )
 
@@ -70,29 +71,21 @@ type ToolDef struct {
 	Parameters  json.RawMessage `json:"parameters"` // JSON Schema
 }
 
-// ThinkingLevel is a named thinking intensity level for models that support
-// extended reasoning (e.g. Qwen3, DeepSeek-R1).
-type ThinkingLevel string
+type Reasoning = reasoning.Reasoning
 
 const (
-	ThinkingLevelOff    ThinkingLevel = "off"
-	ThinkingLevelLow    ThinkingLevel = "low"
-	ThinkingLevelMedium ThinkingLevel = "medium"
-	ThinkingLevelHigh   ThinkingLevel = "high"
+	ReasoningAuto    = reasoning.ReasoningAuto
+	ReasoningOff     = reasoning.ReasoningOff
+	ReasoningLow     = reasoning.ReasoningLow
+	ReasoningMedium  = reasoning.ReasoningMedium
+	ReasoningHigh    = reasoning.ReasoningHigh
+	ReasoningMinimal = reasoning.ReasoningMinimal
+	ReasoningXHigh   = reasoning.ReasoningXHigh
+	ReasoningMax     = reasoning.ReasoningMax
 )
 
-// DefaultThinkingBudgets maps ThinkingLevel to token budgets.
-var DefaultThinkingBudgets = map[ThinkingLevel]int{
-	ThinkingLevelOff:    0,
-	ThinkingLevelLow:    2048,
-	ThinkingLevelMedium: 8192,
-	ThinkingLevelHigh:   32768,
-}
-
-// ResolveThinkingBudget returns the token budget for a level.
-// Returns 0 for unknown levels (treated as off).
-func ResolveThinkingBudget(level ThinkingLevel) int {
-	return DefaultThinkingBudgets[level]
+func ReasoningTokens(n int) Reasoning {
+	return reasoning.ReasoningTokens(n)
 }
 
 // Options configures a single provider Chat call.
@@ -105,13 +98,9 @@ type Options struct {
 	Temperature *float64 `json:"temperature,omitempty"`
 	MaxTokens   int      `json:"max_tokens,omitempty"`
 	Stop        []string `json:"stop,omitempty"`
-	// ThinkingBudget limits the number of reasoning/thinking tokens for models
-	// that support extended thinking (e.g. Qwen3, DeepSeek-R1). Zero means
-	// no explicit budget is set and the provider default applies.
-	ThinkingBudget int `json:"thinking_budget,omitempty"`
-	// ThinkingLevel is a named intensity level. If set and ThinkingBudget is 0,
-	// the level is resolved to a token budget via ResolveThinkingBudget.
-	ThinkingLevel ThinkingLevel `json:"thinking_level,omitempty"`
+	// Reasoning controls model-side reasoning with one scalar value. Empty means
+	// unset; use ReasoningOff or ReasoningTokens(0) for explicit off.
+	Reasoning Reasoning `json:"reasoning,omitempty"`
 }
 
 // Response is the result of a single provider Chat call.
@@ -309,6 +298,10 @@ type Request struct {
 	// Zero means no explicit limit (provider default applies).
 	MaxTokens int
 
+	// Reasoning controls model-side reasoning with one scalar value. Empty means
+	// unset; use ReasoningOff or ReasoningTokens(0) for explicit off.
+	Reasoning Reasoning
+
 	// NoStream disables streaming even if the provider supports it.
 	NoStream bool
 
@@ -368,6 +361,9 @@ type Result struct {
 
 	// ResolvedModel is the resolved concrete model selected before the run.
 	ResolvedModel string `json:"resolved_model,omitempty"`
+
+	// Reasoning is the resolved model-side reasoning control for this run.
+	Reasoning Reasoning `json:"reasoning,omitempty"`
 
 	// AttemptedProviders records providers tried in order by any routing wrapper.
 	AttemptedProviders []string `json:"attempted_providers,omitempty"`

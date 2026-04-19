@@ -22,7 +22,7 @@ func (s *service) ResolveRoute(ctx context.Context, req RouteRequest) (*RouteDec
 		Model:       req.Model,
 		Provider:    req.Provider,
 		Harness:     req.Harness,
-		Effort:      req.Effort,
+		Reasoning:   effectiveReasoningString(req.Reasoning),
 		Permissions: req.Permissions,
 	}
 	dec, err := routing.Resolve(rReq, in)
@@ -78,20 +78,21 @@ func (s *service) buildRoutingInputs() routing.Inputs {
 		}
 		st := statusByName[name]
 		entry := routing.HarnessEntry{
-			Name:             name,
-			Surface:          cfg.Surface,
-			CostClass:        cfg.CostClass,
-			IsLocal:          cfg.IsLocal,
-			IsSubscription:   cfg.IsSubscription,
-			IsHTTPProvider:   cfg.IsHTTPProvider,
-			TestOnly:         cfg.TestOnly,
-			ExactPinSupport:  cfg.ExactPinSupport,
-			DefaultModel:     cfg.DefaultModel,
-			SupportedEfforts: supportedEfforts(cfg),
-			SupportedPerms:   supportedPermissions(cfg),
-			SupportsTools:    true, // all builtin harnesses support tools today
-			Available:        st.Available,
-			QuotaOK:          true,
+			Name:               name,
+			Surface:            cfg.Surface,
+			CostClass:          cfg.CostClass,
+			IsLocal:            cfg.IsLocal,
+			IsSubscription:     cfg.IsSubscription,
+			IsHTTPProvider:     cfg.IsHTTPProvider,
+			TestOnly:           cfg.TestOnly,
+			ExactPinSupport:    cfg.ExactPinSupport,
+			DefaultModel:       cfg.DefaultModel,
+			SupportedReasoning: supportedReasoning(cfg),
+			MaxReasoningTokens: cfg.MaxReasoningTokens,
+			SupportedPerms:     supportedPermissions(cfg),
+			SupportsTools:      true, // all builtin harnesses support tools today
+			Available:          st.Available,
+			QuotaOK:            true,
 		}
 		// Native "agent" harness: enumerate configured providers.
 		if name == "agent" && s.opts.ServiceConfig != nil {
@@ -125,7 +126,7 @@ func (s *service) resolveExecuteRouteWithEngine(req ServiceExecuteRequest) (*Rou
 		Provider:    req.Provider,
 		Harness:     req.Harness,
 		ModelRef:    req.ModelRef,
-		Effort:      req.Effort,
+		Reasoning:   req.Reasoning,
 		Permissions: req.Permissions,
 	}
 	dec, err := s.ResolveRoute(context.Background(), rr)

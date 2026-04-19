@@ -30,6 +30,12 @@ func TestNormalizeRunSubcommand_RunWithFlags(t *testing.T) {
 	assert.Equal(t, []string{"--model", "qwen3.5-27b", "Read the file"}, remaining)
 }
 
+func TestNormalizeRunSubcommand_RunWithReasoningFlag(t *testing.T) {
+	isRun, remaining := normalizeRunSubcommand([]string{"run", "--reasoning", "high", "Read the file"})
+	assert.True(t, isRun)
+	assert.Equal(t, []string{"--reasoning", "high", "Read the file"}, remaining)
+}
+
 func TestNormalizeRunSubcommand_RunWithBoolFlag(t *testing.T) {
 	isRun, remaining := normalizeRunSubcommand([]string{"run", "--json", "Read the file"})
 	assert.True(t, isRun)

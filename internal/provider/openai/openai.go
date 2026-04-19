@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
+	reasoningpolicy "github.com/DocumentDrivenDX/agent/internal/reasoning"
 	oai "github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
@@ -20,18 +21,18 @@ import (
 
 // Provider implements agent.Provider for OpenAI-compatible APIs.
 type Provider struct {
-	client         *oai.Client
-	model          string
-	modelPattern   string            // regex filter for auto-discovery; "" means first model
-	knownModels    map[string]string // catalog-recognized model IDs (modelID → catalogRef)
-	baseURL        string            // stored for lazy model discovery
-	apiKey         string            // stored for lazy model discovery
-	providerName   string
-	providerSystem string // URL-heuristic tag; eager, zero-cost, used in hot telemetry paths
-	configFlavor   string // explicit Config.Flavor when set; empty means auto-detect via probe
-	serverAddress  string
-	serverPort     int
-	thinkingBudget int
+	client           *oai.Client
+	model            string
+	modelPattern     string            // regex filter for auto-discovery; "" means first model
+	knownModels      map[string]string // catalog-recognized model IDs (modelID → catalogRef)
+	baseURL          string            // stored for lazy model discovery
+	apiKey           string            // stored for lazy model discovery
+	providerName     string
+	providerSystem   string // URL-heuristic tag; eager, zero-cost, used in hot telemetry paths
+	configFlavor     string // explicit Config.Flavor when set; empty means auto-detect via probe
+	serverAddress    string
+	serverPort       int
+	reasoningDefault reasoningpolicy.Reasoning
 
 	// lazy model discovery — runs at most once per Provider instance
 	discoverOnce     sync.Once
@@ -53,9 +54,9 @@ type Config struct {
 	// agent.openai surface. Models present in this map are ranked higher during
 	// auto-selection. Populated by the config layer from the model catalog;
 	// nil disables catalog-aware ranking.
-	KnownModels    map[string]string
-	Headers        map[string]string // extra HTTP headers (OpenRouter, Azure, etc.)
-	ThinkingBudget int               // max reasoning tokens for thinking models (0 = unset)
+	KnownModels map[string]string
+	Headers     map[string]string // extra HTTP headers (OpenRouter, Azure, etc.)
+	Reasoning   reasoningpolicy.Reasoning
 	// Flavor is an optional explicit server-type hint ("lmstudio", "omlx",
 	// "openrouter", "ollama"). When set, DetectedFlavor() returns this value
 	// without probing. When empty, DetectedFlavor() runs a one-time probe.
@@ -87,18 +88,18 @@ func New(cfg Config) *Provider {
 	client := oai.NewClient(opts...)
 	providerSystem, serverAddress, serverPort := openAIIdentity(cfg.BaseURL)
 	return &Provider{
-		client:         &client,
-		model:          cfg.Model,
-		modelPattern:   cfg.ModelPattern,
-		knownModels:    cfg.KnownModels,
-		baseURL:        cfg.BaseURL,
-		apiKey:         cfg.APIKey,
-		providerName:   "openai-compat",
-		providerSystem: providerSystem,
-		configFlavor:   cfg.Flavor,
-		serverAddress:  serverAddress,
-		serverPort:     serverPort,
-		thinkingBudget: cfg.ThinkingBudget,
+		client:           &client,
+		model:            cfg.Model,
+		modelPattern:     cfg.ModelPattern,
+		knownModels:      cfg.KnownModels,
+		baseURL:          cfg.BaseURL,
+		apiKey:           cfg.APIKey,
+		providerName:     "openai-compat",
+		providerSystem:   providerSystem,
+		configFlavor:     cfg.Flavor,
+		serverAddress:    serverAddress,
+		serverPort:       serverPort,
+		reasoningDefault: cfg.Reasoning,
 	}
 }
 
@@ -206,9 +207,13 @@ func (p *Provider) Chat(ctx context.Context, messages []agent.Message, tools []a
 	if len(opts.Stop) > 0 {
 		params.Stop = oai.ChatCompletionNewParamsStopUnion{OfStringArray: opts.Stop}
 	}
+	reqOpts, err := p.reasoningRequestOptions(opts)
+	if err != nil {
+		return agent.Response{}, err
+	}
 
 	var resp agent.Response
-	completion, err := p.client.Chat.Completions.New(ctx, params)
+	completion, err := p.client.Chat.Completions.New(ctx, params, reqOpts...)
 	if err != nil {
 		return resp, fmt.Errorf("openai: %w", err)
 	}
@@ -358,28 +363,9 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 	if opts.Temperature != nil {
 		params.Temperature = oai.Float(*opts.Temperature)
 	}
-
-	// Build per-request options. For thinking models (Qwen3, DeepSeek-R1 etc.)
-	// apply a budget cap via the non-standard `thinking` body field. Only
-	// include it for flavors that actually tolerate it — sending it to omlx
-	// causes silent SSE termination after the first delta (agent-04639431
-	// wire evidence from DocumentDrivenDX/ddx ddx-6a5dfe35). Other flavors
-	// either ignore it (OpenAI, Ollama) or pass it through to backends that
-	// don't know it (OpenRouter). Gate on p.SupportsThinking() which reads
-	// the flavor-keyed capability table in protocol_support.go.
-	thinkingBudget := p.thinkingBudget
-	if opts.ThinkingBudget > 0 {
-		thinkingBudget = opts.ThinkingBudget
-	}
-	if thinkingBudget == 0 && opts.ThinkingLevel != "" {
-		thinkingBudget = agent.ResolveThinkingBudget(opts.ThinkingLevel)
-	}
-	var streamReqOpts []option.RequestOption
-	if thinkingBudget > 0 && p.SupportsThinking() {
-		streamReqOpts = append(streamReqOpts, option.WithJSONSet("thinking", map[string]interface{}{
-			"type":          "enabled",
-			"budget_tokens": thinkingBudget,
-		}))
+	streamReqOpts, err := p.reasoningRequestOptions(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	stream := p.client.Chat.Completions.NewStreaming(ctx, params, streamReqOpts...)
@@ -498,6 +484,45 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 	}()
 
 	return ch, nil
+}
+
+// reasoningRequestOptions builds per-request options. For thinking models
+// (Qwen3, DeepSeek-R1 etc.) apply a budget cap via the non-standard `thinking`
+// body field only for flavors that tolerate it. Sending it to omlx causes
+// silent SSE termination after the first delta (agent-04639431 wire evidence).
+func (p *Provider) reasoningRequestOptions(opts agent.Options) ([]option.RequestOption, error) {
+	policy, err := reasoningpolicy.Parse(opts.Reasoning)
+	if err != nil {
+		return nil, err
+	}
+	explicitRequest := policy.IsSet()
+	if !explicitRequest {
+		policy, err = reasoningpolicy.Parse(p.reasoningDefault)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if !policy.IsSet() || policy.Kind == reasoningpolicy.KindAuto || policy.IsExplicitOff() {
+		return nil, nil
+	}
+	thinkingBudget, err := reasoningpolicy.BudgetFor(policy, nil, 0)
+	if err != nil {
+		return nil, fmt.Errorf("openai: %w", err)
+	}
+	if thinkingBudget <= 0 {
+		return nil, nil
+	}
+	if !p.SupportsThinking() {
+		if explicitRequest {
+			return nil, fmt.Errorf("openai: reasoning=%q is not supported by flavor %q", policy.Value, p.DetectedFlavor())
+		}
+		return nil, nil
+	}
+	return []option.RequestOption{option.WithJSONSet("thinking", map[string]interface{}{
+		"type":          "enabled",
+		"budget_tokens": thinkingBudget,
+	})}, nil
 }
 
 var _ agent.Provider = (*Provider)(nil)

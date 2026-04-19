@@ -59,7 +59,7 @@ type DdxAgent interface {
 
     // ListHarnesses returns metadata for every registered harness (native and
     // subprocess). HarnessInfo includes install state, supported permission
-    // levels, supported effort levels, and live quota when applicable.
+    // levels, supported reasoning values, and live quota when applicable.
     ListHarnesses(ctx context.Context) ([]HarnessInfo, error)
 
     // ListProviders returns providers known to the native-agent harness with
@@ -113,6 +113,29 @@ type Options struct {
     ToolWiringHook          ToolWiringHook
 }
 
+// Reasoning is the single public model-reasoning control. It is one scalar:
+// named values such as auto/off/low/medium/high/minimal/xhigh/max, or numeric
+// strings produced by ReasoningTokens for explicit token budgets.
+//
+// The root package may re-export this type, constants, and helper from a shared
+// leaf package such as internal/reasoning. Internal packages such as
+// internal/modelcatalog import the leaf package, not root agent, to avoid
+// root-agent/internal-modelcatalog import cycles.
+type Reasoning string
+
+const (
+    ReasoningAuto   Reasoning = "auto"
+    ReasoningOff    Reasoning = "off"
+    ReasoningLow    Reasoning = "low"
+    ReasoningMedium Reasoning = "medium"
+    ReasoningHigh   Reasoning = "high"
+    ReasoningMinimal Reasoning = "minimal" // accepted only when advertised
+    ReasoningXHigh  Reasoning = "xhigh"    // normalizes x-high
+    ReasoningMax    Reasoning = "max"      // requires known model/provider max
+)
+
+func ReasoningTokens(n int) Reasoning
+
 type ExecuteRequest struct {
     Prompt       string  // required
     SystemPrompt string  // optional; agent supplies a sane default if empty
@@ -120,7 +143,7 @@ type ExecuteRequest struct {
     Provider     string  // optional preference (soft); empty = router decides
     Harness      string  // optional preference (hard); empty = router decides
     ModelRef     string  // optional alias from the catalog: cheap/standard/smart/<custom>
-    Effort       string  // "low" | "medium" | "high"; empty = harness default
+    Reasoning    Reasoning // optional; auto|off|low|medium|high|minimal|xhigh|max|<tokens>
     Permissions  string  // "safe" | "supervised" | "unrestricted"; default "safe"
     WorkDir      string  // required when the chosen harness uses tools
 
@@ -170,7 +193,7 @@ type RouteRequest struct {
     Provider    string
     Harness     string
     ModelRef    string
-    Effort      string
+    Reasoning   Reasoning
     Permissions string
 }
 
@@ -203,7 +226,7 @@ type HarnessInfo struct {
     IsSubscription       bool
     ExactPinSupport      bool
     SupportedPermissions []string // subset of {"safe","supervised","unrestricted"}
-    SupportedEfforts     []string // subset of {"low","medium","high"}
+    SupportedReasoning   []string // values such as {"off","low","medium","high","minimal","xhigh","max"}
     CostClass            string   // "local" | "cheap" | "medium" | "expensive"
     Quota                *QuotaState // nil if not applicable; live field
 }
@@ -232,6 +255,8 @@ type ModelInfo struct {
     IsConfigured  bool    // matches an explicit model_routes entry
     IsDefault     bool    // matches the configured default model
     CatalogRef    string  // canonical catalog reference if recognized
+    ReasoningDefault Reasoning // catalog/provider default for this model, if known
+    ReasoningMaxTokens int     // 0 when unknown or not applicable
     RankPosition  int     // ordinal in the latest discovery rank for this provider; -1 if unranked
 }
 
@@ -378,6 +403,67 @@ type CompactionAssertionHook func(messagesBefore, messagesAfter int, tokensFreed
 // land at the right harness given the request's permission level.
 type ToolWiringHook func(harness string, toolNames []string)
 ```
+
+## Reasoning contract
+
+`Reasoning` is the only preferred public control for model-side reasoning.
+Consumers do not set separate public thinking, effort, level, or budget fields.
+The scalar accepts named values (`auto`, `off`, `low`, `medium`, `high`) and
+provider/harness-supported extended values such as `minimal`, `xhigh` /
+`x-high`, and `max`. It also accepts numeric values through
+`ReasoningTokens(n)`, where `0` means explicit off and positive integers mean
+an explicit max reasoning-token budget or documented provider-equivalent
+numeric value.
+
+Normalization is tri-state:
+
+- Empty means no caller preference.
+- `auto` means resolve model, catalog, or provider defaults.
+- `off`, `none`, `false`, and `0` mean explicit reasoning off.
+- Positive integers mean an explicit numeric request.
+
+Default portable named-to-token budgets are `low=2048`, `medium=8192`, and
+`high=32768` only when a selected provider/model does not publish a more
+specific map. Providers and subprocess harnesses may map resolved reasoning to
+wire or CLI knobs named `reasoning`, `thinking`, `effort`, `variant`, or a
+numeric budget. They may also drop auto/default reasoning controls for models
+that do not support explicit reasoning control. Explicit unsupported values,
+unknown extended values, and over-limit numeric values fail clearly.
+
+Catalog tier defaults are part of route resolution: below-smart tiers
+(`cheap`, `fast`, `standard`, `code-economy`, and `code-medium`) default to
+`reasoning=off`, including local/economy Qwen targets. `smart` and `code-high`
+default to `reasoning=high`. Any explicit caller `Reasoning` value wins over
+these defaults, including supported values above high such as `xhigh` or
+`max`, and numeric values.
+
+## Bead Execution Policy
+
+DDx bead implementation should use a two-pass policy against this service:
+try a cheap or standard profile with `reasoning=off` first, then escalate only
+when the first pass produced evidence that a smarter model is likely to help.
+The initial pass should use `ModelRef=cheap` or `ModelRef=standard` with an
+explicit `ReasoningOff` request so local/economy models do not spend
+reasoning tokens by default.
+
+Smart retry is eligible when the first pass failed because of model capability,
+reasoning quality, a post-implementation test failure, or an explicit agent
+failure after the agent had a valid checkout and attempted the bead. The retry
+uses `ModelRef=smart` and the smart-tier catalog default, currently
+`reasoning=high`, unless the caller supplies a tighter explicit value. The
+retry must preserve the same bead context and retain first-pass logs/evidence
+so reviewers can compare the cheap attempt with the smart attempt.
+
+Smart retry is not eligible for deterministic setup failures: dirty-worktree or
+merge conflicts, missing repository checkout, invalid bead metadata, unresolved
+dependencies, config parse errors, missing harness binaries, authentication
+setup failures, or command-not-found/toolchain setup failures. These failures
+should stop with actionable evidence instead of spending a smart attempt.
+
+Cost caps, timeout limits, permission policy, and determinism controls apply
+across both passes as one execution budget. The agent-side contract defines the
+fields and semantics; the DDx execute-loop implementation is tracked in the
+paired DDx repo bead `ddx-785d02f7`.
 
 ## Behaviors the contract guarantees
 

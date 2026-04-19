@@ -24,7 +24,7 @@ expected_tools:        # optional; informational only
   - read
   - glob
 permissions: safe      # safe | supervised | unrestricted
-effort: low            # low | medium | high
+reasoning: low         # off | low | medium | high | xhigh | max | numeric tokens
 tags:
   - tool-use
 ```

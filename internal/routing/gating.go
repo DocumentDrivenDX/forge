@@ -3,31 +3,45 @@ package routing
 import (
 	"fmt"
 	"strings"
+
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 )
 
 // Capabilities describes what a (harness, provider, model) tuple can do.
 // Populated from harness config + catalog metadata + provider discovery.
 type Capabilities struct {
-	ContextWindow     int      // resolved tokens; 0 = unknown
-	SupportsTools     bool     // supports tool/function calling
-	SupportsStreaming bool     // supports streaming responses
-	SupportedEfforts  []string // {"low","medium","high"} subset
-	SupportedPerms    []string // {"safe","supervised","unrestricted"} subset
-	ExactPinSupport   bool     // accepts exact concrete model pins
+	ContextWindow      int      // resolved tokens; 0 = unknown
+	SupportsTools      bool     // supports tool/function calling
+	SupportsStreaming  bool     // supports streaming responses
+	SupportedReasoning []string // supported public reasoning values
+	MaxReasoningTokens int      // 0 means numeric reasoning is unsupported/unknown
+	SupportedPerms     []string // {"safe","supervised","unrestricted"} subset
+	ExactPinSupport    bool     // accepts exact concrete model pins
 }
 
-// HasEffort returns true if the candidate supports the requested effort level.
-// An empty effort always returns true (no requirement).
-func (c Capabilities) HasEffort(effort string) bool {
-	if effort == "" {
+// HasReasoning returns true if the candidate supports the requested reasoning
+// value. Empty, auto, off, and numeric 0 impose no requirement.
+func (c Capabilities) HasReasoning(value string) bool {
+	policy, err := reasoning.ParseString(value)
+	if err != nil {
+		return false
+	}
+	switch policy.Kind {
+	case reasoning.KindUnset, reasoning.KindAuto, reasoning.KindOff:
 		return true
-	}
-	for _, e := range c.SupportedEfforts {
-		if strings.EqualFold(e, effort) {
-			return true
+	case reasoning.KindTokens:
+		return c.MaxReasoningTokens > 0 && policy.Tokens <= c.MaxReasoningTokens
+	case reasoning.KindNamed:
+		for _, supported := range c.SupportedReasoning {
+			normalized, err := reasoning.Normalize(supported)
+			if err == nil && normalized == policy.Value {
+				return true
+			}
 		}
+		return false
+	default:
+		return false
 	}
-	return false
 }
 
 // HasPermissions returns true if the candidate supports the requested level.
@@ -62,9 +76,8 @@ func CheckGating(cap Capabilities, req Request) string {
 		return "tool calling not supported"
 	}
 
-	// Effort support gating.
-	if !cap.HasEffort(req.Effort) {
-		return fmt.Sprintf("effort %q not supported", req.Effort)
+	if !cap.HasReasoning(req.Reasoning) {
+		return fmt.Sprintf("reasoning %q not supported", req.Reasoning)
 	}
 
 	// Permissions support gating.

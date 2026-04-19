@@ -124,6 +124,39 @@ func TestExecute_NativePathWithFakeProvider(t *testing.T) {
 	}
 }
 
+func TestExecute_NativeReasoningForwarded(t *testing.T) {
+	var got agent.Reasoning
+	fp := &agent.FakeProvider{
+		Dynamic: func(req agent.FakeRequest) (agent.FakeResponse, error) {
+			got = req.Reasoning
+			return agent.FakeResponse{Text: "done"}, nil
+		},
+	}
+	opts := agent.ServiceOptions{FakeProvider: fp}
+	svc, err := agent.New(opts)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ch, err := svc.Execute(context.Background(), agent.ServiceExecuteRequest{
+		Prompt:    "hi",
+		Harness:   "agent",
+		Provider:  "fake",
+		Model:     "fake-model",
+		Reasoning: agent.ReasoningOff,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	events := drainEvents(t, ch, 5*time.Second)
+	if final := findFinal(events); final == nil || finalStatus(t, final) != "success" {
+		t.Fatalf("expected success final, got %#v", final)
+	}
+	if got != agent.ReasoningOff {
+		t.Fatalf("Reasoning forwarded to native provider = %q, want off", got)
+	}
+}
+
 // TestExecute_StallPolicy_ReadOnlyTrigger verifies that a fake provider
 // emitting only read-only tool calls triggers the stall policy and
 // terminates with Status="stalled".

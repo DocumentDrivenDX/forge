@@ -15,6 +15,7 @@ import (
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	"github.com/DocumentDrivenDX/agent/internal/provider/anthropic"
 	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/telemetry"
 	"gopkg.in/yaml.v3"
@@ -32,12 +33,8 @@ type ProviderConfig struct {
 	// used as a fallback.
 	ModelPattern string            `yaml:"model_pattern,omitempty"`
 	Headers      map[string]string `yaml:"headers"` // extra HTTP headers (OpenRouter, Azure)
-	// ThinkingBudget limits reasoning tokens for models that support extended
-	// thinking (e.g. Qwen3, DeepSeek-R1). Zero means no budget is set.
-	ThinkingBudget int `yaml:"thinking_budget,omitempty"`
-	// ThinkingLevel is a named intensity level (off/low/medium/high).
-	// Resolved to ThinkingBudget if ThinkingBudget is 0.
-	ThinkingLevel string `yaml:"thinking_level,omitempty"`
+	// Reasoning controls model-side reasoning with one scalar value.
+	Reasoning reasoning.Reasoning `yaml:"reasoning,omitempty"`
 	// MaxTokens is the maximum number of tokens the model may generate per turn.
 	// Zero means use the provider's default.
 	MaxTokens int `yaml:"max_tokens,omitempty"`
@@ -259,6 +256,9 @@ func Load(workDir string) (*Config, error) {
 			continue
 		}
 		expanded := expandEnvVars(string(data))
+		if err := rejectLegacyProviderReasoningKeys([]byte(expanded)); err != nil {
+			return nil, fmt.Errorf("config: parsing %s: %w", p, err)
+		}
 		if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 			return nil, fmt.Errorf("config: parsing %s: %w", p, err)
 		}
@@ -729,10 +729,6 @@ func (c *Config) ResolveBackend(name string, counter int, overrides ProviderOver
 func buildProviderFromConfig(pc ProviderConfig) (agent.Provider, error) {
 	switch pc.Type {
 	case "openai-compat", "openai":
-		budget := pc.ThinkingBudget
-		if budget == 0 && pc.ThinkingLevel != "" {
-			budget = agent.ResolveThinkingBudget(agent.ThinkingLevel(pc.ThinkingLevel))
-		}
 		// Populate the known-models map from the embedded catalog so the provider
 		// can rank discovered models by catalog recognition. Failure is non-fatal.
 		var knownModels map[string]string
@@ -740,14 +736,14 @@ func buildProviderFromConfig(pc ProviderConfig) (agent.Provider, error) {
 			knownModels = cat.AllConcreteModels(modelcatalog.SurfaceAgentOpenAI)
 		}
 		return oaiProvider.New(oaiProvider.Config{
-			BaseURL:        pc.BaseURL,
-			APIKey:         pc.APIKey,
-			Model:          pc.Model,
-			ModelPattern:   pc.ModelPattern,
-			KnownModels:    knownModels,
-			Headers:        pc.Headers,
-			ThinkingBudget: budget,
-			Flavor:         pc.Flavor,
+			BaseURL:      pc.BaseURL,
+			APIKey:       pc.APIKey,
+			Model:        pc.Model,
+			ModelPattern: pc.ModelPattern,
+			KnownModels:  knownModels,
+			Headers:      pc.Headers,
+			Reasoning:    pc.Reasoning,
+			Flavor:       pc.Flavor,
 		}), nil
 	case "anthropic":
 		return anthropic.New(anthropic.Config{
@@ -757,6 +753,23 @@ func buildProviderFromConfig(pc ProviderConfig) (agent.Provider, error) {
 	default:
 		return nil, fmt.Errorf("config: unknown provider type %q (use openai-compat or anthropic)", pc.Type)
 	}
+}
+
+func rejectLegacyProviderReasoningKeys(data []byte) error {
+	var raw struct {
+		Providers map[string]map[string]any `yaml:"providers"`
+	}
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	for name, provider := range raw.Providers {
+		for _, key := range []string{"thinking" + "_level", "thinking" + "_budget"} {
+			if _, ok := provider[key]; ok {
+				return fmt.Errorf("provider %q: use reasoning instead of %s", name, key)
+			}
+		}
+	}
+	return nil
 }
 
 func (c *Config) finalize() error {

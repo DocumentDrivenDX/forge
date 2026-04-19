@@ -33,6 +33,7 @@ node_modules/
 
 # Claude Code runtime
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 
 # Codex marker
 .codex

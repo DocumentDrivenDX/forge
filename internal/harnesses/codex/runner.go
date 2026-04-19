@@ -48,7 +48,7 @@ func (r *Runner) Info() harnesses.HarnessInfo {
 		IsSubscription:       true,
 		ExactPinSupport:      true,
 		SupportedPermissions: []string{"safe", "supervised", "unrestricted"},
-		SupportedEfforts:     []string{"low", "medium", "high"},
+		SupportedReasoning:   []string{"low", "medium", "high", "xhigh", "max"},
 		CostClass:            "medium",
 	}
 	path := r.Binary
@@ -178,9 +178,9 @@ func (r *Runner) runStreaming(ctx context.Context, binary string, req harnesses.
 		args = append(args, "-m", req.Model)
 	}
 
-	// Effort flag: -c reasoning.effort=<effort>
-	if req.Effort != "" {
-		args = append(args, "-c", fmt.Sprintf("reasoning.effort=%s", req.Effort))
+	// Reasoning flag: -c reasoning.effort=<reasoning>
+	if value := harnesses.AdapterReasoningValue(req); value != "" {
+		args = append(args, "-c", fmt.Sprintf("reasoning.effort=%s", value))
 	}
 
 	promptMode := r.PromptMode

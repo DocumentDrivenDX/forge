@@ -93,6 +93,9 @@ func TestNew_LoadsFromConfigPathWhenServiceConfigNil(t *testing.T) {
 // ConfigPath are nil/empty, New succeeds (falling back to global config or
 // returning a service that reports no-config errors gracefully).
 func TestNew_FallsBackToDefaultPath(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(fakeHome, ".config"))
 	// Unset any env vars that could inject a real provider so we get a
 	// predictable empty config from the global path (which likely doesn't
 	// exist in CI).

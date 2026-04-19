@@ -106,7 +106,7 @@ type HarnessInfo struct {
 	IsSubscription       bool
 	ExactPinSupport      bool
 	SupportedPermissions []string // subset of {"safe","supervised","unrestricted"}
-	SupportedEfforts     []string // subset of {"low","medium","high"}
+	SupportedReasoning   []string // values such as {"low","medium","high","xhigh","max"}
 	CostClass            string   // "local" | "cheap" | "medium" | "expensive"
 	Quota                *QuotaState
 }
@@ -178,7 +178,7 @@ type RouteRequest struct {
 	Provider    string
 	Harness     string
 	ModelRef    string
-	Effort      string
+	Reasoning   Reasoning
 	Permissions string
 }
 
@@ -232,7 +232,7 @@ type ServiceExecuteRequest struct {
 	Harness      string
 	ModelRef     string
 	WorkDir      string
-	Effort       string
+	Reasoning    Reasoning
 	Permissions  string
 
 	// PreResolved bypasses ResolveRoute when the caller already has a
@@ -357,16 +357,8 @@ func supportedPermissions(cfg harnesses.HarnessConfig) []string {
 	return out
 }
 
-// supportedEfforts filters ReasoningLevels to the standard effort tiers.
-func supportedEfforts(cfg harnesses.HarnessConfig) []string {
-	allowed := map[string]bool{"low": true, "medium": true, "high": true}
-	var out []string
-	for _, level := range cfg.ReasoningLevels {
-		if allowed[level] {
-			out = append(out, level)
-		}
-	}
-	return out
+func supportedReasoning(cfg harnesses.HarnessConfig) []string {
+	return append([]string(nil), cfg.ReasoningLevels...)
 }
 
 // claudeQuotaState reads the durable Claude quota cache and converts it to QuotaState.
@@ -438,7 +430,7 @@ func (s *service) ListHarnesses(_ context.Context) ([]HarnessInfo, error) {
 			IsSubscription:       cfg.IsSubscription,
 			ExactPinSupport:      cfg.ExactPinSupport,
 			SupportedPermissions: supportedPermissions(cfg),
-			SupportedEfforts:     supportedEfforts(cfg),
+			SupportedReasoning:   supportedReasoning(cfg),
 			CostClass:            cfg.CostClass,
 		}
 

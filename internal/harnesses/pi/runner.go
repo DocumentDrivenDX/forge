@@ -52,7 +52,7 @@ func (r *Runner) Info() harnesses.HarnessInfo {
 		IsSubscription:       false,
 		ExactPinSupport:      true,
 		SupportedPermissions: []string{"safe"},
-		SupportedEfforts:     []string{"low", "medium", "high"},
+		SupportedReasoning:   []string{"low", "medium", "high"},
 		CostClass:            "medium",
 	}
 	path := r.Binary
@@ -175,9 +175,9 @@ func (r *Runner) runStreaming(ctx context.Context, binary string, req harnesses.
 		args = append(args, "--model", req.Model)
 	}
 
-	// Effort flag: --thinking <effort>
-	if req.Effort != "" {
-		args = append(args, "--thinking", req.Effort)
+	// Reasoning flag: --thinking <reasoning>
+	if value := harnesses.AdapterReasoningValue(req); value != "" {
+		args = append(args, "--thinking", value)
 	}
 
 	// Pi has no permission flags.

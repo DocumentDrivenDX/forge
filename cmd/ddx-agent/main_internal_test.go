@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/DocumentDrivenDX/agent"
 	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -45,6 +46,17 @@ func TestResolvePreset(t *testing.T) {
 	assert.Equal(t, "benchmark", resolvePreset("benchmark", cfg))
 	assert.Equal(t, "codex", resolvePreset("", cfg))
 	assert.Equal(t, "agent", resolvePreset("", &agentConfig.Config{}))
+}
+
+func TestResolveRunReasoningNormalizesExplicitValues(t *testing.T) {
+	cfg := &agentConfig.Config{}
+	got, err := resolveRunReasoning(cfg, providerSelection{ReasoningDefault: agent.ReasoningHigh}, "x-high")
+	require.NoError(t, err)
+	assert.Equal(t, agent.ReasoningXHigh, got)
+
+	got, err = resolveRunReasoning(cfg, providerSelection{ReasoningDefault: agent.ReasoningHigh}, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, agent.ReasoningHigh, got)
 }
 
 func TestBuildToolsForPreset_BenchmarkExcludesTaskTool(t *testing.T) {

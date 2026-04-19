@@ -33,6 +33,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 		RequestedModelRef: req.RequestedModelRef,
 		ResolvedModelRef:  req.ResolvedModelRef,
 		ResolvedModel:     req.ResolvedModel,
+		Reasoning:         req.Reasoning,
 	}
 
 	if req.Provider == nil {
@@ -102,6 +103,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 			"requested_model_ref": req.RequestedModelRef,
 			"resolved_model_ref":  req.ResolvedModelRef,
 			"resolved_model":      req.ResolvedModel,
+			"reasoning":           req.Reasoning,
 			"work_dir":            req.WorkDir,
 			"prompt":              req.Prompt,
 			"system_prompt":       req.SystemPrompt,
@@ -111,7 +113,7 @@ func Run(ctx context.Context, req Request) (Result, error) {
 	})
 
 	seq := 1
-	opts := Options{MaxTokens: req.MaxTokens}
+	opts := Options{MaxTokens: req.MaxTokens, Reasoning: req.Reasoning}
 
 	// Tool-call loop detection: abort when the same fingerprint repeats consecutively.
 	const toolCallLoopLimit = 3
@@ -739,6 +741,7 @@ func emitSessionEnd(cb EventCallback, sessionID string, seq *int, result Result,
 		"requested_model_ref": result.RequestedModelRef,
 		"resolved_model_ref":  result.ResolvedModelRef,
 		"resolved_model":      result.ResolvedModel,
+		"reasoning":           result.Reasoning,
 		"attempted_providers": result.AttemptedProviders,
 		"failover_count":      result.FailoverCount,
 		"metadata":            metadata,

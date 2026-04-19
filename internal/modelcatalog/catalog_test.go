@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -72,9 +73,36 @@ func TestDefault_LoadsEmbeddedManifest(t *testing.T) {
 	assert.Equal(t, "code-high", resolved.Profile)
 	assert.Equal(t, "code-high", resolved.CanonicalID)
 	assert.Equal(t, "opus-4.6", resolved.ConcreteModel)
-	assert.Equal(t, "high", resolved.SurfacePolicy.EffortDefault)
+	assert.Equal(t, reasoning.ReasoningHigh, resolved.SurfacePolicy.ReasoningDefault)
 	assert.Equal(t, "embedded", resolved.ManifestSource)
 	assert.Equal(t, "2026-04-12.2", resolved.CatalogVersion)
+}
+
+func TestDefault_ReasoningDefaultsByTier(t *testing.T) {
+	catalog, err := Default()
+	require.NoError(t, err)
+
+	tests := []struct {
+		ref  string
+		want reasoning.Reasoning
+	}{
+		{ref: "cheap", want: reasoning.ReasoningOff},
+		{ref: "code-economy", want: reasoning.ReasoningOff},
+		{ref: "standard", want: reasoning.ReasoningOff},
+		{ref: "code-medium", want: reasoning.ReasoningOff},
+		{ref: "smart", want: reasoning.ReasoningHigh},
+		{ref: "code-high", want: reasoning.ReasoningHigh},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			resolved, err := catalog.Resolve(tt.ref, ResolveOptions{
+				Surface: SurfaceAgentOpenAI,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, resolved.SurfacePolicy.ReasoningDefault)
+		})
+	}
 }
 
 func TestResolveAliasFromFixture(t *testing.T) {
@@ -157,7 +185,7 @@ targets:
       agent.openai: gpt-4.1
     surface_policy:
       agent.openai:
-        effort_default: medium
+        reasoning_default: medium
 `), 0o644))
 
 	catalog, err := Load(LoadOptions{ManifestPath: manifestPath})
@@ -169,10 +197,98 @@ targets:
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-4.1", resolved.CanonicalID)
 	assert.Equal(t, "gpt-4.1", resolved.ConcreteModel)
-	assert.Equal(t, "medium", resolved.SurfacePolicy.EffortDefault)
+	assert.Equal(t, reasoning.ReasoningMedium, resolved.SurfacePolicy.ReasoningDefault)
 	assert.Equal(t, "2026-04-10.1", resolved.CatalogVersion)
 	assert.Equal(t, manifestPath, resolved.ManifestSource)
 	assert.Equal(t, 2, resolved.ManifestVersion)
+}
+
+func TestLoad_SurfacePolicyReasoningDefaultParsing(t *testing.T) {
+	manifestPath := writeFixtureManifest(t, `
+version: 4
+generated_at: 2026-04-10T00:00:00Z
+targets:
+  named-high:
+    family: named
+    aliases: [named]
+    surfaces:
+      agent.openai: named-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: high
+  string-zero:
+    family: zero
+    aliases: [zero-string]
+    surfaces:
+      agent.openai: zero-string-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: "0"
+  numeric-zero:
+    family: zero
+    aliases: [zero-number]
+    surfaces:
+      agent.openai: zero-number-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: 0
+  numeric-budget:
+    family: budget
+    aliases: [budget]
+    surfaces:
+      agent.openai: budget-model
+    surface_policy:
+      agent.openai:
+        reasoning_default: 4096
+`)
+
+	catalog, err := Load(LoadOptions{
+		ManifestPath:    manifestPath,
+		RequireExternal: true,
+	})
+	require.NoError(t, err)
+
+	tests := []struct {
+		ref  string
+		want reasoning.Reasoning
+	}{
+		{ref: "named", want: reasoning.ReasoningHigh},
+		{ref: "zero-string", want: reasoning.ReasoningOff},
+		{ref: "zero-number", want: reasoning.ReasoningOff},
+		{ref: "budget", want: reasoning.ReasoningTokens(4096)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ref, func(t *testing.T) {
+			resolved, err := catalog.Resolve(tt.ref, ResolveOptions{
+				Surface: SurfaceAgentOpenAI,
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, resolved.SurfacePolicy.ReasoningDefault)
+		})
+	}
+}
+
+func TestLoad_SurfacePolicyRequiresReasoningDefault(t *testing.T) {
+	manifestPath := writeFixtureManifest(t, `
+version: 4
+generated_at: 2026-04-10T00:00:00Z
+targets:
+  missing:
+    family: missing
+    surfaces:
+      agent.openai: missing-model
+    surface_policy:
+      agent.openai:
+        {}
+`)
+
+	_, err := Load(LoadOptions{
+		ManifestPath:    manifestPath,
+		RequireExternal: true,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "reasoning_default")
 }
 
 func TestLoad_FallbackToEmbedded(t *testing.T) {
@@ -306,7 +422,7 @@ targets:
       agent.openai: gpt-5.4
     surface_policy:
       codex:
-        effort_default: high
+        reasoning_default: high
 `)
 
 	_, err := Load(LoadOptions{
@@ -333,7 +449,7 @@ targets:
       agent.openai: gpt-5.4
     surface_policy:
       agent.openai:
-        effort_default: high
+        reasoning_default: high
 `)
 
 	catalog, err := Load(LoadOptions{
@@ -349,7 +465,7 @@ targets:
 	assert.Equal(t, "code-high", resolved.Profile)
 	assert.Equal(t, "code-high", resolved.CanonicalID)
 	assert.Equal(t, "gpt-5.4", resolved.ConcreteModel)
-	assert.Equal(t, "high", resolved.SurfacePolicy.EffortDefault)
+	assert.Equal(t, reasoning.ReasoningHigh, resolved.SurfacePolicy.ReasoningDefault)
 }
 
 func TestLoad_UnsupportedSchemaVersion(t *testing.T) {
@@ -420,6 +536,11 @@ models:
     cost_output_per_mtok: 0.30
     swe_bench_verified: 59.0
     context_window: 262144
+    reasoning_max_tokens: 32768
+    reasoning_budgets:
+      low: 2048
+      medium: 8192
+      high: 32768
   beta-model-2:
     provider_system: openai
     cost_input_per_mtok: 0.07
@@ -459,6 +580,17 @@ func TestLookupModel_KnownModel(t *testing.T) {
 	assert.Equal(t, 3.00, entry.CostInputPerMTok)
 	assert.Equal(t, 15.00, entry.CostOutputPerMTok)
 	assert.Equal(t, 72.7, entry.SWEBenchVerified)
+}
+
+func TestLookupModel_ReasoningBudgetMetadata(t *testing.T) {
+	catalog := loadV4FixtureCatalog(t)
+
+	entry, ok := catalog.LookupModel("beta-model-1")
+	require.True(t, ok)
+	assert.Equal(t, 32768, entry.ReasoningMaxTokens)
+	assert.Equal(t, 2048, entry.ReasoningBudgets[reasoning.ReasoningLow])
+	assert.Equal(t, 8192, entry.ReasoningBudgets[reasoning.ReasoningMedium])
+	assert.Equal(t, 32768, entry.ReasoningBudgets[reasoning.ReasoningHigh])
 }
 
 func TestLookupModel_UnknownModel(t *testing.T) {

@@ -459,8 +459,8 @@ func printResolvedSurface(catalog *modelcatalog.Catalog, ref string, surface mod
 		return
 	}
 	line := fmt.Sprintf("  %s: %s", surface, resolved.ConcreteModel)
-	if resolved.SurfacePolicy.EffortDefault != "" {
-		line += fmt.Sprintf(" (effort %s)", resolved.SurfacePolicy.EffortDefault)
+	if resolved.SurfacePolicy.ReasoningDefault != "" {
+		line += fmt.Sprintf(" (reasoning %s)", resolved.SurfacePolicy.ReasoningDefault)
 	}
 	fmt.Println(line)
 }

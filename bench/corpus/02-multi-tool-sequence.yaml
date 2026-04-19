@@ -7,7 +7,7 @@ expected_tools:
   - glob
   - read
 permissions: safe
-effort: low
+reasoning: low
 tags:
   - tool-use
   - multi-step

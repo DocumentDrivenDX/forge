@@ -18,7 +18,7 @@ type CorpusTask struct {
 	Prompt        string   `yaml:"prompt"        json:"prompt"`
 	ExpectedTools []string `yaml:"expected_tools" json:"expected_tools,omitempty"`
 	Permissions   string   `yaml:"permissions"   json:"permissions,omitempty"`
-	Effort        string   `yaml:"effort"        json:"effort,omitempty"`
+	Reasoning     string   `yaml:"reasoning"     json:"reasoning,omitempty"`
 	Tags          []string `yaml:"tags"          json:"tags,omitempty"`
 }
 
