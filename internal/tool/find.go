@@ -12,7 +12,7 @@ import (
 	"github.com/DocumentDrivenDX/agent"
 )
 
-const maxGlobResults = 500
+const maxFindResults = 500
 
 // skipDirs are directories that WalkDir skips unconditionally.
 var skipDirs = map[string]bool{
@@ -23,28 +23,28 @@ var skipDirs = map[string]bool{
 	"vendor":       true,
 }
 
-// GlobParams are the parameters for the glob tool.
-type GlobParams struct {
+// FindParams are the parameters for the find tool.
+type FindParams struct {
 	Pattern     string    `json:"pattern"`
 	Dir         string    `json:"dir,omitempty"`          // base dir; defaults to WorkDir
 	ExcludeDirs *[]string `json:"exclude_dirs,omitempty"` // override default skip dirs; nil uses defaults, empty slice means no skips
 }
 
-// GlobTool finds files matching a glob pattern.
-type GlobTool struct {
+// FindTool finds files matching a path pattern.
+type FindTool struct {
 	WorkDir     string
 	ExcludeDirs []string // optional override for skipDirs; if empty, uses default skipDirs
 }
 
-func (t *GlobTool) Name() string { return "glob" }
-func (t *GlobTool) Description() string {
-	return "Find files matching a glob pattern. Use instead of find/ls to locate files by name."
+func (t *FindTool) Name() string { return "find" }
+func (t *FindTool) Description() string {
+	return "Find files by path pattern. Use this instead of shell find or ls when locating files by name."
 }
-func (t *GlobTool) Schema() json.RawMessage {
+func (t *FindTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
-			"pattern":      {"type": "string", "description": "Glob pattern to match (e.g. '**/*.go', 'cmd/**/main.go'). Use ** to match across directories."},
+			"pattern":      {"type": "string", "description": "Path pattern to match (e.g. '**/*.go', 'cmd/**/main.go'). Use ** to match across directories."},
 			"dir":          {"type": "string", "description": "Directory to search in (relative to working directory or absolute; defaults to working directory)"},
 			"exclude_dirs": {"type": "array", "items": {"type": "string"}, "description": "Override default excluded directories. By default, skips .git, .hg, .svn, node_modules, and vendor/. Set to empty array [] to search all directories."}
 		},
@@ -52,13 +52,13 @@ func (t *GlobTool) Schema() json.RawMessage {
 	}`)
 }
 
-func (t *GlobTool) Execute(_ context.Context, params json.RawMessage) (string, error) {
-	var p GlobParams
+func (t *FindTool) Execute(_ context.Context, params json.RawMessage) (string, error) {
+	var p FindParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return "", fmt.Errorf("glob: invalid params: %w", err)
+		return "", fmt.Errorf("find: invalid params: %w", err)
 	}
 	if p.Pattern == "" {
-		return "", fmt.Errorf("glob: pattern is required")
+		return "", fmt.Errorf("find: pattern is required")
 	}
 
 	baseDir := t.WorkDir
@@ -98,7 +98,7 @@ func (t *GlobTool) Execute(_ context.Context, params json.RawMessage) (string, e
 			return matchErr
 		}
 		if ok {
-			if len(matches) >= maxGlobResults {
+			if len(matches) >= maxFindResults {
 				truncated = true
 				return filepath.SkipAll
 			}
@@ -107,7 +107,7 @@ func (t *GlobTool) Execute(_ context.Context, params json.RawMessage) (string, e
 		return nil
 	})
 	if err != nil {
-		return "", fmt.Errorf("glob: %w", err)
+		return "", fmt.Errorf("find: %w", err)
 	}
 
 	sort.Strings(matches)
@@ -116,7 +116,7 @@ func (t *GlobTool) Execute(_ context.Context, params json.RawMessage) (string, e
 	}
 	result := strings.Join(matches, "\n")
 	if truncated {
-		result += fmt.Sprintf("\n(results truncated at %d matches)", maxGlobResults)
+		result += fmt.Sprintf("\n(results truncated at %d matches)", maxFindResults)
 	}
 	return result, nil
 }
@@ -163,6 +163,6 @@ func matchParts(pat, name []string) (bool, error) {
 	}
 }
 
-func (t *GlobTool) Parallel() bool { return true }
+func (t *FindTool) Parallel() bool { return true }
 
-var _ agent.Tool = (*GlobTool)(nil)
+var _ agent.Tool = (*FindTool)(nil)

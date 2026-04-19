@@ -63,7 +63,7 @@ tasks:
   # --- Multi-file navigation (2 tasks) ---
   - id: tb2-cross-file-refactor
     category: navigation
-    rationale: Read multiple files, apply consistent edits; tests glob/read coverage
+    rationale: Read multiple files, apply consistent edits; tests find/read coverage
 
   - id: tb2-trace-call-chain
     category: navigation

@@ -14,7 +14,7 @@ ddx:
 ## Overview
 
 DDX Agent provides a structured tool surface for filesystem and shell work:
-read, write, edit, bash, glob, grep, ls, patch, and task. The LLM uses these
+read, write, edit, bash, find, grep, ls, patch, and task. The LLM uses these
 tools to interact with the workspace, discover files, make precise changes,
 and track work. Tools are the agent's hands. This implements PRD P0
 requirement 2 and reflects the benchmark-driven navigation and task-tracking
@@ -51,7 +51,7 @@ capabilities already shipped.
 
 #### Navigation, patching, and task-tracking tools
 
-10. `glob` finds files by pattern for codebase navigation
+10. `find` finds files by pattern for codebase navigation
 11. `grep` searches file contents in a read-only way
 12. `ls` lists directory contents without requiring a shell command
 13. `patch` applies structured search-and-replace edits
@@ -90,7 +90,7 @@ capabilities already shipped.
 | AC-FEAT-002-01 | `read`, `write`, `edit`, and `bash` implement the documented core semantics: relative-path resolution, parent-directory creation, atomic multi-edit behavior, ambiguous/missing edit failures, and timeout/cancellation handling without panics. | `go test ./tool ./...` |
 | AC-FEAT-002-02 | Binary reads are rejected, `grep` skips binary files, interactive `bash` commands receive no interactive stdin, and oversized command output is truncated with the documented marker. | `go test ./tool ./...` |
 | AC-FEAT-002-03 | File-path handling resolves chained symlinks to the final target, records the resolved path for tool-visible/log-visible reporting, and preserves the documented outside-workdir behavior instead of silently rebasing paths. | `go test ./tool ./...` |
-| AC-FEAT-002-04 | Navigation tools (`glob`, `grep`, `ls`) and the `patch` tool implement the documented search, truncation, line-ending, Unicode, and search/replace behaviors without requiring shell fallbacks for the common benchmark navigation cases. | `go test ./tool ./eval/navigation ./...` |
+| AC-FEAT-002-04 | Navigation tools (`find`, `grep`, `ls`) and the `patch` tool implement the documented search, truncation, line-ending, Unicode, and search/replace behaviors without requiring shell fallbacks for the common benchmark navigation cases. | `go test ./tool ./eval/navigation ./...` |
 | AC-FEAT-002-05 | The `task` tool supports create/update/get/list operations with structured validation errors and remains concurrency-safe for multi-step agent workflows. | `go test ./tool ./...` |
 | AC-FEAT-002-06 | At least one model-backed acceptance path exercises the shipped tool surface end-to-end so the benchmark-oriented semantics are validated against real provider/tool interaction rather than unit tests alone. | `go test -tags=integration ./...` |
 

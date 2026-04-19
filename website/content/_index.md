@@ -41,7 +41,7 @@ layout: hextra-home
   >}}
   {{< hextra/feature-card
     title="Structured Tools"
-    subtitle="Shipped tools — read, write, edit, bash, glob, grep, ls, patch, task. Simple, auditable, benchmark-ready."
+    subtitle="Shipped tools — read, write, edit, bash, find, grep, ls, patch, task. Simple, auditable, benchmark-ready."
   >}}
   {{< hextra/feature-card
     title="Multi-Provider"

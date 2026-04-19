@@ -218,7 +218,7 @@ EventCallback func(Event)     // optional real-time event sink
     │ tool/*  │          │provider│
     │read,write│         │openai/ │
     │edit,bash │         │anthropic/
-    │glob,grep │
+    │find,grep │
     │ls,patch  │
     │task      │
     └─────────┘          └────────┘

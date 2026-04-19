@@ -60,7 +60,7 @@ ddx:
 - `eval/tasktracking/fixtures.yaml` — 5 multi-step planning fixtures (task tracking compliance)
 
 ### Implementation
-- `tool/glob.go` — Structured file globbing tool (replaces bash `find`)
+- `tool/find.go` — Structured file discovery tool (replaces shell `find`)
 - `tool/grep.go` — Structured content search tool (replaces bash `grep`)
 - `tool/ls.go` — Structured directory listing tool (replaces bash `ls`)
 - `tool/patch.go` — Robust search-and-replace editing tool (ForgeCode-aligned)

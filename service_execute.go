@@ -39,7 +39,6 @@ var readOnlyTools = map[string]bool{
 	"read":       true,
 	"read_file":  true,
 	"grep":       true,
-	"glob":       true,
 	"ls":         true,
 	"find":       true,
 	"cat":        true,

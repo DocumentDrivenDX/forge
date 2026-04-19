@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func setupGlobFixture(t *testing.T) string {
+func setupFindFixture(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 
@@ -34,12 +34,12 @@ func setupGlobFixture(t *testing.T) string {
 	return dir
 }
 
-func TestGlobTool_Execute(t *testing.T) {
-	dir := setupGlobFixture(t)
-	g := &GlobTool{WorkDir: dir}
+func TestFindTool_Execute(t *testing.T) {
+	dir := setupFindFixture(t)
+	g := &FindTool{WorkDir: dir}
 
 	t.Run("matches all go files recursively", func(t *testing.T) {
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "**/*.go"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "**/*.go"}))
 		require.NoError(t, err)
 		lines := strings.Split(strings.TrimSpace(result), "\n")
 		assert.GreaterOrEqual(t, len(lines), 6)
@@ -49,7 +49,7 @@ func TestGlobTool_Execute(t *testing.T) {
 	})
 
 	t.Run("matches only test files", func(t *testing.T) {
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "**/*_test.go"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "**/*_test.go"}))
 		require.NoError(t, err)
 		lines := strings.Split(strings.TrimSpace(result), "\n")
 		for _, l := range lines {
@@ -59,7 +59,7 @@ func TestGlobTool_Execute(t *testing.T) {
 	})
 
 	t.Run("matches top-level files only", func(t *testing.T) {
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "*.go"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "*.go"}))
 		require.NoError(t, err)
 		lines := strings.Split(strings.TrimSpace(result), "\n")
 		assert.Len(t, lines, 2) // main.go and main_test.go
@@ -69,19 +69,19 @@ func TestGlobTool_Execute(t *testing.T) {
 	})
 
 	t.Run("matches markdown files", func(t *testing.T) {
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "**/*.md"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "**/*.md"}))
 		require.NoError(t, err)
 		assert.Contains(t, result, "README.md")
 	})
 
 	t.Run("returns no matches for nonexistent pattern", func(t *testing.T) {
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "**/*.xyz"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "**/*.xyz"}))
 		require.NoError(t, err)
 		assert.Equal(t, "(no matches)", result)
 	})
 
 	t.Run("searches within subdirectory", func(t *testing.T) {
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{
 			Pattern: "*.go",
 			Dir:     "cmd/server",
 		}))
@@ -97,7 +97,7 @@ func TestGlobTool_Execute(t *testing.T) {
 	})
 
 	t.Run("errors on empty pattern", func(t *testing.T) {
-		_, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: ""}))
+		_, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: ""}))
 		require.Error(t, err)
 	})
 
@@ -107,13 +107,13 @@ func TestGlobTool_Execute(t *testing.T) {
 		require.NoError(t, os.MkdirAll(filepath.Dir(gitFile), 0o755))
 		require.NoError(t, os.WriteFile(gitFile, []byte("ref: refs/heads/main\n"), 0o644))
 
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "**/*"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "**/*"}))
 		require.NoError(t, err)
 		assert.NotContains(t, result, ".git")
 	})
 
 	t.Run("output is sorted alphabetically", func(t *testing.T) {
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "**/*.go"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "**/*.go"}))
 		require.NoError(t, err)
 		lines := strings.Split(strings.TrimSpace(result), "\n")
 		sorted := make([]string, len(lines))
@@ -128,13 +128,13 @@ func TestGlobTool_Execute(t *testing.T) {
 		require.NoError(t, os.WriteFile(vendorFile, []byte("// vendor file"), 0o644))
 
 		// Default behavior: skip vendor/
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "**/*.go"}))
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "**/*.go"}))
 		require.NoError(t, err)
 		assert.NotContains(t, result, "vendor")
 
 		// With ExcludeDirs set to empty array: search all directories including vendor/
 		emptySlice := []string{}
-		result, err = g.Execute(context.Background(), mustJSON(t, GlobParams{
+		result, err = g.Execute(context.Background(), mustJSON(t, FindParams{
 			Pattern:     "**/*.go",
 			ExcludeDirs: &emptySlice,
 		}))
@@ -143,7 +143,7 @@ func TestGlobTool_Execute(t *testing.T) {
 
 		// With custom ExcludeDirs: only skip specified dirs
 		customSlice := []string{".git"}
-		result, err = g.Execute(context.Background(), mustJSON(t, GlobParams{
+		result, err = g.Execute(context.Background(), mustJSON(t, FindParams{
 			Pattern:     "**/*.go",
 			ExcludeDirs: &customSlice,
 		}))
@@ -167,7 +167,7 @@ func TestGlobTool_Execute(t *testing.T) {
 
 		// With empty ExcludeDirs, all should be found
 		emptySlice := []string{}
-		result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{
+		result, err := g.Execute(context.Background(), mustJSON(t, FindParams{
 			Pattern:     "**/*",
 			ExcludeDirs: &emptySlice,
 		}))
@@ -178,20 +178,20 @@ func TestGlobTool_Execute(t *testing.T) {
 	})
 }
 
-func TestGlobTool_Truncation(t *testing.T) {
+func TestFindTool_Truncation(t *testing.T) {
 	dir := t.TempDir()
-	// Create more files than maxGlobResults.
-	for i := 0; i < maxGlobResults+10; i++ {
+	// Create more files than maxFindResults.
+	for i := 0; i < maxFindResults+10; i++ {
 		name := filepath.Join(dir, fmt.Sprintf("file%04d.txt", i))
 		require.NoError(t, os.WriteFile(name, []byte("x"), 0o644))
 	}
-	g := &GlobTool{WorkDir: dir}
-	result, err := g.Execute(context.Background(), mustJSON(t, GlobParams{Pattern: "*.txt"}))
+	g := &FindTool{WorkDir: dir}
+	result, err := g.Execute(context.Background(), mustJSON(t, FindParams{Pattern: "*.txt"}))
 	require.NoError(t, err)
-	assert.Contains(t, result, fmt.Sprintf("(results truncated at %d matches)", maxGlobResults))
+	assert.Contains(t, result, fmt.Sprintf("(results truncated at %d matches)", maxFindResults))
 	lines := strings.Split(strings.TrimSpace(result), "\n")
-	// maxGlobResults file lines + 1 truncation line
-	assert.Equal(t, maxGlobResults+1, len(lines))
+	// maxFindResults file lines + 1 truncation line
+	assert.Equal(t, maxFindResults+1, len(lines))
 }
 
 func TestMatchParts(t *testing.T) {

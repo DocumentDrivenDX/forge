@@ -11,6 +11,9 @@ Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
   `minimal`, and `benchmark`. The old `agent`, `worker`, `cursor`, `claude`,
   and `codex` names now fail with a clear replacement hint instead of
   resolving as aliases. (`.execute-bead-wt-agent-a365bcf2-20260418T023201-36db884d-346c73b4`)
+- **Renamed the file-discovery tool from `glob` to `find`.** The built-in tool
+  catalog now exposes only `find`; there is no `glob` compatibility alias.
+  (`agent-1b00b3ea`)
 
 ## [v0.3.14] — 2026-04-18
 

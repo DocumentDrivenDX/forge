@@ -650,7 +650,7 @@ func buildToolsForPreset(workDir, preset string) []agent.Tool {
 		&tool.WriteTool{WorkDir: workDir},
 		&tool.EditTool{WorkDir: workDir},
 		&tool.BashTool{WorkDir: workDir},
-		&tool.GlobTool{WorkDir: workDir},
+		&tool.FindTool{WorkDir: workDir},
 		&tool.GrepTool{WorkDir: workDir},
 		&tool.LsTool{WorkDir: workDir},
 		&tool.PatchTool{WorkDir: workDir},

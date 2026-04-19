@@ -110,7 +110,7 @@ task the same: spawn a process, send to cloud, parse the result.
 
 1. **Agent loop** — tool-calling LLM loop: send prompt → model responds with
    tool calls or text → execute tools → repeat until done or max iterations
-2. **Tool set** — shipped built-ins include read, write, edit, bash, glob,
+2. **Tool set** — shipped built-ins include read, write, edit, bash, find,
    grep, ls, patch, and task
 3. **OpenAI-compatible provider** — generic provider for any OpenAI-compatible
    endpoint. Covers LM Studio (localhost:1234), Ollama (localhost:11434),

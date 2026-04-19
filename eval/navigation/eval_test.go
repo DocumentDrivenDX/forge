@@ -1,6 +1,6 @@
 // Package navigation_test contains micro-evals for structured navigation tool usage.
 // These run without a live LLM and verify that:
-//   - The navigation tools (glob, grep, ls, read) are available to the agent
+//   - The navigation tools (find, grep, ls, read) are available to the agent
 //   - The agent loop correctly executes navigation tool calls end-to-end
 //   - Tool descriptions explicitly guide away from bash anti-patterns
 //
@@ -65,7 +65,7 @@ func navTools(workDir string) []agent.Tool {
 		&tool.WriteTool{WorkDir: workDir},
 		&tool.EditTool{WorkDir: workDir},
 		&tool.BashTool{WorkDir: workDir},
-		&tool.GlobTool{WorkDir: workDir},
+		&tool.FindTool{WorkDir: workDir},
 		&tool.GrepTool{WorkDir: workDir},
 		&tool.LsTool{WorkDir: workDir},
 	}
@@ -108,9 +108,9 @@ func TestNoBashFileRead(t *testing.T) {
 	assert.NotContains(t, called, "bash", "bash must not be called for a pure file read")
 }
 
-// TestGlobNotFind — agent uses glob to list files instead of bash find.
+// TestFindNotShellFind — agent uses find to list files instead of bash find.
 // SD-009 §6 micro-eval: structured navigation tool usage.
-func TestGlobNotFind(t *testing.T) {
+func TestFindNotShellFind(t *testing.T) {
 	dir := t.TempDir()
 	for _, f := range []string{"src/auth.go", "src/user.go", "main.go"} {
 		full := filepath.Join(dir, filepath.FromSlash(f))
@@ -119,7 +119,7 @@ func TestGlobNotFind(t *testing.T) {
 	}
 
 	prov := &seqProvider{responses: []agent.Response{
-		toolCallResp("glob", map[string]any{"pattern": "src/**/*.go"}),
+		toolCallResp("find", map[string]any{"pattern": "src/**/*.go"}),
 		finalResp("Found: src/auth.go, src/user.go"),
 	}}
 
@@ -134,18 +134,18 @@ func TestGlobNotFind(t *testing.T) {
 	assert.Equal(t, agent.StatusSuccess, result.Status)
 
 	called := calledToolNames(result)
-	assert.Contains(t, called, "glob", "glob tool must be called")
+	assert.Contains(t, called, "find", "find tool must be called")
 	assert.NotContains(t, called, "bash", "bash must not be called for file listing")
 
-	// Verify glob tool actually returned the right files.
-	var globOutput string
+	// Verify find tool actually returned the right files.
+	var findOutput string
 	for _, tc := range result.ToolCalls {
-		if tc.Tool == "glob" {
-			globOutput = tc.Output
+		if tc.Tool == "find" {
+			findOutput = tc.Output
 		}
 	}
-	assert.Contains(t, globOutput, "auth.go")
-	assert.Contains(t, globOutput, "user.go")
+	assert.Contains(t, findOutput, "auth.go")
+	assert.Contains(t, findOutput, "user.go")
 }
 
 // TestGrepNotBashGrep — agent uses grep tool instead of bash grep.
@@ -222,13 +222,13 @@ func TestLsNotBashLs(t *testing.T) {
 func TestToolDescriptionsDiscourageBash(t *testing.T) {
 	dir := t.TempDir()
 
-	globDesc := (&tool.GlobTool{WorkDir: dir}).Description()
+	findDesc := (&tool.FindTool{WorkDir: dir}).Description()
 	grepDesc := (&tool.GrepTool{WorkDir: dir}).Description()
 	lsDesc := (&tool.LsTool{WorkDir: dir}).Description()
 	readDesc := (&tool.ReadTool{WorkDir: dir}).Description()
 
-	assert.True(t, strings.Contains(globDesc, "find") || strings.Contains(globDesc, "ls"),
-		"glob description should mention 'find' or 'ls' as the shell commands it replaces")
+	assert.True(t, strings.Contains(findDesc, "find") || strings.Contains(findDesc, "ls"),
+		"find description should mention shell 'find' or 'ls' as commands it replaces")
 	assert.True(t, strings.Contains(grepDesc, "grep") || strings.Contains(grepDesc, "rg"),
 		"grep description should mention 'grep' or 'rg' as the shell commands it replaces")
 	assert.True(t, strings.Contains(lsDesc, "ls"),

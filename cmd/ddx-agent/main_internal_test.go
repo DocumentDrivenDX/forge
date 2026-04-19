@@ -81,7 +81,8 @@ func TestBuildToolsForPreset_BenchmarkExcludesTaskTool(t *testing.T) {
 
 	assert.NotContains(t, names, "task")
 	assert.Contains(t, names, "patch")
-	assert.Contains(t, names, "glob")
+	assert.Contains(t, names, "find")
+	assert.NotContains(t, names, "glob")
 	assert.Contains(t, names, "grep")
 	assert.Contains(t, names, "ls")
 }

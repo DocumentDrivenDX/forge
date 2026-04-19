@@ -165,14 +165,14 @@ The model correctly diagnosed the error and ran `go mod init` to fix it before r
 ### What to improve before Terminal-Bench evaluation
 1. **Shell anti-pattern rate is non-zero**: T6 showed 2/4 bash calls were anti-patterns.
    A benchmark-mode preset should explicitly discourage `ls`, `find`, and `cat` when
-   read/glob tools are available. Track via bead `agent-5f35fdeb`.
+   read/find tools are available. Track via bead `agent-5f35fdeb`.
 2. **Edit tool format confusion**: The cheap preset's tool description needs to be
    unambiguous about `old_string`/`new_string` vs array format. Track via `agent-4dde1671`.
 3. **duration_ms bug**: Affects observability of task timing in JSON output. File and fix
    before automated baseline capture (agent-78c86322).
 4. **Navigation tools now exist, but benchmark prompts still need steering**: T6 used
    bash for file discovery before the navigation surface was fully exposed. Keep the
-   benchmark-mode prompt explicit about preferring structured tools (`glob`, `grep`,
+   benchmark-mode prompt explicit about preferring structured tools (`find`, `grep`,
    `ls`, `patch`, `task`) over shell discovery. Track navigation anti-patterns via
    `agent-4dde1671`.
 

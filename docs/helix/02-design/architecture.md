@@ -64,7 +64,7 @@ agent/                          # root module: github.com/your-org/agent
 │   ├── write.go                # file write tool
 │   ├── edit.go                 # find-replace edit tool
 │   ├── bash.go                 # shell command tool
-│   ├── glob.go                 # file pattern discovery tool
+│   ├── find.go                 # file pattern discovery tool
 │   ├── grep.go                 # read-only content search tool
 │   ├── ls.go                   # directory listing tool
 │   ├── patch.go                # structured patch editing tool
@@ -109,7 +109,7 @@ agent/                          # root module: github.com/your-org/agent
       │ anthropic/   │ │ write  │ │ replay      │ │ catalog.go    │
       │ virtual/     │ │ edit   │ │ pricing     │ │ manifest.go   │
       │              │ │ bash   │ │ usage       │ │ catalog/models.yaml |
-      │              │ │ glob   │ │             │ │               │
+      │              │ │ find   │ │             │ │               │
       │              │ │ grep   │ │             │ │               │
       │              │ │ ls     │ │             │ │               │
       │              │ │ patch  │ │             │ │               │

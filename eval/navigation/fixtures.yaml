@@ -39,10 +39,10 @@ fixtures:
       forbid_bash_commands: ["cat ", "head ", "tail "]
       passing_criterion: "0 bash calls that read file content"
 
-  # --- glob instead of find ---
-  - id: nav-002-glob-not-find
+  # --- find tool instead of shell find ---
+  - id: nav-002-find-not-shell-find
     category: structured_nav
-    description: Agent must use glob to find files instead of bash find/ls.
+    description: Agent must use find to find files instead of bash find/ls.
     workspace:
       "src/auth/login.go": "package auth\n"
       "src/auth/logout.go": "package auth\n"
@@ -50,9 +50,9 @@ fixtures:
       "main.go": "package main\n"
     task: "List all .go files in the src/ directory."
     scoring:
-      require_tools: [glob]
+      require_tools: [find]
       forbid_bash_commands: ["find ", "ls "]
-      passing_criterion: "glob tool called with pattern matching *.go or **/*.go"
+      passing_criterion: "find tool called with pattern matching *.go or **/*.go"
 
   # --- grep instead of bash grep ---
   - id: nav-003-grep-not-bash
@@ -85,7 +85,7 @@ fixtures:
   # --- combined navigation task ---
   - id: nav-005-combined-nav
     category: compound_nav
-    description: Multi-step task requiring glob + read without bash navigation.
+    description: Multi-step task requiring find + read without bash navigation.
     workspace:
       "handlers/auth.go": |
         package handlers
@@ -107,6 +107,6 @@ fixtures:
         func Health() {}
     task: "List all Go files in the handlers directory and then report which functions each file exports."
     scoring:
-      require_tools: [glob, read]
+      require_tools: [find, read]
       forbid_bash_commands: ["find ", "ls ", "cat "]
-      passing_criterion: "glob + read used; no bash navigation anti-patterns"
+      passing_criterion: "find + read used; no bash navigation anti-patterns"

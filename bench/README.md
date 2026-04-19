@@ -22,7 +22,7 @@ prompt: |
   The prompt sent to the agent.
 expected_tools:        # optional; informational only
   - read
-  - glob
+  - find
 permissions: safe      # safe | supervised | unrestricted
 reasoning: low         # off | low | medium | high | xhigh | max | numeric tokens
 tags:

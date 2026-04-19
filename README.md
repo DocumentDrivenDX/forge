@@ -124,7 +124,7 @@ func main() {
 - **Embeddable library** — `agent.Run(ctx, request)`, no subprocess overhead
 - **Local-model-first** — LM Studio, Ollama via OpenAI-compatible API
 - **Multi-provider** — OpenAI-compatible, Anthropic Claude, virtual (test replay)
-- **9 built-in tools** — read, write, edit, bash, glob, grep, ls, patch, task
+- **9 built-in tools** — read, write, edit, bash, find, grep, ls, patch, task
 - **Session logging** — JSONL with replay and cost tracking
 - **System prompt composition** — pi-style builder with context file discovery
 - **Standalone CLI** — `ddx-agent -p "prompt"` with config, logging, replay

@@ -117,7 +117,7 @@ CRITICAL: You MUST use tools to make changes. When you need to create a file, ca
 
 BENCHMARK MODE RULES:
 1. NON-INTERACTIVE: Never ask clarification questions. Always make reasonable assumptions and proceed with implementation.
-2. NO SHELL ANTI-PATTERNS: Do NOT use ls, find, or cat for file exploration. Use the read and glob tools instead.
+2. NO SHELL ANTI-PATTERNS: Do NOT use ls, shell find, or cat for file exploration. Use the read and find tools instead.
 3. EDIT TOOL FORMAT: The edit tool requires exact old_string matches. Use the read tool first to get the exact text, then provide precise old_string and new_string values.
 4. COMPLETE THE TASK: Always attempt to finish the task even if uncertain. Do not stop at analysis — implement, verify, and report results.
 
@@ -125,7 +125,7 @@ Work systematically: read relevant files first using the read tool, make changes
 		Guidelines: []string{
 			"NEVER ask clarification questions — make reasonable assumptions and proceed",
 			"Use read tool to examine files, NOT bash ls/cat/find",
-			"Use glob tool to find files by pattern, NOT bash find/ls -R",
+			"Use find tool to find files by pattern, NOT bash find/ls -R",
 			"When using edit tool: provide exact old_string from read output, not approximations",
 			"Example edit format: {\"path\": \"file.go\", \"edits\":[{\"oldText\": \"exact text from file\", \"newText\": \"replacement\"}]}",
 			"Read files before editing to ensure exact match",

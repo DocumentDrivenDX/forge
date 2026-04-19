@@ -5,7 +5,7 @@ prompt: |
   (non-recursive). Report its name and size in bytes. Use tools to inspect
   the files — do not guess.
 expected_tools:
-  - glob
+  - find
   - read
 permissions: safe
 reasoning: low

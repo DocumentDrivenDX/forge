@@ -4,7 +4,7 @@ prompt: |
   Find all *.go files in the current directory (non-recursive) and count the
   total number of lines across all of them. Show the file count and line count.
 expected_tools:
-  - glob
+  - find
   - read
 permissions: safe
 reasoning: low

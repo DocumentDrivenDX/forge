@@ -20,22 +20,22 @@ Use these checkpoints to measure whether the expanded tool surface helped or hur
 
 - `4eccccd46572c943e25b772a758d5d7e156effed`
   - First navigation-tools build.
-  - Tool surface: `read`, `write`, `edit`, `bash`, `glob`, `grep`, `ls`
+  - Tool surface: `read`, `write`, `edit`, `bash`, `find`, `grep`, `ls`
   - Required preset: `agent`
 
 - `dd1144800d5fe2e6745537ff9366f9a325eb76d1`
   - First benchmark-preset build.
-  - Tool surface: `read`, `write`, `edit`, `bash`, `glob`, `grep`, `ls`
+  - Tool surface: `read`, `write`, `edit`, `bash`, `find`, `grep`, `ls`
   - Required preset: `benchmark`
 
 - `42f8e484d9034dfbdb9c457618605bc7b4fa3f53`
   - First patch-tool build.
-  - Tool surface: `read`, `write`, `edit`, `bash`, `glob`, `grep`, `ls`, `patch`
+  - Tool surface: `read`, `write`, `edit`, `bash`, `find`, `grep`, `ls`, `patch`
   - Required preset: `benchmark`
 
 - `dcc2f4512207e8b80d9f70bb2aeb7cb6c3913077`
   - First task-tool build.
-  - Tool surface: `read`, `write`, `edit`, `bash`, `glob`, `grep`, `ls`, `patch`, `task`
+  - Tool surface: `read`, `write`, `edit`, `bash`, `find`, `grep`, `ls`, `patch`, `task`
   - Required preset: `benchmark`
 
 ### Current target

@@ -239,7 +239,7 @@ func TestIntegration_NavigationAndPatchToolSurface(t *testing.T) {
 	taskStore := tool.NewTaskStore()
 	tools := []agent.Tool{
 		&tool.ReadTool{WorkDir: workDir},
-		&tool.GlobTool{WorkDir: workDir},
+		&tool.FindTool{WorkDir: workDir},
 		&tool.GrepTool{WorkDir: workDir},
 		&tool.LsTool{WorkDir: workDir},
 		&tool.PatchTool{WorkDir: workDir},
@@ -248,7 +248,7 @@ func TestIntegration_NavigationAndPatchToolSurface(t *testing.T) {
 
 	result, err := agent.Run(context.Background(), agent.Request{
 		Prompt: `Use tools to complete this workspace task:
-1) Inspect the workspace with ls and/or glob.
+1) Inspect the workspace with ls and/or find.
 2) Use grep to find STATUS=OLD.
 3) Use patch to replace STATUS=OLD with STATUS=NEW in src/target.env.
 4) Use read to verify the new file content.
@@ -271,8 +271,8 @@ Return a short completion summary.`,
 		called[tc.Tool]++
 	}
 	assert.Greater(t, called["patch"], 0, "expected patch tool call")
-	assert.True(t, called["glob"] > 0 || called["grep"] > 0 || called["ls"] > 0,
-		"expected at least one navigation tool call (glob/grep/ls)")
+	assert.True(t, called["find"] > 0 || called["grep"] > 0 || called["ls"] > 0,
+		"expected at least one navigation tool call (find/grep/ls)")
 
 	updated, readErr := os.ReadFile(filepath.Join(workDir, "src", "target.env"))
 	require.NoError(t, readErr)
