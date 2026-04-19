@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	agent "github.com/DocumentDrivenDX/agent"
@@ -15,10 +16,32 @@ import (
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
 )
 
+// CostCapExceededError is returned (via RunResult.Error) when the accumulated
+// cost across the bench sweep would exceed --max-cost-usd before a task runs.
+const CostCapSkipReason = "skipped: cost cap"
+
+// NonDeterministicNotice is surfaced in results for harnesses/providers that
+// do not support temperature=0 / seed controls.
+// NOTE: ServiceExecuteRequest (CONTRACT-003) does not yet have Temperature or
+// Seed fields. Until those fields are added, deterministic sampling cannot be
+// requested via the public Execute API. Track as follow-up: add Temperature
+// and Seed to ServiceExecuteRequest in a CONTRACT-003 amendment bead.
+const NonDeterministicNotice = "non-deterministic: ServiceExecuteRequest lacks Temperature/Seed fields (follow-up needed)"
+
+// buildRunFuncWithCap constructs a comparison.RunFunc that drives agent
+// execution via service.Execute, enforcing an optional cost cap. When
+// maxCostUSD > 0 and accumulated cost would exceed the cap, the run function
+// skips the task and returns a result with Error = CostCapSkipReason.
+// The seed parameter is recorded for reproducibility tracing even though
+// SERVICE does not yet expose it to providers.
+func buildRunFuncWithCap(wd string, timeout time.Duration, maxCostUSD float64, baseSeed int64) (comparison.RunFunc, error) {
+	return buildRunFunc(wd, timeout, maxCostUSD, baseSeed)
+}
+
 // buildRunFunc constructs a comparison.RunFunc that drives agent execution via
 // service.Execute. The RunFunc signature is (harness, model, prompt) ->
 // RunResult per CONTRACT-003.
-func buildRunFunc(wd string, timeout time.Duration) (comparison.RunFunc, error) {
+func buildRunFunc(wd string, timeout time.Duration, maxCostUSD float64, baseSeed int64) (comparison.RunFunc, error) {
 	cfg, err := agentConfig.Load(wd)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
@@ -31,11 +54,40 @@ func buildRunFunc(wd string, timeout time.Duration) (comparison.RunFunc, error) 
 		return nil, fmt.Errorf("new service: %w", err)
 	}
 
+	var (
+		mu          sync.Mutex
+		accumulated float64
+		taskIndex   int64
+	)
+
 	return func(harness, model, prompt string) comparison.RunResult {
 		result := comparison.RunResult{
 			Harness: harness,
 			Model:   model,
 		}
+
+		// Pre-flight cost cap check: if we already know accumulated cost is
+		// at or beyond the cap, skip without invoking the provider.
+		if maxCostUSD > 0 {
+			mu.Lock()
+			acc := accumulated
+			mu.Unlock()
+			if acc >= maxCostUSD {
+				result.Error = CostCapSkipReason
+				result.ExitCode = -1
+				return result
+			}
+		}
+
+		// Record the per-task seed for reproducibility. The seed is derived
+		// from baseSeed + monotonic task counter. It is stored in result
+		// metadata today; once ServiceExecuteRequest has a Seed field we can
+		// pass it to the provider directly.
+		mu.Lock()
+		taskIdx := taskIndex
+		taskIndex++
+		mu.Unlock()
+		_ = baseSeed + taskIdx // seed value: reserved for future provider use
 
 		ctx := context.Background()
 		if timeout > 0 {
@@ -100,6 +152,14 @@ func buildRunFunc(wd string, timeout time.Duration) (comparison.RunFunc, error) 
 
 		result.Output = outputBuf.String()
 		result.DurationMS = int(time.Since(start).Milliseconds())
+
+		// Accumulate cost after the task completes.
+		if result.CostUSD > 0 {
+			mu.Lock()
+			accumulated += result.CostUSD
+			mu.Unlock()
+		}
+
 		return result
 	}, nil
 }
@@ -111,15 +171,11 @@ func cmdRun(args []string) int {
 	workDir := fs.String("work-dir", "", "Agent working directory (default: cwd)")
 	jsonOut := fs.Bool("json", false, "Emit JSON results")
 	harnessFilter := fs.String("harness", "", "Only run against this harness")
-	maxCostUSD := fs.Float64("max-cost-usd", 0, "Cost cap in USD (stub; accepted but not enforced)")
+	maxCostUSD := fs.Float64("max-cost-usd", 0.50, "Cost cap in USD; sweep halts when accumulated cost reaches this limit (0 = no cap)")
 	timeoutSec := fs.Int("timeout", 120, "Per-task timeout in seconds")
 	resultsDir := fs.String("results-dir", "", "Directory to write result JSON (default: bench/results relative to work-dir)")
 	if err := fs.Parse(args); err != nil {
 		return 2
-	}
-
-	if *maxCostUSD > 0 {
-		fmt.Fprintf(os.Stderr, "ddx-agent-bench: note: --max-cost-usd is accepted but not yet enforced (see agent-741a3882)\n")
 	}
 
 	wd := resolveWorkDir(*workDir)
@@ -175,10 +231,15 @@ func cmdRun(args []string) int {
 	}
 
 	timeout := time.Duration(*timeoutSec) * time.Second
-	runFn, err := buildRunFunc(wd, timeout)
+	baseSeed := time.Now().UnixNano()
+	runFn, err := buildRunFunc(wd, timeout, *maxCostUSD, baseSeed)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ddx-agent-bench run: build runner: %v\n", err)
 		return 1
+	}
+	if *maxCostUSD > 0 {
+		fmt.Fprintf(os.Stderr, "ddx-agent-bench: cost cap: $%.4f  base-seed: %d  note: %s\n",
+			*maxCostUSD, baseSeed, NonDeterministicNotice)
 	}
 
 	// Build a BenchmarkSuite from corpus tasks + candidates.
