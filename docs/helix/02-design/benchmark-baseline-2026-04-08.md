@@ -20,7 +20,7 @@ tool/harness gaps matter most before Terminal-Bench integration work begins.
 
 ## Pilot Task Sample
 
-Six representative coding tasks were run against ddx-agent using the `codex` preset
+Six representative coding tasks were run against ddx-agent using the `cheap` preset
 and `anthropic/claude-4.5-haiku-20251001` via OpenRouter. Each task ran in an isolated
 temporary working directory. No context was shared between tasks.
 
@@ -166,7 +166,7 @@ The model correctly diagnosed the error and ran `go mod init` to fix it before r
 1. **Shell anti-pattern rate is non-zero**: T6 showed 2/4 bash calls were anti-patterns.
    A benchmark-mode preset should explicitly discourage `ls`, `find`, and `cat` when
    read/glob tools are available. Track via bead `agent-5f35fdeb`.
-2. **Edit tool format confusion**: The codex preset's tool description needs to be
+2. **Edit tool format confusion**: The cheap preset's tool description needs to be
    unambiguous about `old_string`/`new_string` vs array format. Track via `agent-4dde1671`.
 3. **duration_ms bug**: Affects observability of task timing in JSON output. File and fix
    before automated baseline capture (agent-78c86322).
@@ -201,9 +201,9 @@ These observations should anchor the thresholds in the benchmark evaluation plan
 - **Run date**: 2026-04-08
 - **ddx-agent build**: dev/master (commit f3b980c)
 - **Model**: `anthropic/claude-4.5-haiku-20251001` via OpenRouter
-- **Preset**: `codex` (default harness preset)
+- **Preset**: `cheap`
 - **Working directories**: Isolated temp dirs per task (`/tmp/ddx-bench/taskN`)
-- **Invocation**: `ddx-agent --json --preset codex -p "<prompt>"`
+- **Invocation**: `ddx-agent --json --preset cheap -p "<prompt>"`
 - **Provider config**: OpenRouter via `~/.config/agent/config.yaml`
 - **Timing**: Wall clock via `time` (not `duration_ms` in JSON, which has a bug)
 - **Token counts**: From `--json` output `.tokens.input` / `.tokens.output`
@@ -229,7 +229,7 @@ EOF
 # Run T1 as a smoke test
 mkdir -p /tmp/bench-smoke
 echo 'package main; import "fmt"; func main() { fmt.Println("hello") }' > /tmp/bench-smoke/main.go
-./ddx-agent --json --preset codex --work-dir /tmp/bench-smoke \
+./ddx-agent --json --preset cheap --work-dir /tmp/bench-smoke \
   -p "Read main.go and tell me the package name."
 ```
 

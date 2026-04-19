@@ -40,7 +40,7 @@ inspection:
    the 13 `after` failures are infrastructure/provider failures (`402 Payment Required`)
    rather than valid task outcomes.
 2. The `before_sha` predates the `benchmark` preset. Running `--preset benchmark`
-   on that binary fell back to the default `agent` preset, so the run pair did
+   on that binary fell back to the default preset, so the run pair did
    not actually hold prompt behavior constant.
 
 The result is still useful diagnostically, but not as evidence that the full

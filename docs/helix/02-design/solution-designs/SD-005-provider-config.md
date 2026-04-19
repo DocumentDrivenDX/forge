@@ -130,7 +130,7 @@ model_routes:
         priority: 50
 
 default: vidar
-preset: agent
+preset: default
 max_iterations: 20
 session_log_dir: .agent/sessions
 ```
@@ -359,23 +359,23 @@ Built-in preset names:
 
 | Preset    | Description                                              |
 |-----------|----------------------------------------------------------|
-| `agent`   | DDX Agent default — balanced, tool-aware, structured     |
-| `minimal` | Bare minimum — one sentence, like pi                     |
-| `claude`  | Tracks Claude Code style — thorough, safety-conscious    |
-| `codex`   | Tracks OpenAI Codex CLI style — pragmatic, direct        |
-| `cursor`  | Tracks Cursor style — fast, action-oriented, edit-heavy  |
+| `default` | Balanced, tool-aware prompt                             |
+| `smart`   | Rich, thorough prompt for quality-sensitive runs         |
+| `cheap`   | Pragmatic, direct prompt for latency/cost-sensitive runs |
+| `minimal` | Bare minimum — one sentence                              |
+| `benchmark` | Non-interactive prompt optimized for evaluation        |
 
 ```bash
-ddx-agent -p "prompt"                  # uses preset from config, or "agent" by default
-ddx-agent -p "prompt" --preset agent
-ddx-agent -p "prompt" --preset claude
-ddx-agent -p "prompt" --preset codex
+ddx-agent -p "prompt"                  # uses preset from config, or "default" by default
+ddx-agent -p "prompt" --preset default
+ddx-agent -p "prompt" --preset smart
+ddx-agent -p "prompt" --preset cheap
 ```
 
 The `preset` field may also be set in `.agent/config.yaml`:
 
 ```yaml
-preset: claude
+preset: smart
 ```
 
 Built-in preset details are defined by SD-003 and implemented in

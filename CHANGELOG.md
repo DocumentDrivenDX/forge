@@ -3,6 +3,15 @@
 All notable changes to ddx-agent are recorded here.
 Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
 
+## [Unreleased]
+
+### Breaking
+- **Removed harness-flavored prompt preset names.** The system prompt preset
+  surface now accepts only intent-flavored names: `default`, `smart`, `cheap`,
+  `minimal`, and `benchmark`. The old `agent`, `worker`, `cursor`, `claude`,
+  and `codex` names now fail with a clear replacement hint instead of
+  resolving as aliases. (`.execute-bead-wt-agent-a365bcf2-20260418T023201-36db884d-346c73b4`)
+
 ## [v0.3.14] — 2026-04-18
 
 ### Fixed

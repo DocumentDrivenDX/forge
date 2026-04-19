@@ -136,7 +136,7 @@ func main() {
 provider: openai-compat
 base_url: http://localhost:1234/v1
 model: qwen3.5-7b
-preset: agent                    # system prompt style (see below)
+preset: default                  # system prompt style (see below)
 max_iterations: 20
 session_log_dir: .agent/sessions
 ```
@@ -145,24 +145,24 @@ Environment overrides: `AGENT_PROVIDER`, `AGENT_BASE_URL`, `AGENT_API_KEY`, `AGE
 
 ## System Prompt Presets
 
-DDX Agent ships built-in system prompt presets that track the style and
-conventions of well-known coding agents. Select one with `--preset` or the
+DDX Agent ships built-in system prompt presets that describe prompt intent.
+Select one with `--preset` or the
 top-level `preset` config field:
 
-| Preset    | Description                                              |
-|-----------|----------------------------------------------------------|
-| `agent`   | DDX Agent default — balanced, tool-aware, structured     |
-| `minimal` | Bare minimum — one sentence                              |
-| `claude`  | Tracks Claude Code style — thorough, safety-conscious    |
-| `codex`   | Tracks OpenAI Codex CLI style — pragmatic, direct        |
-| `cursor`  | Tracks Cursor style — fast, action-oriented, edit-heavy  |
+| Preset      | Description                                           |
+|-------------|-------------------------------------------------------|
+| `default`   | Balanced, tool-aware prompt                          |
+| `smart`     | Rich, thorough prompt for quality-sensitive runs      |
+| `cheap`     | Pragmatic, direct prompt for latency/cost-sensitive runs |
+| `minimal`   | Bare minimum — one sentence                           |
+| `benchmark` | Non-interactive prompt optimized for evaluation       |
 
 ```bash
-ddx-agent -p "prompt" --preset claude
-ddx-agent -p "prompt" --preset codex
+ddx-agent -p "prompt" --preset smart
+ddx-agent -p "prompt" --preset cheap
 ```
 
-When no preset is specified, `agent` is used.
+When no preset is specified, `default` is used.
 
 ## Session Replay
 

@@ -41,7 +41,7 @@ The `BaseInstalledAgent` adapter is a small Python class that Harbor uses to:
 
 For ddx-agent, the `run()` hook would invoke something like:
 ```bash
-/usr/local/bin/ddx-agent --json --preset codex -p "<task_instruction>"
+/usr/local/bin/ddx-agent --json --preset cheap -p "<task_instruction>"
 ```
 
 The Python adapter file lives in a Harbor-compatible agents repo and is referenced
@@ -53,7 +53,7 @@ agents:
 ```
 
 **No modification to ddx-agent's current CLI interface is required** to support
-the installed-agent path. The `--json` + `--preset codex` + `-p` invocation already
+the installed-agent path. The `--json` + `--preset cheap` + `-p` invocation already
 matches Harbor's expected agent invocation model.
 
 A thin Python wrapper (~80 lines) implementing `BaseInstalledAgent` is the only

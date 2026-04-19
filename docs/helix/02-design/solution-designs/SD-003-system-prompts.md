@@ -152,15 +152,15 @@ Matching pi exactly:
 
 ## Presets
 
-DDX Agent ships with built-in system prompt presets that track the style and conventions of well-known coding agents:
+DDX Agent ships with built-in system prompt presets that describe prompt intent:
 
 | Preset | Description |
 |--------|-------------|
-| `agent` | DDX Agent default — balanced, tool-aware, structured output |
-| `minimal` | Bare minimum — one sentence, like pi |
-| `claude` | Tracks Claude Code style — thorough, safety-conscious, tool-aware |
-| `codex` | Tracks OpenAI Codex CLI style — pragmatic, direct, no fluff |
-| `cursor` | Tracks Cursor style — fast, action-oriented, edit-heavy |
+| `default` | Balanced, tool-aware prompt |
+| `smart` | Rich, thorough prompt for quality-sensitive runs |
+| `cheap` | Pragmatic, direct prompt for latency/cost-sensitive runs |
+| `minimal` | Bare minimum — one sentence |
+| `benchmark` | Non-interactive prompt optimized for evaluation |
 
 ### Boundary with Model Catalog
 
@@ -177,7 +177,7 @@ surfaces. Future model-policy surfaces must use distinct terms such as
 
 ```go
 // Load a preset
-preset := prompt.NewFromPreset("claude")
+preset := prompt.NewFromPreset("smart")
 
 // Apply tools and context
 preset.WithTools(tools)
@@ -199,7 +199,10 @@ req := agent.Request{
 // PresetNames returns all available preset names in stable order.
 func PresetNames() []string
 
-// GetPreset returns a preset by name, or the agent default if not found.
+// ResolvePresetName resolves a preset name to its canonical form.
+func ResolvePresetName(name string) (string, error)
+
+// GetPreset returns a preset by name, or the default preset if not found.
 func GetPreset(name string) Preset
 
 // NewFromPreset creates a Builder initialized from a named preset.

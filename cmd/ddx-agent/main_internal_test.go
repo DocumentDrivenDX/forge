@@ -41,11 +41,23 @@ func TestResolveProviderForRun_DefaultProvider(t *testing.T) {
 }
 
 func TestResolvePreset(t *testing.T) {
-	cfg := &agentConfig.Config{Preset: "codex"}
+	cfg := &agentConfig.Config{Preset: "cheap"}
 
-	assert.Equal(t, "benchmark", resolvePreset("benchmark", cfg))
-	assert.Equal(t, "codex", resolvePreset("", cfg))
-	assert.Equal(t, "agent", resolvePreset("", &agentConfig.Config{}))
+	got, err := resolvePreset("benchmark", cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "benchmark", got)
+
+	got, err = resolvePreset("", cfg)
+	require.NoError(t, err)
+	assert.Equal(t, "cheap", got)
+
+	got, err = resolvePreset("", &agentConfig.Config{})
+	require.NoError(t, err)
+	assert.Equal(t, "default", got)
+
+	_, err = resolvePreset("codex", cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `preset "codex" was removed`)
 }
 
 func TestResolveRunReasoningNormalizesExplicitValues(t *testing.T) {
@@ -75,7 +87,7 @@ func TestBuildToolsForPreset_BenchmarkExcludesTaskTool(t *testing.T) {
 }
 
 func TestBuildToolsForPreset_DefaultIncludesTaskTool(t *testing.T) {
-	tools := buildToolsForPreset(t.TempDir(), "agent")
+	tools := buildToolsForPreset(t.TempDir(), "default")
 
 	var names []string
 	for _, tool := range tools {

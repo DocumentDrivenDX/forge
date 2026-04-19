@@ -71,9 +71,9 @@ need tuning for unattended evaluation:
 These are prompt-level issues, not architectural ones. A dedicated `benchmark` system
 prompt preset addresses both without introducing a separate binary or build variant.
 
-**What the `benchmark` preset adds over `codex`**:
+**What the `benchmark` preset adds over `cheap`**:
 
-| Behavior | codex | benchmark |
+| Behavior | cheap | benchmark |
 |----------|-------|-----------|
 | Discourages ls/find/cat for navigation | No | Yes — explicit rule |
 | Edit tool format reminder | Implicit | Explicit example |

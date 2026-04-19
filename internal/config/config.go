@@ -216,7 +216,7 @@ func Defaults() Config {
 	return Config{
 		MaxIterations:         20,
 		SessionLogDir:         filepath.Join(projectConfigDir, "sessions"),
-		Preset:                "agent",
+		Preset:                "default",
 		ReasoningByteLimit:    agent.DefaultReasoningByteLimit,
 		ReasoningStallTimeout: agent.DefaultReasoningStallTimeout.String(),
 	}
