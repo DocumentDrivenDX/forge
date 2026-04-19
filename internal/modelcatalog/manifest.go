@@ -29,11 +29,23 @@ type LoadOptions struct {
 
 // ModelEntry holds per-model metadata introduced in manifest v4.
 type ModelEntry struct {
+	Family             string                      `yaml:"family,omitempty"`
+	DisplayName        string                      `yaml:"display_name,omitempty"`
+	Tier               string                      `yaml:"tier,omitempty"`
+	Status             string                      `yaml:"status,omitempty"`
 	ProviderSystem     string                      `yaml:"provider_system,omitempty"`
+	CostInputPerM      float64                     `yaml:"cost_input_per_m,omitempty"`
+	CostOutputPerM     float64                     `yaml:"cost_output_per_m,omitempty"`
+	CostCacheReadPerM  float64                     `yaml:"cost_cache_read_per_m,omitempty"`
+	CostCacheWritePerM float64                     `yaml:"cost_cache_write_per_m,omitempty"`
 	CostInputPerMTok   float64                     `yaml:"cost_input_per_mtok,omitempty"`
 	CostOutputPerMTok  float64                     `yaml:"cost_output_per_mtok,omitempty"`
 	SWEBenchVerified   float64                     `yaml:"swe_bench_verified,omitempty"`
+	LiveCodeBench      float64                     `yaml:"live_code_bench,omitempty"`
+	BenchmarkAsOf      string                      `yaml:"benchmark_as_of,omitempty"`
+	OpenRouterID       string                      `yaml:"openrouter_id,omitempty"`
 	OpenRouterRefID    string                      `yaml:"openrouter_ref_id,omitempty"`
+	Surfaces           map[string]string           `yaml:"surfaces,omitempty"`
 	SpeedTokensPerSec  float64                     `yaml:"speed_tokens_per_sec,omitempty"`
 	ContextWindow      int                         `yaml:"context_window,omitempty"`
 	ReasoningMaxTokens int                         `yaml:"reasoning_max_tokens,omitempty"`
@@ -104,13 +116,16 @@ func (s surfaceValue) allCandidates() []string {
 }
 
 type targetEntry struct {
-	Family        string                        `yaml:"family"`
-	Aliases       []string                      `yaml:"aliases"`
-	Status        string                        `yaml:"status"`
-	Replacement   string                        `yaml:"replacement,omitempty"`
-	DeprecatedAt  string                        `yaml:"deprecated_at,omitempty"`
-	Surfaces      map[string]surfaceValue       `yaml:"surfaces"`
-	SurfacePolicy map[string]surfacePolicyEntry `yaml:"surface_policy,omitempty"`
+	Family           string                        `yaml:"family"`
+	Aliases          []string                      `yaml:"aliases"`
+	Status           string                        `yaml:"status"`
+	Replacement      string                        `yaml:"replacement,omitempty"`
+	DeprecatedAt     string                        `yaml:"deprecated_at,omitempty"`
+	Candidates       []string                      `yaml:"candidates,omitempty"`
+	Surfaces         map[string]surfaceValue       `yaml:"surfaces"`
+	SurfacePolicy    map[string]surfacePolicyEntry `yaml:"surface_policy,omitempty"`
+	ContextWindowMin int                           `yaml:"context_window_min,omitempty"`
+	SWEBenchMin      float64                       `yaml:"swe_bench_min,omitempty"`
 	// Pricing (USD per 1M tokens, 0 = unknown/free)
 	CostInputPerM      float64 `yaml:"cost_input_per_m,omitempty"`
 	CostOutputPerM     float64 `yaml:"cost_output_per_m,omitempty"`
@@ -164,6 +179,7 @@ func loadManifest(data []byte, source string) (*Catalog, error) {
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("modelcatalog: parse manifest %s: %w", source, err)
 	}
+	upgradeManifest(&m)
 	if err := validateManifest(m); err != nil {
 		return nil, fmt.Errorf("modelcatalog: validate manifest %s: %w", source, err)
 	}
@@ -213,8 +229,8 @@ func validateManifest(m manifest) error {
 		if strings.TrimSpace(target.Family) == "" {
 			return fmt.Errorf("target %q must define family", targetID)
 		}
-		if len(target.Surfaces) == 0 {
-			return fmt.Errorf("target %q must define at least one surface", targetID)
+		if len(target.Surfaces) == 0 && len(target.Candidates) == 0 {
+			return fmt.Errorf("target %q must define at least one surface or candidate", targetID)
 		}
 
 		status := normalizedStatus(target.Status)
@@ -250,7 +266,7 @@ func validateManifest(m manifest) error {
 			if strings.TrimSpace(surface) == "" {
 				return fmt.Errorf("target %q has empty surface_policy key", targetID)
 			}
-			if _, ok := target.Surfaces[surface]; !ok {
+			if !targetSupportsSurface(m, target, surface) {
 				return fmt.Errorf("target %q surface_policy %q has no matching surface mapping", targetID, surface)
 			}
 			if policy.ReasoningDefault == "" {
@@ -290,6 +306,32 @@ func validateManifest(m manifest) error {
 		if strings.TrimSpace(modelID) == "" {
 			return fmt.Errorf("model ID must not be empty")
 		}
+		status := normalizedStatus(model.Status)
+		switch status {
+		case statusActive, statusDeprecated, statusStale:
+		default:
+			return fmt.Errorf("model %q has invalid status %q", modelID, model.Status)
+		}
+		if model.Tier != "" {
+			if _, ok := m.Targets[model.Tier]; !ok {
+				return fmt.Errorf("model %q references unknown tier %q", modelID, model.Tier)
+			}
+		}
+		if model.CostInputPerM < 0 || model.CostInputPerMTok < 0 {
+			return fmt.Errorf("model %q cost_input_per_m must be >= 0", modelID)
+		}
+		if model.CostOutputPerM < 0 || model.CostOutputPerMTok < 0 {
+			return fmt.Errorf("model %q cost_output_per_m must be >= 0", modelID)
+		}
+		if model.CostCacheReadPerM < 0 {
+			return fmt.Errorf("model %q cost_cache_read_per_m must be >= 0", modelID)
+		}
+		if model.CostCacheWritePerM < 0 {
+			return fmt.Errorf("model %q cost_cache_write_per_m must be >= 0", modelID)
+		}
+		if model.ContextWindow < 0 {
+			return fmt.Errorf("model %q context_window must be >= 0", modelID)
+		}
 		if model.ReasoningMaxTokens < 0 {
 			return fmt.Errorf("model %q reasoning_max_tokens must be >= 0", modelID)
 		}
@@ -299,6 +341,17 @@ func validateManifest(m manifest) error {
 			}
 			if model.ReasoningMaxTokens > 0 && budget > model.ReasoningMaxTokens {
 				return fmt.Errorf("model %q reasoning_budgets %q exceeds reasoning_max_tokens", modelID, level)
+			}
+		}
+	}
+
+	for targetID, target := range m.Targets {
+		for _, modelID := range target.Candidates {
+			if strings.TrimSpace(modelID) == "" {
+				return fmt.Errorf("target %q has empty candidate", targetID)
+			}
+			if _, ok := m.Models[modelID]; !ok {
+				return fmt.Errorf("target %q references unknown candidate model %q", targetID, modelID)
 			}
 		}
 	}
@@ -327,6 +380,78 @@ func validateManifest(m manifest) error {
 	}
 
 	return nil
+}
+
+func upgradeManifest(m *manifest) {
+	if m.Version >= 4 || len(m.Models) > 0 {
+		return
+	}
+	m.Models = make(map[string]ModelEntry)
+	for targetID, target := range m.Targets {
+		for surface, sv := range target.Surfaces {
+			for _, modelID := range sv.allCandidates() {
+				if modelID == "" {
+					continue
+				}
+				entry := m.Models[modelID]
+				if entry.Family == "" {
+					entry.Family = target.Family
+				}
+				if entry.Tier == "" {
+					entry.Tier = targetID
+				}
+				if entry.Status == "" {
+					entry.Status = normalizedStatus(target.Status)
+				}
+				if entry.CostInputPerM == 0 {
+					entry.CostInputPerM = target.CostInputPerM
+				}
+				if entry.CostOutputPerM == 0 {
+					entry.CostOutputPerM = target.CostOutputPerM
+				}
+				if entry.CostCacheReadPerM == 0 {
+					entry.CostCacheReadPerM = target.CostCacheReadPerM
+				}
+				if entry.CostCacheWritePerM == 0 {
+					entry.CostCacheWritePerM = target.CostCacheWritePerM
+				}
+				if entry.ContextWindow == 0 {
+					entry.ContextWindow = target.ContextWindow
+				}
+				if entry.SWEBenchVerified == 0 {
+					entry.SWEBenchVerified = target.SWEBenchVerified
+				}
+				if entry.LiveCodeBench == 0 {
+					entry.LiveCodeBench = target.LiveCodeBench
+				}
+				if entry.BenchmarkAsOf == "" {
+					entry.BenchmarkAsOf = target.BenchmarkAsOf
+				}
+				if entry.OpenRouterRefID == "" {
+					entry.OpenRouterRefID = target.OpenRouterRefID
+				}
+				if entry.Surfaces == nil {
+					entry.Surfaces = make(map[string]string)
+				}
+				entry.Surfaces[surface] = modelID
+				m.Models[modelID] = entry
+			}
+		}
+	}
+}
+
+func targetSupportsSurface(m manifest, target targetEntry, surface string) bool {
+	if _, ok := target.Surfaces[surface]; ok {
+		return true
+	}
+	for _, modelID := range target.Candidates {
+		if model, ok := m.Models[modelID]; ok {
+			if model.Surfaces[surface] != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func normalizedStatus(status string) string {

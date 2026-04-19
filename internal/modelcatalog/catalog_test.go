@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/stretchr/testify/assert"
@@ -75,7 +76,7 @@ func TestDefault_LoadsEmbeddedManifest(t *testing.T) {
 	assert.Equal(t, "opus-4.6", resolved.ConcreteModel)
 	assert.Equal(t, reasoning.ReasoningHigh, resolved.SurfacePolicy.ReasoningDefault)
 	assert.Equal(t, "embedded", resolved.ManifestSource)
-	assert.Equal(t, "2026-04-12.2", resolved.CatalogVersion)
+	assert.Equal(t, "2026-04-12.3", resolved.CatalogVersion)
 }
 
 func TestDefault_ReasoningDefaultsByTier(t *testing.T) {
@@ -521,19 +522,32 @@ generated_at: 2026-04-13T00:00:00Z
 catalog_version: 2026-04-13.1
 models:
   alpha-model-1:
+    family: alpha
+    tier: alpha-smart
+    status: active
     provider_system: anthropic
-    cost_input_per_mtok: 3.00
-    cost_output_per_mtok: 15.00
+    cost_input_per_m: 3.00
+    cost_output_per_m: 15.00
     swe_bench_verified: 72.7
+    surfaces:
+      agent.anthropic: alpha-model-1
   alpha-model-2:
+    family: alpha
+    tier: alpha-smart
+    status: active
     provider_system: anthropic
-    cost_input_per_mtok: 0.80
-    cost_output_per_mtok: 4.00
+    cost_input_per_m: 0.80
+    cost_output_per_m: 4.00
     swe_bench_verified: 65.0
+    surfaces:
+      agent.anthropic: alpha-model-2
   beta-model-1:
+    family: beta
+    tier: beta-fast
+    status: active
     provider_system: openai
-    cost_input_per_mtok: 0.10
-    cost_output_per_mtok: 0.30
+    cost_input_per_m: 0.10
+    cost_output_per_m: 0.30
     swe_bench_verified: 59.0
     context_window: 262144
     reasoning_max_tokens: 32768
@@ -541,10 +555,17 @@ models:
       low: 2048
       medium: 8192
       high: 32768
+    surfaces:
+      agent.openai: beta-model-1
   beta-model-2:
+    family: beta
+    tier: beta-fast
+    status: active
     provider_system: openai
-    cost_input_per_mtok: 0.07
-    cost_output_per_mtok: 0.20
+    cost_input_per_m: 0.07
+    cost_output_per_m: 0.20
+    surfaces:
+      agent.openai: beta-model-2
 profiles:
   code-alpha:
     target: alpha-smart
@@ -554,16 +575,11 @@ targets:
   alpha-smart:
     family: alpha
     aliases: [alpha]
-    surfaces:
-      agent.anthropic:
-        candidates: [alpha-model-1, alpha-model-2]
-      agent.openai: beta-model-1
+    candidates: [alpha-model-1, alpha-model-2, beta-model-1]
   beta-fast:
     family: beta
     aliases: [beta]
-    surfaces:
-      agent.openai:
-        candidates: [beta-model-1, beta-model-2]
+    candidates: [beta-model-1, beta-model-2]
 `),
 		RequireExternal: true,
 	})
@@ -576,9 +592,11 @@ func TestLookupModel_KnownModel(t *testing.T) {
 
 	entry, ok := catalog.LookupModel("alpha-model-1")
 	require.True(t, ok)
+	assert.Equal(t, "alpha", entry.Family)
+	assert.Equal(t, "alpha-smart", entry.Tier)
 	assert.Equal(t, "anthropic", entry.ProviderSystem)
-	assert.Equal(t, 3.00, entry.CostInputPerMTok)
-	assert.Equal(t, 15.00, entry.CostOutputPerMTok)
+	assert.Equal(t, 3.00, entry.CostInputPerM)
+	assert.Equal(t, 15.00, entry.CostOutputPerM)
 	assert.Equal(t, 72.7, entry.SWEBenchVerified)
 }
 
@@ -649,7 +667,6 @@ func TestCandidatesFor_CandidatesList(t *testing.T) {
 func TestCandidatesFor_SingleStringFormat(t *testing.T) {
 	catalog := loadV4FixtureCatalog(t)
 
-	// Old single-string surface format returns one-element slice
 	candidates := catalog.CandidatesFor(SurfaceAgentOpenAI, "alpha-smart")
 	assert.Equal(t, []string{"beta-model-1"}, candidates)
 }
@@ -683,6 +700,134 @@ func TestPricingFor_IncludesModelsWithCost(t *testing.T) {
 	// but is in models map — per-model entry takes precedence
 	_, hasB2 := pricing["beta-model-2"]
 	assert.True(t, hasB2, "expected beta-model-2 in pricing via models map")
+}
+
+func TestAllModelsInTier_ReturnsOrderedModelEntries(t *testing.T) {
+	catalog := loadV4FixtureCatalog(t)
+
+	models := catalog.AllModelsInTier("alpha-smart")
+
+	require.Len(t, models, 3)
+	assert.Equal(t, "alpha-model-1", models[0].ID)
+	assert.Equal(t, "alpha-model-2", models[1].ID)
+	assert.Equal(t, "beta-model-1", models[2].ID)
+	assert.Equal(t, "alpha-smart", models[0].Entry.Tier)
+}
+
+func TestLoad_V3ManifestSynthesizesModelEntries(t *testing.T) {
+	manifestPath := writeFixtureManifest(t, `
+version: 3
+generated_at: 2026-04-12T00:00:00Z
+targets:
+  code-medium:
+    family: coding-tier
+    status: active
+    cost_input_per_m: 3
+    cost_output_per_m: 15
+    cost_cache_read_per_m: 0.30
+    cost_cache_write_per_m: 3.75
+    context_window: 200000
+    swe_bench_verified: 75.5
+    benchmark_as_of: "2026-04-12"
+    openrouter_ref_id: anthropic/claude-sonnet-4.6
+    surfaces:
+      agent.anthropic: sonnet-4.6
+      agent.openai: gpt-5.4-mini
+`)
+
+	catalog, err := Load(LoadOptions{ManifestPath: manifestPath, RequireExternal: true})
+	require.NoError(t, err)
+
+	anthropicModel, ok := catalog.LookupModel("sonnet-4.6")
+	require.True(t, ok)
+	assert.Equal(t, "coding-tier", anthropicModel.Family)
+	assert.Equal(t, "code-medium", anthropicModel.Tier)
+	assert.Equal(t, 3.0, anthropicModel.CostInputPerM)
+	assert.Equal(t, 15.0, anthropicModel.CostOutputPerM)
+	assert.Equal(t, 200000, anthropicModel.ContextWindow)
+	assert.Equal(t, "anthropic/claude-sonnet-4.6", anthropicModel.OpenRouterRefID)
+	assert.Equal(t, "sonnet-4.6", anthropicModel.Surfaces["agent.anthropic"])
+
+	openAIModel, ok := catalog.LookupModel("gpt-5.4-mini")
+	require.True(t, ok)
+	assert.Equal(t, "gpt-5.4-mini", openAIModel.Surfaces["agent.openai"])
+}
+
+func TestDefault_V4TargetsUseModelCandidates(t *testing.T) {
+	catalog, err := Default()
+	require.NoError(t, err)
+
+	target := catalog.manifest.Targets["code-economy"]
+	assert.Empty(t, target.Surfaces)
+	assert.Zero(t, target.CostInputPerM)
+	assert.Empty(t, target.OpenRouterRefID)
+	assert.Equal(t, []string{"claude-haiku-5.5", "qwen3.5-27b", "qwen3.5-7b"}, target.Candidates)
+
+	models := catalog.AllModelsInTier("code-economy")
+	require.Len(t, models, 3)
+	assert.Equal(t, "claude-haiku-5.5", models[0].ID)
+	assert.Equal(t, "qwen3.5-27b", models[1].ID)
+	assert.Equal(t, "qwen3.5-7b", models[2].ID)
+}
+
+func TestUpdateManifestPricing_UpdatesModelEntries(t *testing.T) {
+	oldFetch := fetchOpenRouterPricing
+	t.Cleanup(func() { fetchOpenRouterPricing = oldFetch })
+	fetchOpenRouterPricing = func(time.Duration) (map[string]openrouterModelEntry, error) {
+		return map[string]openrouterModelEntry{
+			"provider/alpha": {
+				ID:            "provider/alpha",
+				ContextLength: 123456,
+				Pricing: openrouterPricing{
+					Prompt:          "0.000002",
+					Completion:      "0.000006",
+					InputCacheRead:  "0.0000005",
+					InputCacheWrite: "0.0000025",
+				},
+			},
+		}, nil
+	}
+
+	manifestPath := writeFixtureManifest(t, `
+version: 4
+generated_at: 2026-04-13T00:00:00Z
+models:
+  alpha-model:
+    family: alpha
+    tier: code-alpha
+    status: active
+    openrouter_id: provider/alpha
+    cost_input_per_m: 1
+    cost_output_per_m: 2
+    surfaces:
+      agent.openai: alpha-model
+  missing-model:
+    family: alpha
+    tier: code-alpha
+    status: active
+    openrouter_id: provider/missing
+    surfaces:
+      agent.openai: missing-model
+targets:
+  code-alpha:
+    family: alpha
+    candidates: [alpha-model, missing-model]
+`)
+
+	updated, notFound, err := UpdateManifestPricing(manifestPath, time.Second)
+	require.NoError(t, err)
+	assert.Equal(t, 1, updated)
+	assert.Equal(t, []string{"missing-model"}, notFound)
+
+	catalog, err := Load(LoadOptions{ManifestPath: manifestPath, RequireExternal: true})
+	require.NoError(t, err)
+	model, ok := catalog.LookupModel("alpha-model")
+	require.True(t, ok)
+	assert.Equal(t, 2.0, model.CostInputPerM)
+	assert.Equal(t, 6.0, model.CostOutputPerM)
+	assert.Equal(t, 0.5, model.CostCacheReadPerM)
+	assert.Equal(t, 2.5, model.CostCacheWritePerM)
+	assert.Equal(t, 123456, model.ContextWindow)
 }
 
 func TestAllConcreteModels_IncludesCandidates(t *testing.T) {

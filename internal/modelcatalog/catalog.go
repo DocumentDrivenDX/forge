@@ -72,6 +72,12 @@ type ResolvedTarget struct {
 	OpenRouterRefID string
 }
 
+// TierModel is one concrete model entry referenced by a catalog tier.
+type TierModel struct {
+	ID    string
+	Entry ModelEntry
+}
+
 // Metadata returns the loaded manifest metadata for inspection surfaces.
 func (c *Catalog) Metadata() Metadata {
 	return Metadata{
@@ -174,7 +180,7 @@ func (c *Catalog) AllConcreteModels(surface Surface) map[string]string {
 	sort.Strings(targetIDs)
 
 	out := make(map[string]string)
-	// First pass: single-string surfaces (higher priority).
+	// First pass: single-string legacy surfaces (higher priority).
 	for _, targetID := range targetIDs {
 		entry := c.manifest.Targets[targetID]
 		if normalizedStatus(entry.Status) != statusActive {
@@ -186,11 +192,17 @@ func (c *Catalog) AllConcreteModels(surface Surface) map[string]string {
 			}
 		}
 	}
-	// Second pass: candidates-list entries (lower priority, don't overwrite).
+	// Second pass: model-level candidates and legacy candidates-list entries
+	// (lower priority, don't overwrite).
 	for _, targetID := range targetIDs {
 		entry := c.manifest.Targets[targetID]
 		if normalizedStatus(entry.Status) != statusActive {
 			continue
+		}
+		for _, concrete := range c.concreteModelsForSurface(entry, surface) {
+			if concrete != "" && out[concrete] == "" {
+				out[concrete] = targetID
+			}
 		}
 		if sv, ok := entry.Surfaces[string(surface)]; ok && len(sv.candidates) > 0 {
 			for _, candidate := range sv.candidates {
@@ -206,8 +218,37 @@ func (c *Catalog) AllConcreteModels(surface Surface) map[string]string {
 // LookupModel returns the ModelEntry for the given model ID from the top-level
 // models: map (manifest v4+). The second return value is false if not found.
 func (c *Catalog) LookupModel(id string) (ModelEntry, bool) {
-	entry, ok := c.manifest.Models[id]
-	return entry, ok
+	if entry, ok := c.manifest.Models[id]; ok {
+		return entry, true
+	}
+	for _, entry := range c.manifest.Models {
+		for _, concrete := range entry.Surfaces {
+			if concrete == id {
+				return entry, true
+			}
+		}
+	}
+	return ModelEntry{}, false
+}
+
+// AllModelsInTier returns the ordered model entries declared as candidates for
+// a target tier. For older manifests, candidates are synthesized from surface
+// mappings during load.
+func (c *Catalog) AllModelsInTier(targetID string) []TierModel {
+	target, ok := c.manifest.Targets[targetID]
+	if !ok {
+		return nil
+	}
+	ids := targetCandidateIDs(target)
+	out := make([]TierModel, 0, len(ids))
+	for _, id := range ids {
+		entry, ok := c.manifest.Models[id]
+		if !ok {
+			continue
+		}
+		out = append(out, TierModel{ID: id, Entry: entry})
+	}
+	return out
 }
 
 // ContextWindowForModel returns the context window in tokens for the given
@@ -236,6 +277,13 @@ func (c *Catalog) CandidatesFor(surface Surface, targetKey string) []string {
 	target, ok := c.manifest.Targets[targetKey]
 	if !ok {
 		return nil
+	}
+	if len(target.Candidates) > 0 {
+		candidates := c.concreteModelsForSurface(target, surface)
+		if len(candidates) == 0 {
+			return nil
+		}
+		return candidates
 	}
 	sv, ok := target.Surfaces[string(surface)]
 	if !ok {
@@ -270,35 +318,14 @@ func (c *Catalog) AllModels() map[string]ModelEntry {
 func (c *Catalog) PricingFor() map[string]CatalogModelPricing {
 	result := make(map[string]CatalogModelPricing)
 
-	// Seed from target-level pricing (all candidate models for each surface).
-	for _, target := range c.manifest.Targets {
-		if normalizedStatus(target.Status) != statusActive {
-			continue
-		}
-		if target.CostInputPerM <= 0 {
-			continue
-		}
-		pricing := CatalogModelPricing{
-			InputPerMTok:  target.CostInputPerM,
-			OutputPerMTok: target.CostOutputPerM,
-		}
-		for _, sv := range target.Surfaces {
-			for _, modelID := range sv.allCandidates() {
-				if modelID != "" {
-					result[modelID] = pricing
-				}
-			}
-		}
-	}
-
-	// Per-model entries (v4+) override target-level pricing.
 	for modelID, entry := range c.manifest.Models {
-		if entry.CostInputPerMTok <= 0 {
+		input := entry.inputCostPerM()
+		if input <= 0 {
 			continue
 		}
 		result[modelID] = CatalogModelPricing{
-			InputPerMTok:  entry.CostInputPerMTok,
-			OutputPerMTok: entry.CostOutputPerMTok,
+			InputPerMTok:  input,
+			OutputPerMTok: entry.outputCostPerM(),
 		}
 	}
 
@@ -324,14 +351,7 @@ func (c *Catalog) resolveTarget(ref, profile, targetID string, opts ResolveOptio
 		}
 	}
 
-	sv, ok := target.Surfaces[string(opts.Surface)]
-	if !ok {
-		return ResolvedTarget{}, &MissingSurfaceError{
-			CanonicalID: targetID,
-			Surface:     opts.Surface,
-		}
-	}
-	concreteModel := sv.primaryModel()
+	concreteModel, modelEntry, hasModelEntry := c.primaryConcreteModel(target, opts.Surface)
 	if concreteModel == "" {
 		return ResolvedTarget{}, &MissingSurfaceError{
 			CanonicalID: targetID,
@@ -345,7 +365,7 @@ func (c *Catalog) resolveTarget(ref, profile, targetID string, opts ResolveOptio
 		}
 	}
 
-	return ResolvedTarget{
+	resolved := ResolvedTarget{
 		Ref:                ref,
 		Profile:            profile,
 		Family:             target.Family,
@@ -366,5 +386,103 @@ func (c *Catalog) resolveTarget(ref, profile, targetID string, opts ResolveOptio
 		LiveCodeBench:      target.LiveCodeBench,
 		BenchmarkAsOf:      target.BenchmarkAsOf,
 		OpenRouterRefID:    target.OpenRouterRefID,
-	}, nil
+	}
+	if hasModelEntry {
+		if modelEntry.Family != "" {
+			resolved.Family = modelEntry.Family
+		}
+		resolved.CostInputPerM = modelEntry.inputCostPerM()
+		resolved.CostOutputPerM = modelEntry.outputCostPerM()
+		resolved.CostCacheReadPerM = modelEntry.CostCacheReadPerM
+		resolved.CostCacheWritePerM = modelEntry.CostCacheWritePerM
+		resolved.ContextWindow = modelEntry.ContextWindow
+		resolved.SWEBenchVerified = modelEntry.SWEBenchVerified
+		resolved.LiveCodeBench = modelEntry.LiveCodeBench
+		resolved.BenchmarkAsOf = modelEntry.BenchmarkAsOf
+		resolved.OpenRouterRefID = modelEntry.openRouterID()
+	}
+	return resolved, nil
+}
+
+func (c *Catalog) primaryConcreteModel(target targetEntry, surface Surface) (string, ModelEntry, bool) {
+	if sv, ok := target.Surfaces[string(surface)]; ok {
+		modelID := sv.primaryModel()
+		entry, hasEntry := c.manifest.Models[modelID]
+		return modelID, entry, hasEntry
+	}
+	for _, modelID := range target.Candidates {
+		entry, ok := c.manifest.Models[modelID]
+		if !ok {
+			continue
+		}
+		if concrete := entry.Surfaces[string(surface)]; concrete != "" {
+			return concrete, entry, true
+		}
+	}
+	return "", ModelEntry{}, false
+}
+
+func (c *Catalog) concreteModelsForSurface(target targetEntry, surface Surface) []string {
+	if len(target.Candidates) == 0 {
+		if sv, ok := target.Surfaces[string(surface)]; ok {
+			return sv.allCandidates()
+		}
+		return nil
+	}
+	out := make([]string, 0, len(target.Candidates))
+	for _, modelID := range target.Candidates {
+		entry, ok := c.manifest.Models[modelID]
+		if !ok {
+			continue
+		}
+		if concrete := entry.Surfaces[string(surface)]; concrete != "" {
+			out = append(out, concrete)
+		}
+	}
+	return out
+}
+
+func targetCandidateIDs(target targetEntry) []string {
+	if len(target.Candidates) > 0 {
+		out := make([]string, len(target.Candidates))
+		copy(out, target.Candidates)
+		return out
+	}
+	seen := make(map[string]bool)
+	var out []string
+	keys := make([]string, 0, len(target.Surfaces))
+	for surface := range target.Surfaces {
+		keys = append(keys, surface)
+	}
+	sort.Strings(keys)
+	for _, surface := range keys {
+		for _, modelID := range target.Surfaces[surface].allCandidates() {
+			if modelID != "" && !seen[modelID] {
+				seen[modelID] = true
+				out = append(out, modelID)
+			}
+		}
+	}
+	return out
+}
+
+func (m ModelEntry) inputCostPerM() float64 {
+	if m.CostInputPerM != 0 {
+		return m.CostInputPerM
+	}
+	return m.CostInputPerMTok
+}
+
+func (m ModelEntry) outputCostPerM() float64 {
+	if m.CostOutputPerM != 0 {
+		return m.CostOutputPerM
+	}
+	return m.CostOutputPerMTok
+}
+
+func (m ModelEntry) openRouterID() string {
+	if m.OpenRouterID != "" {
+		return m.OpenRouterID
+	}
+	return m.OpenRouterRefID
 }

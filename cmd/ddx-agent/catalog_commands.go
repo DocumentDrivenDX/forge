@@ -112,15 +112,18 @@ func cmdCatalogModels(workDir string, args []string) int {
 
 	// Collect model IDs.
 	ids := make([]string, 0, len(modelsMap))
-	for id := range modelsMap {
-		if *modelFlag != "" && id != *modelFlag {
-			continue
+	if *modelFlag != "" {
+		entry, ok := catalog.LookupModel(*modelFlag)
+		if !ok {
+			fmt.Fprintf(os.Stderr, "error: model %q not found in catalog\n", *modelFlag)
+			return 1
 		}
-		ids = append(ids, id)
-	}
-	if *modelFlag != "" && len(ids) == 0 {
-		fmt.Fprintf(os.Stderr, "error: model %q not found in catalog\n", *modelFlag)
-		return 1
+		modelsMap = map[string]modelcatalog.ModelEntry{*modelFlag: entry}
+		ids = append(ids, *modelFlag)
+	} else {
+		for id := range modelsMap {
+			ids = append(ids, id)
+		}
 	}
 	sort.Strings(ids)
 
@@ -131,10 +134,10 @@ func cmdCatalogModels(workDir string, args []string) int {
 			rows = append(rows, catalogModelRow{
 				ID:                id,
 				ProviderSystem:    e.ProviderSystem,
-				CostInputPerMTok:  e.CostInputPerMTok,
-				CostOutputPerMTok: e.CostOutputPerMTok,
+				CostInputPerMTok:  catalogCostInputPerM(e),
+				CostOutputPerMTok: catalogCostOutputPerM(e),
 				SWEBenchVerified:  e.SWEBenchVerified,
-				OpenRouterRefID:   e.OpenRouterRefID,
+				OpenRouterRefID:   catalogOpenRouterID(e),
 				SpeedTokensPerSec: e.SpeedTokensPerSec,
 			})
 		}
@@ -155,9 +158,9 @@ func cmdCatalogModels(workDir string, args []string) int {
 		if e.ProviderSystem != "" {
 			fmt.Printf("provider_system:       %s\n", e.ProviderSystem)
 		}
-		if e.CostInputPerMTok > 0 {
-			fmt.Printf("cost_input_per_mtok:   $%.2f\n", e.CostInputPerMTok)
-			fmt.Printf("cost_output_per_mtok:  $%.2f\n", e.CostOutputPerMTok)
+		if inputCost := catalogCostInputPerM(e); inputCost > 0 {
+			fmt.Printf("cost_input_per_m:      $%.2f\n", inputCost)
+			fmt.Printf("cost_output_per_m:     $%.2f\n", catalogCostOutputPerM(e))
 		}
 		if e.SWEBenchVerified > 0 {
 			fmt.Printf("swe_bench_verified:    %.1f\n", e.SWEBenchVerified)
@@ -165,8 +168,8 @@ func cmdCatalogModels(workDir string, args []string) int {
 		if e.SpeedTokensPerSec > 0 {
 			fmt.Printf("speed_tokens_per_sec:  %.1f\n", e.SpeedTokensPerSec)
 		}
-		if e.OpenRouterRefID != "" {
-			fmt.Printf("openrouter_ref_id:     %s\n", e.OpenRouterRefID)
+		if openRouterID := catalogOpenRouterID(e); openRouterID != "" {
+			fmt.Printf("openrouter_id:         %s\n", openRouterID)
 		}
 		return 0
 	}
@@ -178,11 +181,11 @@ func cmdCatalogModels(workDir string, args []string) int {
 		inputStr := "-"
 		outputStr := "-"
 		sweStr := "-"
-		if e.CostInputPerMTok > 0 {
-			inputStr = fmt.Sprintf("$%.2f", e.CostInputPerMTok)
+		if inputCost := catalogCostInputPerM(e); inputCost > 0 {
+			inputStr = fmt.Sprintf("$%.2f", inputCost)
 		}
-		if e.CostOutputPerMTok > 0 {
-			outputStr = fmt.Sprintf("$%.2f", e.CostOutputPerMTok)
+		if outputCost := catalogCostOutputPerM(e); outputCost > 0 {
+			outputStr = fmt.Sprintf("$%.2f", outputCost)
 		}
 		if e.SWEBenchVerified > 0 {
 			sweStr = fmt.Sprintf("%.1f", e.SWEBenchVerified)
@@ -196,6 +199,27 @@ func cmdCatalogModels(workDir string, args []string) int {
 		)
 	}
 	return 0
+}
+
+func catalogCostInputPerM(e modelcatalog.ModelEntry) float64 {
+	if e.CostInputPerM != 0 {
+		return e.CostInputPerM
+	}
+	return e.CostInputPerMTok
+}
+
+func catalogCostOutputPerM(e modelcatalog.ModelEntry) float64 {
+	if e.CostOutputPerM != 0 {
+		return e.CostOutputPerM
+	}
+	return e.CostOutputPerMTok
+}
+
+func catalogOpenRouterID(e modelcatalog.ModelEntry) string {
+	if e.OpenRouterID != "" {
+		return e.OpenRouterID
+	}
+	return e.OpenRouterRefID
 }
 
 // observationRow is a JSON-serializable observation entry.

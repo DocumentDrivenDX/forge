@@ -74,6 +74,8 @@ func FetchOpenRouterPricing(timeout time.Duration) (map[string]openrouterModelEn
 	return out, nil
 }
 
+var fetchOpenRouterPricing = FetchOpenRouterPricing
+
 // UpdateManifestPricing fetches OpenRouter pricing and updates cost fields
 // in the manifest at manifestPath. Creates the file from the embedded default
 // if it doesn't exist. Returns (updated count, not-found IDs, error).
@@ -94,7 +96,7 @@ func UpdateManifestPricing(manifestPath string, timeout time.Duration) (int, []s
 		return 0, nil, fmt.Errorf("parse manifest: %w", err)
 	}
 
-	prices, err := FetchOpenRouterPricing(timeout)
+	prices, err := fetchOpenRouterPricing(timeout)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -102,31 +104,42 @@ func UpdateManifestPricing(manifestPath string, timeout time.Duration) (int, []s
 	updated := 0
 	var notFound []string
 
-	for id, target := range m.Targets {
+	upgradeManifest(&m)
+
+	modelIDs := make([]string, 0, len(m.Models))
+	for id := range m.Models {
+		modelIDs = append(modelIDs, id)
+	}
+	sort.Strings(modelIDs)
+
+	for _, id := range modelIDs {
+		model := m.Models[id]
 		// Try to find a matching OpenRouter entry:
-		// 1. Try openrouter_ref_id if set
-		// 2. Try surface model IDs
+		// 1. Try openrouter_id / legacy openrouter_ref_id if set
+		// 2. Try model surface IDs
+		// 3. Try the catalog model ID itself
 		var orEntry openrouterModelEntry
 		var found bool
 
-		if target.OpenRouterRefID != "" {
-			orEntry, found = prices[target.OpenRouterRefID]
+		if ref := model.openRouterID(); ref != "" {
+			orEntry, found = prices[ref]
 		}
 		if !found {
-			// Sort surface keys for deterministic matching order.
-			surfaceKeys := make([]string, 0, len(target.Surfaces))
-			for k := range target.Surfaces {
+			surfaceKeys := make([]string, 0, len(model.Surfaces))
+			for k := range model.Surfaces {
 				surfaceKeys = append(surfaceKeys, k)
 			}
 			sort.Strings(surfaceKeys)
 			for _, k := range surfaceKeys {
-				primary := target.Surfaces[k].primaryModel()
-				if e, ok := prices[primary]; ok {
+				if e, ok := prices[model.Surfaces[k]]; ok {
 					orEntry = e
 					found = true
 					break
 				}
 			}
+		}
+		if !found {
+			orEntry, found = prices[id]
 		}
 
 		if !found {
@@ -135,21 +148,23 @@ func UpdateManifestPricing(manifestPath string, timeout time.Duration) (int, []s
 		}
 
 		if p := parseORFloat(orEntry.Pricing.Prompt); p > 0 {
-			target.CostInputPerM = p * 1_000_000
+			model.CostInputPerM = p * 1_000_000
+			model.CostInputPerMTok = 0
 		}
 		if p := parseORFloat(orEntry.Pricing.Completion); p > 0 {
-			target.CostOutputPerM = p * 1_000_000
+			model.CostOutputPerM = p * 1_000_000
+			model.CostOutputPerMTok = 0
 		}
 		if p := parseORFloat(orEntry.Pricing.InputCacheRead); p > 0 {
-			target.CostCacheReadPerM = p * 1_000_000
+			model.CostCacheReadPerM = p * 1_000_000
 		}
 		if p := parseORFloat(orEntry.Pricing.InputCacheWrite); p > 0 {
-			target.CostCacheWritePerM = p * 1_000_000
+			model.CostCacheWritePerM = p * 1_000_000
 		}
 		if orEntry.ContextLength > 0 {
-			target.ContextWindow = orEntry.ContextLength
+			model.ContextWindow = orEntry.ContextLength
 		}
-		m.Targets[id] = target
+		m.Models[id] = model
 		updated++
 	}
 

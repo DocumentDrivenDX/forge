@@ -222,6 +222,40 @@ and per-surface projections.
 snapshot remains the safe default, but operators and callers can install a newer
 shared manifest from a versioned published bundle via an explicit update flow.
 
+**D2B: Manifest v4 separates concrete models from tier policy.** The model
+catalog manifest uses top-level `models` entries for concrete model metadata:
+family, display name, parent tier, status, per-million-token costs, cache costs,
+context window, benchmark metadata, OpenRouter ID, reasoning budget metadata,
+and consumer surface strings. Target entries define only policy: family,
+aliases, status/replacement metadata, `context_window_min`, `swe_bench_min`,
+ordered `candidates`, and per-surface `reasoning_default`. Older v3 manifests
+remain loadable by synthesizing model entries from target surface mappings at
+load time.
+
+```yaml
+version: 4
+models:
+  qwen3.5-27b:
+    family: qwen
+    display_name: Qwen3.5 27B
+    tier: code-economy
+    status: active
+    cost_input_per_m: 0.10
+    cost_output_per_m: 0.30
+    context_window: 262144
+    surfaces:
+      agent.openai: qwen3.5-27b
+targets:
+  code-economy:
+    family: coding-tier
+    status: active
+    context_window_min: 131072
+    candidates: [qwen3.5-27b]
+    surface_policy:
+      agent.openai:
+        reasoning_default: off
+```
+
 **D3: Preserve prompt preset terminology for prompts only.** The top-level
 `preset` field and CLI `--preset` flag refer to system prompt presets defined in
 SD-003. Model policy uses `model_ref`, `alias`, `profile`, or `catalog`, never

@@ -1,70 +1,153 @@
 version: 4
 generated_at: 2026-04-13T00:00:00Z
-catalog_version: 2026-04-12.2
+catalog_version: 2026-04-12.3
 
 models:
-  # Anthropic models — keys match the API model IDs used in surfaces
   opus-4.6:
+    family: claude-opus
+    display_name: Claude Opus 4.6
+    tier: code-high
+    status: active
     provider_system: anthropic
-    cost_input_per_mtok: 15.00
-    cost_output_per_mtok: 75.00
+    cost_input_per_m: 15.00
+    cost_output_per_m: 75.00
+    cost_cache_read_per_m: 1.50
+    cost_cache_write_per_m: 18.75
+    context_window: 1000000
     swe_bench_verified: 80.8
-    openrouter_ref_id: "anthropic/claude-opus-4.6"
-  sonnet-4.6:
-    provider_system: anthropic
-    cost_input_per_mtok: 3.00
-    cost_output_per_mtok: 15.00
-    swe_bench_verified: 79.6
-    openrouter_ref_id: "anthropic/claude-sonnet-4.6"
-  haiku-5.5:
-    provider_system: anthropic
-    cost_input_per_mtok: 0.80
-    cost_output_per_mtok: 4.00
-    swe_bench_verified: 73.3
-    openrouter_ref_id: "anthropic/claude-haiku-4.5"
-  claude-sonnet-4-20250514:
-    provider_system: anthropic
-    cost_input_per_mtok: 3.00
-    cost_output_per_mtok: 15.00
-    swe_bench_verified: 72.7
-  claude-3-7-sonnet-20250219:
-    provider_system: anthropic
-    cost_input_per_mtok: 3.00
-    cost_output_per_mtok: 15.00
-    swe_bench_verified: 70.3
-  # OpenAI / compatible models
+    benchmark_as_of: "2026-04-12"
+    openrouter_id: anthropic/claude-opus-4.6
+    surfaces:
+      agent.anthropic: opus-4.6
+      claude-code: opus-4.6
+
   gpt-5.4:
+    family: gpt
+    display_name: GPT-5.4
+    tier: code-high
+    status: active
     provider_system: openai
-    cost_input_per_mtok: 15.00
-    cost_output_per_mtok: 60.00
+    cost_input_per_m: 15.00
+    cost_output_per_m: 60.00
+    context_window: 1000000
     swe_bench_verified: 80.8
+    benchmark_as_of: "2026-04-12"
+    surfaces:
+      agent.openai: gpt-5.4
+      codex: gpt-5.4
+
+  sonnet-4.6:
+    family: claude-sonnet
+    display_name: Claude Sonnet 4.6
+    tier: code-medium
+    status: active
+    provider_system: anthropic
+    cost_input_per_m: 3.00
+    cost_output_per_m: 15.00
+    cost_cache_read_per_m: 0.30
+    cost_cache_write_per_m: 3.75
+    context_window: 1000000
+    swe_bench_verified: 79.6
+    benchmark_as_of: "2026-04-12"
+    openrouter_id: anthropic/claude-sonnet-4.6
+    surfaces:
+      agent.anthropic: sonnet-4.6
+      claude-code: sonnet-4.6
+
   gpt-5.4-mini:
+    family: gpt
+    display_name: GPT-5.4 Mini
+    tier: code-medium
+    status: active
     provider_system: openai
-    cost_input_per_mtok: 3.00
-    cost_output_per_mtok: 12.00
+    cost_input_per_m: 3.00
+    cost_output_per_m: 12.00
+    context_window: 1000000
     swe_bench_verified: 77.2
+    benchmark_as_of: "2026-04-12"
+    surfaces:
+      agent.openai: gpt-5.4-mini
+      codex: gpt-5.4-mini
+
+  claude-haiku-5.5:
+    family: claude-haiku
+    display_name: Claude Haiku 5.5
+    tier: code-economy
+    status: active
+    provider_system: anthropic
+    cost_input_per_m: 0.80
+    cost_output_per_m: 4.00
+    cost_cache_read_per_m: 0.08
+    cost_cache_write_per_m: 1.00
+    context_window: 200000
+    swe_bench_verified: 73.3
+    benchmark_as_of: "2026-04-12"
+    openrouter_id: anthropic/claude-haiku-4.5
+    surfaces:
+      agent.anthropic: haiku-5.5
+      claude-code: haiku-5.5
+
   qwen3.5-27b:
+    family: qwen
+    display_name: Qwen3.5 27B
+    tier: code-economy
+    status: active
     provider_system: openai
+    cost_input_per_m: 0.10
+    cost_output_per_m: 0.30
     context_window: 262144
-    reasoning_max_tokens: 32768
-    reasoning_budgets:
-      low: 2048
-      medium: 8192
-      high: 32768
-    cost_input_per_mtok: 0.10
-    cost_output_per_mtok: 0.30
     swe_bench_verified: 59.0
-  qwen3.5-14b:
-    provider_system: openai
-    context_window: 262144
+    benchmark_as_of: "2026-04-12"
     reasoning_max_tokens: 32768
     reasoning_budgets:
       low: 2048
       medium: 8192
       high: 32768
-    cost_input_per_mtok: 0.07
-    cost_output_per_mtok: 0.20
-    swe_bench_verified: 52.0
+    surfaces:
+      agent.openai: qwen3.5-27b
+
+  qwen3.5-7b:
+    family: qwen
+    display_name: Qwen3.5 7B
+    tier: code-economy
+    status: active
+    provider_system: openai
+    cost_input_per_m: 0.04
+    cost_output_per_m: 0.12
+    context_window: 131072
+    swe_bench_verified: 45.0
+    benchmark_as_of: "2026-04-12"
+    reasoning_max_tokens: 16384
+    reasoning_budgets:
+      low: 1024
+      medium: 4096
+      high: 16384
+    surfaces:
+      agent.openai: qwen3.5-7b
+
+  claude-sonnet-4-20250514:
+    family: claude-sonnet
+    display_name: Claude Sonnet 4 Legacy
+    tier: claude-sonnet-4
+    status: deprecated
+    provider_system: anthropic
+    cost_input_per_m: 3.00
+    cost_output_per_m: 15.00
+    swe_bench_verified: 72.7
+    surfaces:
+      agent.anthropic: claude-sonnet-4-20250514
+
+  claude-3-7-sonnet-20250219:
+    family: claude-sonnet
+    display_name: Claude 3.7 Sonnet Legacy
+    tier: claude-sonnet-3.7
+    status: deprecated
+    provider_system: anthropic
+    cost_input_per_m: 3.00
+    cost_output_per_m: 15.00
+    swe_bench_verified: 70.3
+    surfaces:
+      agent.anthropic: claude-3-7-sonnet-20250219
 
 profiles:
   code-high:
@@ -92,23 +175,9 @@ targets:
     aliases:
       - high
     status: active
-    cost_input_per_m: 15.00
-    cost_output_per_m: 75.00
-    cost_cache_read_per_m: 1.50
-    cost_cache_write_per_m: 18.75
-    context_window: 1000000
-    swe_bench_verified: 80.8
-    benchmark_as_of: "2026-04-12"
-    openrouter_ref_id: "anthropic/claude-opus-4.6"
-    surfaces:
-      agent.anthropic:
-        candidates: [opus-4.6]
-      claude-code:
-        candidates: [opus-4.6]
-      agent.openai:
-        candidates: [gpt-5.4]
-      codex:
-        candidates: [gpt-5.4]
+    context_window_min: 1000000
+    swe_bench_min: 80.0
+    candidates: [opus-4.6, gpt-5.4]
     surface_policy:
       agent.anthropic:
         reasoning_default: high
@@ -124,23 +193,9 @@ targets:
     aliases:
       - medium
     status: active
-    cost_input_per_m: 3.00
-    cost_output_per_m: 15.00
-    cost_cache_read_per_m: 0.30
-    cost_cache_write_per_m: 3.75
-    context_window: 1000000
-    swe_bench_verified: 79.6
-    benchmark_as_of: "2026-04-12"
-    openrouter_ref_id: "anthropic/claude-sonnet-4.6"
-    surfaces:
-      agent.anthropic:
-        candidates: [sonnet-4.6]
-      claude-code:
-        candidates: [sonnet-4.6]
-      agent.openai:
-        candidates: [gpt-5.4-mini]
-      codex:
-        candidates: [gpt-5.4-mini]
+    context_window_min: 1000000
+    swe_bench_min: 77.0
+    candidates: [sonnet-4.6, gpt-5.4-mini]
     surface_policy:
       agent.anthropic:
         reasoning_default: medium
@@ -156,21 +211,9 @@ targets:
     aliases:
       - economy
     status: active
-    cost_input_per_m: 0.80
-    cost_output_per_m: 4.00
-    cost_cache_read_per_m: 0.08
-    cost_cache_write_per_m: 1.00
-    context_window: 200000
-    swe_bench_verified: 73.3
-    benchmark_as_of: "2026-04-12"
-    openrouter_ref_id: "anthropic/claude-haiku-4.5"
-    surfaces:
-      agent.anthropic:
-        candidates: [haiku-5.5]
-      claude-code:
-        candidates: [haiku-5.5]
-      agent.openai:
-        candidates: [qwen3.5-27b, qwen3.5-14b]
+    context_window_min: 131072
+    swe_bench_min: 45.0
+    candidates: [claude-haiku-5.5, qwen3.5-27b, qwen3.5-7b]
     surface_policy:
       agent.anthropic:
         reasoning_default: medium
@@ -187,8 +230,8 @@ targets:
     status: deprecated
     replacement: code-medium
     deprecated_at: 2026-04-10
+    candidates: [claude-sonnet-4-20250514]
     surfaces:
-      agent.anthropic: claude-sonnet-4-20250514
       agent.openai: anthropic/claude-sonnet-4
 
   claude-sonnet-3.7:
@@ -198,13 +241,12 @@ targets:
     status: deprecated
     replacement: code-medium
     deprecated_at: 2026-04-10
+    candidates: [claude-3-7-sonnet-20250219]
     surfaces:
-      agent.anthropic: claude-3-7-sonnet-20250219
       agent.openai: anthropic/claude-3.7-sonnet
 
   qwen3-coder-next:
     family: qwen3-coder
-    context_window: 262144
     aliases:
       - qwen-coder-next
       - qwen3-coder
