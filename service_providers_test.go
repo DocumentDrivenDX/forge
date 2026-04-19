@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
+	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
 )
 
 // fakeServiceConfig implements ServiceConfig for tests.
@@ -328,5 +329,130 @@ func TestServiceRouteStateKey(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("serviceRouteStateKey(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// TestHealthCheck_ClaudeRefreshesQuotaWhenStale verifies that HealthCheck
+// triggers a quota cache refresh when the cached snapshot is older than
+// healthCheckQuotaFreshnessWindow (60s).
+func TestHealthCheck_ClaudeRefreshesQuotaWhenStale(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "claude-quota.json")
+	t.Setenv("DDX_AGENT_CLAUDE_QUOTA_CACHE", cachePath)
+
+	// Write a snapshot that is 90s old (stale).
+	staleSnap := claudeharness.ClaudeQuotaSnapshot{
+		CapturedAt:        time.Now().UTC().Add(-90 * time.Second),
+		FiveHourRemaining: 80,
+		FiveHourLimit:     100,
+		WeeklyRemaining:   90,
+		WeeklyLimit:       100,
+		Source:            "pty",
+	}
+	if err := claudeharness.WriteClaudeQuota(cachePath, staleSnap); err != nil {
+		t.Fatalf("setup: WriteClaudeQuota: %v", err)
+	}
+
+	// Inject a fake refresher so no real tmux is invoked.
+	refreshCalled := false
+	orig := healthCheckClaudeQuotaRefresher
+	healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
+		refreshCalled = true
+		return []harnesses.QuotaWindow{
+			{LimitID: "session", UsedPercent: 20},
+			{LimitID: "weekly-all", UsedPercent: 10},
+		}, nil, nil
+	}
+	t.Cleanup(func() { healthCheckClaudeQuotaRefresher = orig })
+
+	svc := &service{opts: ServiceOptions{}, registry: harnesses.NewRegistry()}
+	// HealthCheck for "claude" requires the binary to be discoverable.
+	// If claude is not in PATH, the harness is unavailable → the quota refresh
+	// is never reached. To keep the test self-contained we call the helper
+	// directly rather than going through HealthCheck's availability gate.
+	healthCheckRefreshClaudeQuota(context.Background())
+
+	if !refreshCalled {
+		t.Error("expected healthCheckClaudeQuotaRefresher to be called for stale cache")
+	}
+
+	// Verify the cache was rewritten with a newer timestamp.
+	loaded, ok := claudeharness.ReadClaudeQuotaFrom(cachePath)
+	if !ok {
+		t.Fatal("expected cache file to exist after refresh")
+	}
+	if !loaded.CapturedAt.After(staleSnap.CapturedAt) {
+		t.Errorf("expected cache CapturedAt to be newer than stale snapshot: got %v, stale was %v",
+			loaded.CapturedAt, staleSnap.CapturedAt)
+	}
+	_ = svc
+}
+
+// TestHealthCheck_ClaudeSkipsRefreshWhenFresh verifies that HealthCheck does
+// NOT invoke the tmux quota refresher when the cached snapshot is younger than
+// healthCheckQuotaFreshnessWindow (60s).
+func TestHealthCheck_ClaudeSkipsRefreshWhenFresh(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "claude-quota.json")
+	t.Setenv("DDX_AGENT_CLAUDE_QUOTA_CACHE", cachePath)
+
+	// Write a snapshot that is only 30s old (fresh).
+	freshSnap := claudeharness.ClaudeQuotaSnapshot{
+		CapturedAt:        time.Now().UTC().Add(-30 * time.Second),
+		FiveHourRemaining: 80,
+		FiveHourLimit:     100,
+		WeeklyRemaining:   90,
+		WeeklyLimit:       100,
+		Source:            "pty",
+	}
+	if err := claudeharness.WriteClaudeQuota(cachePath, freshSnap); err != nil {
+		t.Fatalf("setup: WriteClaudeQuota: %v", err)
+	}
+
+	// Inject a fake refresher that must NOT be called.
+	refreshCalled := false
+	orig := healthCheckClaudeQuotaRefresher
+	healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
+		refreshCalled = true
+		return nil, nil, nil
+	}
+	t.Cleanup(func() { healthCheckClaudeQuotaRefresher = orig })
+
+	healthCheckRefreshClaudeQuota(context.Background())
+
+	if refreshCalled {
+		t.Error("expected healthCheckClaudeQuotaRefresher NOT to be called for fresh cache")
+	}
+
+	// Verify the cache timestamp is unchanged (still matches freshSnap).
+	loaded, ok := claudeharness.ReadClaudeQuotaFrom(cachePath)
+	if !ok {
+		t.Fatal("expected cache file to still exist")
+	}
+	if !loaded.CapturedAt.Equal(freshSnap.CapturedAt) {
+		t.Errorf("cache was unexpectedly rewritten: got CapturedAt %v, want %v",
+			loaded.CapturedAt, freshSnap.CapturedAt)
+	}
+}
+
+// TestHealthCheck_GeminiDoesNotInvokeTmux verifies that HealthCheck for a
+// non-tmux-quota harness (gemini) never calls the Claude quota refresher.
+func TestHealthCheck_GeminiDoesNotInvokeTmux(t *testing.T) {
+	// Inject a counter to detect unexpected calls.
+	tmuxCalled := false
+	orig := healthCheckClaudeQuotaRefresher
+	healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
+		tmuxCalled = true
+		return nil, nil, nil
+	}
+	t.Cleanup(func() { healthCheckClaudeQuotaRefresher = orig })
+
+	svc := &service{opts: ServiceOptions{}, registry: harnesses.NewRegistry()}
+	// "gemini" is registered but unavailable in CI (binary not found).
+	// HealthCheck returns an error but must not invoke the tmux refresher.
+	_ = svc.HealthCheck(context.Background(), HealthTarget{Type: "harness", Name: "gemini"})
+
+	if tmuxCalled {
+		t.Error("healthCheckClaudeQuotaRefresher must not be called for gemini harness")
 	}
 }

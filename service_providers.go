@@ -19,7 +19,23 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/DocumentDrivenDX/agent/internal/harnesses"
+	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
 )
+
+// healthCheckQuotaFreshnessWindow is the minimum age a quota cache entry must
+// reach before HealthCheck triggers a refresh. Callers that invoke HealthCheck
+// rapidly (e.g. ddx doctor --routing polling) therefore hit tmux at most once
+// per window rather than on every call.
+const healthCheckQuotaFreshnessWindow = 60 * time.Second
+
+// healthCheckClaudeQuotaRefresher is the function used to probe Claude's tmux
+// quota. It is a package-level variable so tests can substitute a fake without
+// spawning real tmux sessions.
+var healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
+	return claudeharness.ReadClaudeQuotaViaTmux(timeout)
+}
 
 // ListProviders returns providers known to the native-agent harness with live
 // status, configured-default markers, and cooldown state.
@@ -111,6 +127,10 @@ func (s *service) HealthCheck(ctx context.Context, target HealthTarget) error {
 			}
 			if !st.Available {
 				return fmt.Errorf("service: harness %q unavailable: %s", target.Name, st.Error)
+			}
+			// For tmux-quota harnesses, refresh the quota cache when stale.
+			if target.Name == "claude" {
+				healthCheckRefreshClaudeQuota(ctx)
 			}
 			return nil
 		}
@@ -271,4 +291,52 @@ func serviceTrimError(msg string) string {
 func serviceRouteStateKey(routeName string) string {
 	replacer := strings.NewReplacer("/", "_", ":", "_", " ", "_")
 	return replacer.Replace(routeName)
+}
+
+// healthCheckRefreshClaudeQuota refreshes the Claude tmux quota cache when the
+// cached snapshot is older than healthCheckQuotaFreshnessWindow. It is a
+// best-effort operation: errors are silently discarded so that a tmux/claude
+// absence does not fail HealthCheck.
+//
+// The ctx parameter is accepted for interface consistency; the tmux probe
+// itself uses a fixed 5s timeout derived from the freshness window.
+func healthCheckRefreshClaudeQuota(_ context.Context) {
+	cachePath, err := claudeharness.ClaudeQuotaCachePath()
+	if err != nil {
+		return
+	}
+
+	snap, _ := claudeharness.ReadClaudeQuotaFrom(cachePath)
+	if snap != nil && claudeharness.ClaudeQuotaSnapshotAge(snap, time.Now()) <= healthCheckQuotaFreshnessWindow {
+		// Cache is fresh enough; skip the expensive tmux probe.
+		return
+	}
+
+	// Cache is absent or stale — run a tmux probe with a 5s cap.
+	windows, _, probeErr := healthCheckClaudeQuotaRefresher(5 * time.Second)
+	if probeErr != nil || len(windows) == 0 {
+		return
+	}
+
+	// Convert QuotaWindow slice to ClaudeQuotaSnapshot. The tmux path returns
+	// percent-based windows; synthesise remaining counts from UsedPercent.
+	newSnap := claudeharness.ClaudeQuotaSnapshot{
+		CapturedAt: time.Now().UTC(),
+		Source:     "pty",
+	}
+	for _, w := range windows {
+		switch w.LimitID {
+		case "session":
+			// 5-hour window; use a nominal limit of 100 so Remaining = 100-Used.
+			used := int(w.UsedPercent)
+			newSnap.FiveHourLimit = 100
+			newSnap.FiveHourRemaining = 100 - used
+		case "weekly-all", "weekly-sonnet":
+			used := int(w.UsedPercent)
+			newSnap.WeeklyLimit = 100
+			newSnap.WeeklyRemaining = 100 - used
+		}
+	}
+
+	_ = claudeharness.WriteClaudeQuota(cachePath, newSnap)
 }
