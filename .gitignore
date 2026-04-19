@@ -1,5 +1,6 @@
 # Binary
 /ddx-agent
+/ddx-agent-bench
 
 # Build artifacts
 /dist/
