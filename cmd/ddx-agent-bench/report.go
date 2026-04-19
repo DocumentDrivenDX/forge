@@ -147,8 +147,8 @@ func printParityMatrix(result *comparison.BenchmarkResult) {
 		}
 	}
 
-	// Non-determinism notice.
-	fmt.Printf("\nNOTE: %s\n", NonDeterministicNotice)
+	// Determinism notice.
+	fmt.Printf("\nNOTE: %s\n", DeterministicSamplingNotice)
 	fmt.Printf("      Parity results for non-deterministic harnesses are advisory only.\n")
 }
 
@@ -204,7 +204,7 @@ func printMarkdownReport(result *comparison.BenchmarkResult) {
 			}
 		}
 
-		fmt.Printf("\n> **Note**: %s  \n", NonDeterministicNotice)
+		fmt.Printf("\n> **Note**: %s  \n", DeterministicSamplingNotice)
 		fmt.Printf("> Parity results for non-deterministic harnesses are advisory only.\n")
 	}
 }

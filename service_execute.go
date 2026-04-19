@@ -344,6 +344,7 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 	// cancelCtx — when read-only-tool-streak limit fires the callback
 	// cancels the context, the loop sees ctx.Done(), returns
 	// StatusCancelled, and we override the final to "stalled".
+	temperature := float64(req.Temperature)
 	loopReq := Request{
 		Prompt:           req.Prompt,
 		SystemPrompt:     req.SystemPrompt,
@@ -354,6 +355,8 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 		MaxIterations:    maxIter,
 		ResolvedModel:    decision.Model,
 		SelectedProvider: decision.Provider,
+		Temperature:      &temperature,
+		Seed:             req.Seed,
 		Reasoning:        effectiveReasoning(req.Reasoning),
 	}
 	result, runErr := Run(cancelCtx, loopReq)
@@ -427,6 +430,8 @@ func (s *service) runSubprocess(ctx context.Context, req ServiceExecuteRequest, 
 		Model:         decision.Model,
 		WorkDir:       req.WorkDir,
 		Permissions:   req.Permissions,
+		Temperature:   req.Temperature,
+		Seed:          req.Seed,
 		Reasoning:     adapterReasoning(req.Reasoning),
 		Timeout:       req.Timeout,
 		IdleTimeout:   req.IdleTimeout,

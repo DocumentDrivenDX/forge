@@ -96,6 +96,7 @@ type Options struct {
 
 	Model       string   `json:"model,omitempty"`
 	Temperature *float64 `json:"temperature,omitempty"`
+	Seed        int64    `json:"seed,omitempty"`
 	MaxTokens   int      `json:"max_tokens,omitempty"`
 	Stop        []string `json:"stop,omitempty"`
 	// Reasoning controls model-side reasoning with one scalar value. Empty means
@@ -297,6 +298,13 @@ type Request struct {
 	// MaxTokens is the maximum number of tokens the model may generate per turn.
 	// Zero means no explicit limit (provider default applies).
 	MaxTokens int
+
+	// Temperature is the model sampling temperature for each provider call.
+	// Nil means no explicit setting (provider default applies).
+	Temperature *float64
+
+	// Seed is an optional model sampling seed. Zero means unset/provider chooses.
+	Seed int64
 
 	// Reasoning controls model-side reasoning with one scalar value. Empty means
 	// unset; use ReasoningOff or ReasoningTokens(0) for explicit off.

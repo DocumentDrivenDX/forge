@@ -20,20 +20,16 @@ import (
 // cost across the bench sweep would exceed --max-cost-usd before a task runs.
 const CostCapSkipReason = "skipped: cost cap"
 
-// NonDeterministicNotice is surfaced in results for harnesses/providers that
-// do not support temperature=0 / seed controls.
-// NOTE: ServiceExecuteRequest (CONTRACT-003) does not yet have Temperature or
-// Seed fields. Until those fields are added, deterministic sampling cannot be
-// requested via the public Execute API. Track as follow-up: add Temperature
-// and Seed to ServiceExecuteRequest in a CONTRACT-003 amendment bead.
-const NonDeterministicNotice = "non-deterministic: ServiceExecuteRequest lacks Temperature/Seed fields (follow-up needed)"
+// DeterministicSamplingNotice is surfaced in bench output so result artifacts
+// state the sampling controls used for parity runs.
+const DeterministicSamplingNotice = "deterministic sampling requested: temperature=0 and per-task seed=base-seed+task-index; harnesses/providers that ignore seed remain advisory"
 
 // buildRunFuncWithCap constructs a comparison.RunFunc that drives agent
 // execution via service.Execute, enforcing an optional cost cap. When
 // maxCostUSD > 0 and accumulated cost would exceed the cap, the run function
 // skips the task and returns a result with Error = CostCapSkipReason.
-// The seed parameter is recorded for reproducibility tracing even though
-// SERVICE does not yet expose it to providers.
+// The seed parameter is used as the base for per-task ServiceExecuteRequest
+// seeds, with temperature fixed at 0 for deterministic sampling.
 func buildRunFuncWithCap(wd string, timeout time.Duration, maxCostUSD float64, baseSeed int64) (comparison.RunFunc, error) {
 	return buildRunFunc(wd, timeout, maxCostUSD, baseSeed)
 }
@@ -80,14 +76,12 @@ func buildRunFunc(wd string, timeout time.Duration, maxCostUSD float64, baseSeed
 		}
 
 		// Record the per-task seed for reproducibility. The seed is derived
-		// from baseSeed + monotonic task counter. It is stored in result
-		// metadata today; once ServiceExecuteRequest has a Seed field we can
-		// pass it to the provider directly.
+		// from baseSeed + monotonic task counter.
 		mu.Lock()
 		taskIdx := taskIndex
 		taskIndex++
 		mu.Unlock()
-		_ = baseSeed + taskIdx // seed value: reserved for future provider use
+		seed := baseSeed + taskIdx
 
 		ctx := context.Background()
 		if timeout > 0 {
@@ -99,10 +93,12 @@ func buildRunFunc(wd string, timeout time.Duration, maxCostUSD float64, baseSeed
 		start := time.Now()
 
 		req := agent.ServiceExecuteRequest{
-			Harness: harness,
-			Model:   model,
-			Prompt:  prompt,
-			WorkDir: wd,
+			Harness:     harness,
+			Model:       model,
+			Prompt:      prompt,
+			WorkDir:     wd,
+			Temperature: 0,
+			Seed:        seed,
 			// Use safe permissions for bench corpus tasks.
 			Permissions: "safe",
 		}
@@ -239,7 +235,7 @@ func cmdRun(args []string) int {
 	}
 	if *maxCostUSD > 0 {
 		fmt.Fprintf(os.Stderr, "ddx-agent-bench: cost cap: $%.4f  base-seed: %d  note: %s\n",
-			*maxCostUSD, baseSeed, NonDeterministicNotice)
+			*maxCostUSD, baseSeed, DeterministicSamplingNotice)
 	}
 
 	// Build a BenchmarkSuite from corpus tasks + candidates.

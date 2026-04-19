@@ -143,6 +143,8 @@ type ExecuteRequest struct {
     Provider     string  // optional preference (soft); empty = router decides
     Harness      string  // optional preference (hard); empty = router decides
     ModelRef     string  // optional alias from the catalog: cheap/standard/smart/<custom>
+    Temperature  float32 // model sampling temperature; 0 = deterministic
+    Seed         int64   // sampling seed; 0 = unset/provider chooses
     Reasoning    Reasoning // optional; auto|off|low|medium|high|minimal|xhigh|max|<tokens>
     Permissions  string  // "safe" | "supervised" | "unrestricted"; default "safe"
     WorkDir      string  // required when the chosen harness uses tools
@@ -436,6 +438,15 @@ Catalog tier defaults are part of route resolution: below-smart tiers
 default to `reasoning=high`. Any explicit caller `Reasoning` value wins over
 these defaults, including supported values above high such as `xhigh` or
 `max`, and numeric values.
+
+## Sampling contract
+
+`ExecuteRequest.Temperature` and `ExecuteRequest.Seed` are the portable
+sampling controls. `Temperature=0` requests deterministic sampling. `Seed=0`
+means unset and lets the provider choose. Native OpenAI-compatible providers
+honor both fields. Providers or subprocess harnesses that do not expose an
+equivalent seed control may ignore `Seed`; callers that require strict parity
+must treat those runs as advisory/non-deterministic.
 
 ## Bead Execution Policy
 

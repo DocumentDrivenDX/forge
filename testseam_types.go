@@ -18,10 +18,12 @@ type FakeProvider struct {
 
 // FakeRequest is the request value delivered to a FakeProvider callback.
 type FakeRequest struct {
-	Messages  []Message
-	Tools     []string
-	Model     string
-	Reasoning Reasoning
+	Messages    []Message
+	Tools       []string
+	Model       string
+	Temperature *float64
+	Seed        int64
+	Reasoning   Reasoning
 }
 
 // FakeResponse is the response value returned by a FakeProvider.

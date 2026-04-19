@@ -232,6 +232,8 @@ type ServiceExecuteRequest struct {
 	Harness      string
 	ModelRef     string
 	WorkDir      string
+	Temperature  float32
+	Seed         int64
 	Reasoning    Reasoning
 	Permissions  string
 

@@ -204,6 +204,9 @@ func (p *Provider) Chat(ctx context.Context, messages []agent.Message, tools []a
 	if opts.Temperature != nil {
 		params.Temperature = oai.Float(*opts.Temperature)
 	}
+	if opts.Seed != 0 {
+		params.Seed = oai.Int(opts.Seed)
+	}
 	if len(opts.Stop) > 0 {
 		params.Stop = oai.ChatCompletionNewParamsStopUnion{OfStringArray: opts.Stop}
 	}
@@ -362,6 +365,9 @@ func (p *Provider) ChatStream(ctx context.Context, messages []agent.Message, too
 	}
 	if opts.Temperature != nil {
 		params.Temperature = oai.Float(*opts.Temperature)
+	}
+	if opts.Seed != 0 {
+		params.Seed = oai.Int(opts.Seed)
 	}
 	streamReqOpts, err := p.reasoningRequestOptions(opts)
 	if err != nil {

@@ -529,6 +529,23 @@ func TestReasoningSerializationUnsupportedFlavors(t *testing.T) {
 	}
 }
 
+func TestSamplingOptionsSerialization(t *testing.T) {
+	temperature := 0.25
+	opts := agent.Options{Temperature: &temperature, Seed: 12345}
+
+	t.Run("chat", func(t *testing.T) {
+		body, err := captureOpenAIChatBody(t, "openai", "", opts)
+		require.NoError(t, err)
+		assertSamplingWireOptions(t, body, temperature, 12345)
+	})
+
+	t.Run("stream", func(t *testing.T) {
+		body, err := captureOpenAIStreamBody(t, "openai", "", opts)
+		require.NoError(t, err)
+		assertSamplingWireOptions(t, body, temperature, 12345)
+	})
+}
+
 func captureOpenAIChatBody(t *testing.T, flavor string, providerReasoning agent.Reasoning, opts agent.Options) ([]byte, error) {
 	t.Helper()
 	var capturedBody []byte
@@ -600,6 +617,15 @@ func assertReasoningWireBudget(t *testing.T, body []byte, wantThinking bool, wan
 	require.True(t, ok, "request body must include thinking: %s", string(body))
 	assert.Equal(t, "enabled", thinking["type"])
 	assert.Equal(t, float64(wantBudget), thinking["budget_tokens"])
+}
+
+func assertSamplingWireOptions(t *testing.T, body []byte, wantTemperature float64, wantSeed int64) {
+	t.Helper()
+	require.NotNil(t, body)
+	var reqBody map[string]interface{}
+	require.NoError(t, json.Unmarshal(body, &reqBody))
+	assert.Equal(t, wantTemperature, reqBody["temperature"])
+	assert.Equal(t, float64(wantSeed), reqBody["seed"])
 }
 
 func TestNew_LocalOpenAICompatibleBaseURLsResolveProviderIdentity(t *testing.T) {

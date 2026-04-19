@@ -94,16 +94,22 @@ func (r *recordingProvider) Chat(ctx context.Context, messages []Message, tools 
 	return resp, nil
 }
 
-func TestRunForwardsRequestReasoningToProviderOptions(t *testing.T) {
+func TestRunForwardsRequestSamplingAndReasoningToProviderOptions(t *testing.T) {
 	p := &recordingProvider{responses: []Response{{Content: "done"}}}
+	temperature := 0.25
 	_, err := Run(context.Background(), Request{
-		Prompt:    "hello",
-		Provider:  p,
-		Reasoning: ReasoningLow,
-		MaxTokens: 17,
+		Prompt:      "hello",
+		Provider:    p,
+		Temperature: &temperature,
+		Seed:        12345,
+		Reasoning:   ReasoningLow,
+		MaxTokens:   17,
 	})
 	require.NoError(t, err)
 	require.Len(t, p.opts, 1)
+	require.NotNil(t, p.opts[0].Temperature)
+	assert.Equal(t, temperature, *p.opts[0].Temperature)
+	assert.Equal(t, int64(12345), p.opts[0].Seed)
 	assert.Equal(t, ReasoningLow, p.opts[0].Reasoning)
 	assert.Equal(t, 17, p.opts[0].MaxTokens)
 }

@@ -154,6 +154,14 @@ type ExecuteRequest struct {
 	// Permissions is "safe" | "supervised" | "unrestricted". Empty defaults to "safe".
 	Permissions string
 
+	// Temperature is the model sampling temperature requested by the caller.
+	// Harness adapters may ignore it when their CLI has no equivalent control.
+	Temperature float32
+
+	// Seed is the requested sampling seed. Zero means unset/provider chooses.
+	// Harness adapters may ignore it when their CLI has no equivalent control.
+	Seed int64
+
 	// Reasoning is the normalized public reasoning scalar. Empty/off means no
 	// adapter flag should be emitted.
 	Reasoning string

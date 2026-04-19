@@ -132,7 +132,8 @@ func TestExecute_NativeReasoningForwarded(t *testing.T) {
 			return agent.FakeResponse{Text: "done"}, nil
 		},
 	}
-	opts := agent.ServiceOptions{FakeProvider: fp}
+	opts := agent.ServiceOptions{}
+	opts.FakeProvider = fp
 	svc, err := agent.New(opts)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -154,6 +155,46 @@ func TestExecute_NativeReasoningForwarded(t *testing.T) {
 	}
 	if got != agent.ReasoningOff {
 		t.Fatalf("Reasoning forwarded to native provider = %q, want off", got)
+	}
+}
+
+func TestExecute_NativeSamplingForwarded(t *testing.T) {
+	var gotTemperature *float64
+	var gotSeed int64
+	fp := &agent.FakeProvider{
+		Dynamic: func(req agent.FakeRequest) (agent.FakeResponse, error) {
+			gotTemperature = req.Temperature
+			gotSeed = req.Seed
+			return agent.FakeResponse{Text: "done"}, nil
+		},
+	}
+	opts := agent.ServiceOptions{}
+	opts.FakeProvider = fp
+	svc, err := agent.New(opts)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ch, err := svc.Execute(context.Background(), agent.ServiceExecuteRequest{
+		Prompt:      "hi",
+		Harness:     "agent",
+		Provider:    "fake",
+		Model:       "fake-model",
+		Temperature: 0.25,
+		Seed:        98765,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	events := drainEvents(t, ch, 5*time.Second)
+	if final := findFinal(events); final == nil || finalStatus(t, final) != "success" {
+		t.Fatalf("expected success final, got %#v", final)
+	}
+	if gotTemperature == nil || *gotTemperature != 0.25 {
+		t.Fatalf("Temperature forwarded to native provider = %v, want 0.25", gotTemperature)
+	}
+	if gotSeed != 98765 {
+		t.Fatalf("Seed forwarded to native provider = %d, want 98765", gotSeed)
 	}
 }
 
