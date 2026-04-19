@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
-	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	"github.com/DocumentDrivenDX/agent/internal/provider/anthropic"
 	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
+	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/telemetry"
 	"gopkg.in/yaml.v3"
 )

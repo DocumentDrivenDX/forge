@@ -8,12 +8,12 @@ import (
 // Capabilities describes what a (harness, provider, model) tuple can do.
 // Populated from harness config + catalog metadata + provider discovery.
 type Capabilities struct {
-	ContextWindow      int      // resolved tokens; 0 = unknown
-	SupportsTools      bool     // supports tool/function calling
-	SupportsStreaming  bool     // supports streaming responses
-	SupportedEfforts   []string // {"low","medium","high"} subset
-	SupportedPerms     []string // {"safe","supervised","unrestricted"} subset
-	ExactPinSupport    bool     // accepts exact concrete model pins
+	ContextWindow     int      // resolved tokens; 0 = unknown
+	SupportsTools     bool     // supports tool/function calling
+	SupportsStreaming bool     // supports streaming responses
+	SupportedEfforts  []string // {"low","medium","high"} subset
+	SupportedPerms    []string // {"safe","supervised","unrestricted"} subset
+	ExactPinSupport   bool     // accepts exact concrete model pins
 }
 
 // HasEffort returns true if the candidate supports the requested effort level.

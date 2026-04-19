@@ -104,13 +104,13 @@ type Candidate struct {
 
 // Inputs bundles the engine's external data sources.
 type Inputs struct {
-	Harnesses          []HarnessEntry
-	HistoricalSuccess  map[string]float64    // by harness name; -1 = insufficient data
-	ObservedSpeedTPS   map[string]float64    // by "provider:model"
-	ProviderCooldowns  map[string]time.Time  // by provider name
-	CooldownDuration   time.Duration         // 0 = no cooldown enforcement
-	Now                time.Time             // injected for deterministic testing; default time.Now()
-	CatalogResolver    func(ref, surface string) (concreteModel string, ok bool)
+	Harnesses         []HarnessEntry
+	HistoricalSuccess map[string]float64   // by harness name; -1 = insufficient data
+	ObservedSpeedTPS  map[string]float64   // by "provider:model"
+	ProviderCooldowns map[string]time.Time // by provider name
+	CooldownDuration  time.Duration        // 0 = no cooldown enforcement
+	Now               time.Time            // injected for deterministic testing; default time.Now()
+	CatalogResolver   func(ref, surface string) (concreteModel string, ok bool)
 }
 
 // candidateInternal carries the engine's intermediate state per (harness, provider, model).

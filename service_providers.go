@@ -199,7 +199,9 @@ func discoverOpenAIModels(ctx context.Context, baseURL, apiKey string) (int, err
 	}
 
 	var mr struct {
-		Data []struct{ ID string `json:"id"` } `json:"data"`
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
 		return 0, fmt.Errorf("discovery: decode response from %s: %w", endpoint, err)

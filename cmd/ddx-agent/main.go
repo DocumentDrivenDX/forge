@@ -19,14 +19,14 @@ import (
 	"github.com/DocumentDrivenDX/agent"
 	"github.com/DocumentDrivenDX/agent/internal/compaction"
 	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
-	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
-	"github.com/DocumentDrivenDX/agent/occompat"
-	"github.com/DocumentDrivenDX/agent/picompat"
 	"github.com/DocumentDrivenDX/agent/internal/prompt"
 	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
+	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/internal/session"
 	"github.com/DocumentDrivenDX/agent/internal/tool"
+	"github.com/DocumentDrivenDX/agent/occompat"
+	"github.com/DocumentDrivenDX/agent/picompat"
 )
 
 // Version info set via -ldflags.

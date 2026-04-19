@@ -47,17 +47,17 @@ type HarnessStatus struct {
 
 // HarnessState captures the runtime routing-relevant state of a harness.
 type HarnessState struct {
-	Installed             bool                       `json:"installed"`
-	Reachable             bool                       `json:"reachable"`
-	Authenticated         bool                       `json:"authenticated"`
-	QuotaOK               bool                       `json:"quota_ok"`
-	QuotaState            string                     `json:"quota_state,omitempty"` // ok, blocked, unknown
-	Degraded              bool                       `json:"degraded"`
-	PolicyOK              bool                       `json:"policy_ok"`
-	LastCheckedUnix       int64                      `json:"last_checked_unix,omitempty"`
-	Error                 string                     `json:"error,omitempty"`
-	Quota                 *QuotaInfo                 `json:"quota,omitempty"`
-	ClaudeQuotaDecision   *ClaudeQuotaRoutingDecision `json:"claude_quota_decision,omitempty"`
+	Installed           bool                        `json:"installed"`
+	Reachable           bool                        `json:"reachable"`
+	Authenticated       bool                        `json:"authenticated"`
+	QuotaOK             bool                        `json:"quota_ok"`
+	QuotaState          string                      `json:"quota_state,omitempty"` // ok, blocked, unknown
+	Degraded            bool                        `json:"degraded"`
+	PolicyOK            bool                        `json:"policy_ok"`
+	LastCheckedUnix     int64                       `json:"last_checked_unix,omitempty"`
+	Error               string                      `json:"error,omitempty"`
+	Quota               *QuotaInfo                  `json:"quota,omitempty"`
+	ClaudeQuotaDecision *ClaudeQuotaRoutingDecision `json:"claude_quota_decision,omitempty"`
 }
 
 // QuotaInfo holds parsed quota data from CLI introspection.

@@ -104,9 +104,9 @@ func levenshteinDistance(a, b []rune) int {
 
 // ParityCell captures the parity analysis between two arms for one task.
 type ParityCell struct {
-	ArmA            string  `json:"arm_a"`
-	ArmB            string  `json:"arm_b"`
-	ToolSeqEqual    bool    `json:"tool_seq_equal"`
+	ArmA             string  `json:"arm_a"`
+	ArmB             string  `json:"arm_b"`
+	ToolSeqEqual     bool    `json:"tool_seq_equal"`
 	OutputSimilarity float64 `json:"output_similarity"`
 }
 
@@ -136,9 +136,9 @@ func BuildParityMatrix(record comparison.ComparisonRecord, labels []string) []Pa
 			)
 
 			cells = append(cells, ParityCell{
-				ArmA:            la,
-				ArmB:            lb,
-				ToolSeqEqual:    ToolCallSeqEqual(ra, rb),
+				ArmA:             la,
+				ArmB:             lb,
+				ToolSeqEqual:     ToolCallSeqEqual(ra, rb),
 				OutputSimilarity: sim,
 			})
 		}

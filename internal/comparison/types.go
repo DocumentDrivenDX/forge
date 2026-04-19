@@ -126,13 +126,13 @@ type BenchmarkResult struct {
 
 // BenchmarkArmSummary aggregates stats for one arm across all prompts.
 type BenchmarkArmSummary struct {
-	Label        string  `json:"label"`
-	Completed    int     `json:"completed"`
-	Failed       int     `json:"failed"`
-	TotalTokens  int     `json:"total_tokens"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	AvgDurationMS int    `json:"avg_duration_ms"`
-	AvgScore     float64 `json:"avg_score,omitempty"`
+	Label         string  `json:"label"`
+	Completed     int     `json:"completed"`
+	Failed        int     `json:"failed"`
+	TotalTokens   int     `json:"total_tokens"`
+	TotalCostUSD  float64 `json:"total_cost_usd"`
+	AvgDurationMS int     `json:"avg_duration_ms"`
+	AvgScore      float64 `json:"avg_score,omitempty"`
 }
 
 // BenchmarkSummary aggregates stats across all arms and prompts.

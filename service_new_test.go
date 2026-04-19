@@ -161,13 +161,15 @@ type stubServiceConfig struct {
 	defaultName string
 }
 
-func (s *stubServiceConfig) ProviderNames() []string                   { return nil }
-func (s *stubServiceConfig) DefaultProviderName() string               { return s.defaultName }
+func (s *stubServiceConfig) ProviderNames() []string     { return nil }
+func (s *stubServiceConfig) DefaultProviderName() string { return s.defaultName }
 func (s *stubServiceConfig) Provider(string) (agent.ServiceProviderEntry, bool) {
 	return agent.ServiceProviderEntry{}, false
 }
-func (s *stubServiceConfig) ModelRouteNames() []string                              { return nil }
-func (s *stubServiceConfig) ModelRouteCandidates(string) []string                  { return nil }
-func (s *stubServiceConfig) ModelRouteConfig(string) agent.ServiceModelRouteConfig { return agent.ServiceModelRouteConfig{} }
-func (s *stubServiceConfig) HealthCooldown() time.Duration                          { return 0 }
-func (s *stubServiceConfig) WorkDir() string                                        { return "" }
+func (s *stubServiceConfig) ModelRouteNames() []string            { return nil }
+func (s *stubServiceConfig) ModelRouteCandidates(string) []string { return nil }
+func (s *stubServiceConfig) ModelRouteConfig(string) agent.ServiceModelRouteConfig {
+	return agent.ServiceModelRouteConfig{}
+}
+func (s *stubServiceConfig) HealthCooldown() time.Duration { return 0 }
+func (s *stubServiceConfig) WorkDir() string               { return "" }

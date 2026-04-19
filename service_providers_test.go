@@ -25,7 +25,7 @@ type fakeServiceConfig struct {
 	workDir        string
 }
 
-func (f *fakeServiceConfig) ProviderNames() []string { return f.names }
+func (f *fakeServiceConfig) ProviderNames() []string     { return f.names }
 func (f *fakeServiceConfig) DefaultProviderName() string { return f.defaultName }
 func (f *fakeServiceConfig) Provider(name string) (ServiceProviderEntry, bool) {
 	e, ok := f.providers[name]

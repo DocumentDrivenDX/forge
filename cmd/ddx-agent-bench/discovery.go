@@ -12,9 +12,9 @@ import (
 
 // Candidate is one (harness, provider, model) triple discovered from config.
 type Candidate struct {
-	Harness  string `json:"harness"`
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
+	Harness   string `json:"harness"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
 	CostClass string `json:"cost_class,omitempty"`
 	Available bool   `json:"available"`
 }
@@ -53,7 +53,7 @@ func discoverCandidates(wd string) ([]Candidate, error) {
 		// add a single candidate with no explicit model.
 		if h.Type == "subprocess" {
 			candidates = append(candidates, Candidate{
-				Harness:  h.Name,
+				Harness:   h.Name,
 				CostClass: h.CostClass,
 				Available: true,
 			})
@@ -66,7 +66,7 @@ func discoverCandidates(wd string) ([]Candidate, error) {
 		if err != nil || len(models) == 0 {
 			// Surface the harness even if model listing fails.
 			candidates = append(candidates, Candidate{
-				Harness:  h.Name,
+				Harness:   h.Name,
 				CostClass: h.CostClass,
 				Available: true,
 			})
@@ -74,9 +74,9 @@ func discoverCandidates(wd string) ([]Candidate, error) {
 		}
 		for _, m := range models {
 			candidates = append(candidates, Candidate{
-				Harness:  h.Name,
-				Provider: m.Provider,
-				Model:    m.ID,
+				Harness:   h.Name,
+				Provider:  m.Provider,
+				Model:     m.ID,
 				CostClass: h.CostClass,
 				Available: m.Available,
 			})

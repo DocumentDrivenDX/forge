@@ -11,8 +11,8 @@ import (
 	"time"
 
 	agent "github.com/DocumentDrivenDX/agent"
-	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/DocumentDrivenDX/agent/internal/comparison"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
 )
 

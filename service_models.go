@@ -119,9 +119,9 @@ func listModelsForProvider(
 	out := make([]ModelInfo, 0, len(ids))
 	for _, id := range ids {
 		info := ModelInfo{
-			ID:       id,
-			Provider: providerName,
-			Harness:  "agent",
+			ID:        id,
+			Provider:  providerName,
+			Harness:   "agent",
 			Available: true,
 		}
 
@@ -289,12 +289,12 @@ func catalogCostAndPerf(cat *modelcatalog.Catalog, modelID string) (CostInfo, Pe
 	entry, ok := cat.LookupModel(modelID)
 	if ok {
 		return CostInfo{
-			InputPerMTok:  entry.CostInputPerMTok,
-			OutputPerMTok: entry.CostOutputPerMTok,
-		}, PerfSignal{
-			SpeedTokensPerSec: entry.SpeedTokensPerSec,
-			SWEBenchVerified:  entry.SWEBenchVerified,
-		}
+				InputPerMTok:  entry.CostInputPerMTok,
+				OutputPerMTok: entry.CostOutputPerMTok,
+			}, PerfSignal{
+				SpeedTokensPerSec: entry.SpeedTokensPerSec,
+				SWEBenchVerified:  entry.SWEBenchVerified,
+			}
 	}
 
 	// Fallback: try target-level pricing via PricingFor.
