@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -292,8 +294,38 @@ type lastDecisionEntry struct {
 	at       time.Time
 }
 
-// New constructs a DdxAgent.
+// loadServiceConfig, when non-nil, is called by New to load a ServiceConfig
+// from a directory path when opts.ServiceConfig is nil. It is registered by
+// the config package via init() to break the import cycle (config imports root).
+var loadServiceConfig func(dir string) (ServiceConfig, error)
+
+// RegisterConfigLoader is called by the config package's init() to install the
+// config-loading function. Do not call this from application code.
+func RegisterConfigLoader(fn func(dir string) (ServiceConfig, error)) {
+	loadServiceConfig = fn
+}
+
+// New constructs a DdxAgent. When opts.ServiceConfig is nil, New attempts to
+// load configuration automatically:
+//  1. If opts.ConfigPath is non-empty, load from filepath.Dir(opts.ConfigPath).
+//  2. Otherwise, load from the default global config location.
+//
+// Automatic loading requires the config package to be imported somewhere in the
+// binary (it registers the loader via init). If the config package is not
+// imported and ServiceConfig is nil, the service starts without provider config
+// (ListProviders/HealthCheck will return errors until config is injected).
 func New(opts ServiceOptions) (DdxAgent, error) {
+	if opts.ServiceConfig == nil && loadServiceConfig != nil {
+		dir := ""
+		if opts.ConfigPath != "" {
+			dir = filepath.Dir(opts.ConfigPath)
+		}
+		sc, err := loadServiceConfig(dir)
+		if err != nil {
+			return nil, fmt.Errorf("agent.New: load config: %w", err)
+		}
+		opts.ServiceConfig = sc
+	}
 	return &service{
 		opts:     opts,
 		registry: harnesses.NewRegistry(),
