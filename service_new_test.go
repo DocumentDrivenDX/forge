@@ -8,7 +8,7 @@ import (
 	"time"
 
 	agent "github.com/DocumentDrivenDX/agent"
-	_ "github.com/DocumentDrivenDX/agent/config" // registers config loader via init()
+	_ "github.com/DocumentDrivenDX/agent/internal/config" // registers config loader via init()
 )
 
 // minimalConfigYAML is a valid agent config with one anthropic provider.

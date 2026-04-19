@@ -11,8 +11,8 @@ import (
 	"testing"
 
 	agent "github.com/DocumentDrivenDX/agent"
-	"github.com/DocumentDrivenDX/agent/compaction"
-	openaiprovider "github.com/DocumentDrivenDX/agent/provider/openai"
+	"github.com/DocumentDrivenDX/agent/internal/compaction"
+	openaiprovider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
 	"github.com/DocumentDrivenDX/agent/telemetry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

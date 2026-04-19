@@ -18,10 +18,10 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent/catalogdist"
-	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
-	"github.com/DocumentDrivenDX/agent/modelcatalog"
-	"github.com/DocumentDrivenDX/agent/observations"
+	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/internal/observations"
 )
 
 const defaultCatalogBaseURL = "https://documentdrivendx.github.io/agent/catalog"

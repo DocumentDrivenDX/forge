@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/DocumentDrivenDX/agent"
-	"github.com/DocumentDrivenDX/agent/session"
+	"github.com/DocumentDrivenDX/agent/internal/session"
 )
 
 // PopulateFromLogs reads all JSONL session files in logDir and adds

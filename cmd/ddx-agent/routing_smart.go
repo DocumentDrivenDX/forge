@@ -27,11 +27,11 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
-	agentConfig "github.com/DocumentDrivenDX/agent/config"
-	"github.com/DocumentDrivenDX/agent/modelcatalog"
-	"github.com/DocumentDrivenDX/agent/observations"
-	oaiProvider "github.com/DocumentDrivenDX/agent/provider/openai"
-	"github.com/DocumentDrivenDX/agent/session"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
+	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/internal/observations"
+	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
+	"github.com/DocumentDrivenDX/agent/internal/session"
 )
 
 const (

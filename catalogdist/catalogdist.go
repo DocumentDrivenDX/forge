@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
-	"github.com/DocumentDrivenDX/agent/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 )
 
 // Index describes a published catalog bundle location.

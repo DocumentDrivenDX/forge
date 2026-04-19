@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
 )
 

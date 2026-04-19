@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
-	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
 )
 

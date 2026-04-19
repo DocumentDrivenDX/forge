@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/stretchr/testify/assert"
 )
 

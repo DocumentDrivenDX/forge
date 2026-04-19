@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
-	antProvider "github.com/DocumentDrivenDX/agent/provider/anthropic"
-	oaiProvider "github.com/DocumentDrivenDX/agent/provider/openai"
-	"github.com/DocumentDrivenDX/agent/session"
-	"github.com/DocumentDrivenDX/agent/tool"
+	antProvider "github.com/DocumentDrivenDX/agent/internal/provider/anthropic"
+	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
+	"github.com/DocumentDrivenDX/agent/internal/session"
+	"github.com/DocumentDrivenDX/agent/internal/tool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

@@ -7,7 +7,7 @@ import (
 	"os"
 
 	agent "github.com/DocumentDrivenDX/agent"
-	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 )
 
 // Candidate is one (harness, provider, model) triple discovered from config.

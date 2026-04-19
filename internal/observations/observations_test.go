@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
-	"github.com/DocumentDrivenDX/agent/observations"
-	"github.com/DocumentDrivenDX/agent/session"
+	"github.com/DocumentDrivenDX/agent/internal/observations"
+	"github.com/DocumentDrivenDX/agent/internal/session"
 	"github.com/stretchr/testify/require"
 )
 

@@ -17,7 +17,7 @@ import (
 	"testing"
 
 	"github.com/DocumentDrivenDX/agent"
-	"github.com/DocumentDrivenDX/agent/tool"
+	"github.com/DocumentDrivenDX/agent/internal/tool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

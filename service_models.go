@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/DocumentDrivenDX/agent/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 )
 
 // ListModels returns models matching the filter, with full metadata.

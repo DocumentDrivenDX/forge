@@ -9,7 +9,7 @@ import (
 	"time"
 
 	agent "github.com/DocumentDrivenDX/agent"
-	oai "github.com/DocumentDrivenDX/agent/provider/openai"
+	oai "github.com/DocumentDrivenDX/agent/internal/provider/openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

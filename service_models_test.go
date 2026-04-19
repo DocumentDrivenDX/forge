@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
-	"github.com/DocumentDrivenDX/agent/modelcatalog"
+	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 )
 
 // fakeModelsServer returns an httptest.Server that serves the given model IDs from /v1/models.

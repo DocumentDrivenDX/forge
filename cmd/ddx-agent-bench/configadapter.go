@@ -4,7 +4,7 @@ import (
 	"time"
 
 	agent "github.com/DocumentDrivenDX/agent"
-	agentConfig "github.com/DocumentDrivenDX/agent/config"
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 )
 
 // configAdapter wraps *config.Config and satisfies agent.ServiceConfig.
