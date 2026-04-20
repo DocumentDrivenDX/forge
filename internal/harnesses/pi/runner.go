@@ -51,7 +51,7 @@ func (r *Runner) Info() harnesses.HarnessInfo {
 		IsLocal:              false,
 		IsSubscription:       false,
 		ExactPinSupport:      true,
-		SupportedPermissions: []string{"safe"},
+		SupportedPermissions: nil,
 		SupportedReasoning:   []string{"low", "medium", "high"},
 		CostClass:            "medium",
 	}

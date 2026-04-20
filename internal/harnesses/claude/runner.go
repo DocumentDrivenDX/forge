@@ -63,11 +63,11 @@ func (r *Runner) Info() harnesses.HarnessInfo {
 		Type:                 "subprocess",
 		IsLocal:              false,
 		IsSubscription:       true,
-		ExactPinSupport:      false,
+		ExactPinSupport:      true,
 		DefaultModel:         "claude-sonnet-4-6",
 		SupportedPermissions: []string{"safe", "supervised", "unrestricted"},
 		SupportedReasoning:   []string{"low", "medium", "high", "xhigh", "max"},
-		CostClass:            "expensive",
+		CostClass:            "medium",
 	}
 	path := r.Binary
 	if path == "" {
