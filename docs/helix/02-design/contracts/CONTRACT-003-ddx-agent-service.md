@@ -349,6 +349,76 @@ type Event struct {
     Metadata map[string]string  // echoed from ExecuteRequest.Metadata
     Data     json.RawMessage    // shape depends on Type; see schemas below
 }
+
+const (
+    ServiceEventTypeTextDelta       = "text_delta"
+    ServiceEventTypeToolCall        = "tool_call"
+    ServiceEventTypeToolResult      = "tool_result"
+    ServiceEventTypeCompaction      = "compaction"
+    ServiceEventTypeRoutingDecision = "routing_decision"
+    ServiceEventTypeStall           = "stall"
+    ServiceEventTypeFinal           = "final"
+)
+
+type ServiceTextDeltaData struct { Text string }
+type ServiceToolCallData struct { ID, Name string; Input json.RawMessage }
+type ServiceToolResultData struct { ID, Output, Error string; DurationMS int64 }
+type ServiceCompactionData struct { MessagesBefore, MessagesAfter, TokensFreed int }
+type ServiceRoutingDecisionData struct {
+    Harness, Provider, Model, Reason string
+    FallbackChain []string
+    SessionID string
+}
+type ServiceStallData struct { Reason string; Count int64 }
+type ServiceFinalData struct {
+    Status, Error, FinalText, SessionLogPath string
+    ExitCode int
+    DurationMS int64
+    Usage *ServiceFinalUsage
+    CostUSD float64
+    RoutingActual *ServiceRoutingActual
+}
+type ServiceFinalUsage struct { InputTokens, OutputTokens, TotalTokens int }
+type ServiceRoutingActual struct {
+    Harness, Provider, Model string
+    FallbackChainFired []string
+}
+
+type ServiceDecodedEvent struct {
+    Type string
+    Sequence int64
+    Time time.Time
+    Metadata map[string]string
+    TextDelta *ServiceTextDeltaData
+    ToolCall *ServiceToolCallData
+    ToolResult *ServiceToolResultData
+    Compaction *ServiceCompactionData
+    RoutingDecision *ServiceRoutingDecisionData
+    Stall *ServiceStallData
+    Final *ServiceFinalData
+}
+
+func DecodeServiceEvent(ev Event) (ServiceDecodedEvent, error)
+
+type DrainExecuteResult struct {
+    Events []ServiceDecodedEvent
+    TextDeltas []ServiceTextDeltaData
+    ToolCalls []ServiceToolCallData
+    ToolResults []ServiceToolResultData
+    Compactions []ServiceCompactionData
+    Stalls []ServiceStallData
+    RoutingDecision *ServiceRoutingDecisionData
+    Final *ServiceFinalData
+    FinalStatus string
+    FinalText string
+    Usage *ServiceFinalUsage
+    CostUSD float64
+    SessionLogPath string
+    RoutingActual *ServiceRoutingActual
+    TerminalError string
+}
+
+func DrainExecute(ctx context.Context, events <-chan Event) (*DrainExecuteResult, error)
 ```
 
 ## Harness Capability Matrix
@@ -447,6 +517,44 @@ Closed union of event types. Every harness backend emits these identically.
     "fallback_chain_fired": ["bragi:qwen/qwen3.6 (timeout)", "openrouter:qwen/qwen3.6 (success)"]
   }
 }
+```
+
+## Typed Event Decoding
+
+Consumers should not redefine local copies of final/tool/routing payload
+structs. `DecodeServiceEvent` returns a typed view for one event, and
+`DrainExecute` consumes an `Execute` channel into a `DrainExecuteResult` with
+the terminal fields consumers usually need: final status, normalized final text,
+usage, cost, routing actual, tool calls/results, session log path, and terminal
+error text.
+
+Before:
+
+```go
+type serviceFinalData struct {
+    Status string `json:"status"`
+    FinalText string `json:"final_text"`
+}
+
+for ev := range events {
+    if ev.Type != "final" {
+        continue
+    }
+    var final serviceFinalData
+    _ = json.Unmarshal(ev.Data, &final)
+}
+```
+
+After:
+
+```go
+result, err := agent.DrainExecute(ctx, events)
+if err != nil {
+    return err
+}
+verdictText := result.FinalText
+status := result.FinalStatus
+actualModel := result.RoutingActual.Model
 ```
 
 ## Test seam types

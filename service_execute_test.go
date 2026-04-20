@@ -141,6 +141,47 @@ func TestExecute_NativePathWithFakeProvider(t *testing.T) {
 	}
 }
 
+func TestDrainExecute_NativeServiceExecuteWithFakeProvider(t *testing.T) {
+	fp := &agent.FakeProvider{
+		Static: []agent.FakeResponse{
+			{Text: "APPROVE\nTyped drain works.", Usage: agent.TokenUsage{Input: 8, Output: 4, Total: 12}},
+		},
+	}
+	opts := agent.ServiceOptions{}
+	opts.FakeProvider = fp
+
+	svc, err := agent.New(opts)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ch, err := svc.Execute(context.Background(), agent.ServiceExecuteRequest{
+		Prompt:   "review",
+		Harness:  "agent",
+		Model:    "fake-model",
+		Provider: "fake",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	result, err := agent.DrainExecute(context.Background(), ch)
+	if err != nil {
+		t.Fatalf("DrainExecute: %v", err)
+	}
+	if result.FinalStatus != "success" {
+		t.Fatalf("FinalStatus: got %q (err=%q)", result.FinalStatus, result.TerminalError)
+	}
+	if result.FinalText != "APPROVE\nTyped drain works." {
+		t.Fatalf("FinalText: got %q", result.FinalText)
+	}
+	if result.Usage == nil || result.Usage.TotalTokens != 12 {
+		t.Fatalf("Usage: got %#v", result.Usage)
+	}
+	if result.RoutingActual == nil || result.RoutingActual.Harness != "agent" {
+		t.Fatalf("RoutingActual: got %#v", result.RoutingActual)
+	}
+}
+
 func TestExecute_NativeReasoningForwarded(t *testing.T) {
 	var got agent.Reasoning
 	fp := &agent.FakeProvider{
