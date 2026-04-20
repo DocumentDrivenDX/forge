@@ -6,7 +6,7 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT)"
 
 build:
-	go build $(LDFLAGS) ./cmd/ddx-agent
+	go build $(LDFLAGS) -o ddx-agent ./cmd/agent
 
 catalog-dist:
 	go run ./cmd/catalogdist \

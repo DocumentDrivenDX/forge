@@ -138,7 +138,7 @@ supplied by the runner, including:
 **Build the linux/amd64 binary before running**:
 
 ```bash
-GOOS=linux GOARCH=amd64 go build -o scripts/benchmark/ddx-agent-linux-amd64 ./cmd/ddx-agent
+GOOS=linux GOARCH=amd64 go build -o scripts/benchmark/ddx-agent-linux-amd64 ./cmd/agent
 ```
 
 ### Credential injection

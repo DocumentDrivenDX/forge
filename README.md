@@ -22,7 +22,7 @@ curl -fsSL https://raw.githubusercontent.com/DocumentDrivenDX/agent/master/insta
 Or with Go:
 
 ```bash
-go install github.com/DocumentDrivenDX/agent/cmd/ddx-agent@latest
+go install github.com/DocumentDrivenDX/agent/cmd/agent@latest
 ```
 
 ## Quick Start

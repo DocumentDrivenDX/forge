@@ -118,7 +118,7 @@ echo ""
 echo "[1/4] Preparing binary under test..."
 if [[ -z "${DDX_AGENT_BINARY:-}" ]]; then
     mkdir -p "${DIST_DIR}"
-    GOOS=linux GOARCH=amd64 go build -o "${DEFAULT_BINARY}" "${REPO_ROOT}/cmd/ddx-agent"
+    GOOS=linux GOARCH=amd64 go build -o "${DEFAULT_BINARY}" "${REPO_ROOT}/cmd/agent"
     echo "      Built current checkout binary: ${DEFAULT_BINARY}"
 else
     if [[ ! -f "${INPUT_BINARY}" ]]; then

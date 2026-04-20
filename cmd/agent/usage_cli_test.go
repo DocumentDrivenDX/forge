@@ -232,7 +232,7 @@ func buildAgentCLI(t *testing.T) string {
 			buildCLIErr = err
 			return
 		}
-		cmd := exec.Command("go", "build", "-o", exe, "./cmd/ddx-agent")
+		cmd := exec.Command("go", "build", "-o", exe, "./cmd/agent")
 		cmd.Dir = filepath.Clean(filepath.Join(wd, "..", ".."))
 		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
 		out, err := cmd.CombinedOutput()

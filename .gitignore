@@ -5,7 +5,6 @@
 # Build artifacts
 /dist/
 /benchscore/
-/cmd/ddx-agent-benchscore/
 
 # Session logs
 .agent/sessions/

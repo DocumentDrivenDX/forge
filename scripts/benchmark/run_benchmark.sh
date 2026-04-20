@@ -160,7 +160,7 @@ if [[ -z "${DDX_AGENT_BINARY:-}" ]]; then
     mkdir -p "${DIST_DIR}"
     GOOS=linux GOARCH=amd64 go build \
         -ldflags "-X main.GitCommit=$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo dev)" \
-        -o "${DEFAULT_BINARY}" "${REPO_ROOT}/cmd/ddx-agent"
+        -o "${DEFAULT_BINARY}" "${REPO_ROOT}/cmd/agent"
     echo "      Built current checkout binary: ${DEFAULT_BINARY}"
 else
     if [[ ! -f "${INPUT_BINARY}" ]]; then
@@ -367,7 +367,7 @@ done <<< "${TASK_IDS}"
 # ---------------------------------------------------------------------------- #
 echo "[5/5] Writing report..."
 
-go run ./cmd/ddx-agent-benchscore -tasks-jsonl "${TASK_RESULTS_FILE}" > "${SCORES_FILE}"
+go run ./cmd/benchscore -tasks-jsonl "${TASK_RESULTS_FILE}" > "${SCORES_FILE}"
 
 python3 - <<PY
 import json

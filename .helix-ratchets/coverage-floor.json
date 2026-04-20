@@ -6,7 +6,7 @@
   "commit": "a8b64d0",
   "floors": {
     "github.com/DocumentDrivenDX/agent": 75,
-    "github.com/DocumentDrivenDX/agent/cmd/ddx-agent": 0,
+    "github.com/DocumentDrivenDX/agent/cmd/agent": 0,
     "github.com/DocumentDrivenDX/agent/compaction": 88.5,
     "github.com/DocumentDrivenDX/agent/config": 81.2,
     "github.com/DocumentDrivenDX/agent/occompat": 78.6,

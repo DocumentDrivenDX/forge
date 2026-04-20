@@ -223,7 +223,7 @@ func measureCoverage(projectRoot string) ([]PackageCoverage, error) {
 	lines := strings.Split(string(output), "\n")
 
 	// Parse lines like: ok  	github.com/DocumentDrivenDX/agent	0.002s	coverage: 82.1% of statements
-	// Or: 	github.com/DocumentDrivenDX/agent/cmd/ddx-agent		coverage: 0.0% of statements
+	// Or: 	github.com/DocumentDrivenDX/agent/cmd/agent		coverage: 0.0% of statements
 	re := regexp.MustCompile(`(?:ok|FAIL|\?)\s+([^\s]+).*?coverage:\s*([0-9.]+)%`)
 
 	for _, line := range lines {

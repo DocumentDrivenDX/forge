@@ -10,7 +10,7 @@ import (
 
 func TestCLIServiceContractUsesTypedEventDecoder(t *testing.T) {
 	root := repoRootForBoundaryTest(t)
-	data, err := os.ReadFile(filepath.Join(root, "cmd", "ddx-agent", "main.go"))
+	data, err := os.ReadFile(filepath.Join(root, "cmd", "agent", "main.go"))
 	if err != nil {
 		t.Fatalf("read main.go: %v", err)
 	}

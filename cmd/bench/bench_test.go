@@ -14,7 +14,7 @@ func TestLoadCorpus(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// cmd/ddx-agent-bench -> repo root -> bench/corpus
+	// cmd/bench -> repo root -> bench/corpus
 	repoRoot := filepath.Join(wd, "..", "..")
 	corpusDir := filepath.Join(repoRoot, "bench", "corpus")
 
