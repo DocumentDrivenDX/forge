@@ -21,9 +21,10 @@ primary baseline.
 ## Scope
 
 This spec covers capability reporting and evidence requirements for primary
-harness health. It does not choose the final PTY/session transport. If a
-capability is naturally exposed through a harness TUI, the capability remains
-required; the transport used to collect it is an implementation detail.
+harness health. ADR-002 selects direct PTY as the service/cassette transport
+for TUI-derived Claude and Codex evidence. If a capability is naturally exposed
+through a harness TUI, the capability remains required; tmux-only evidence is a
+gap until replaced by direct PTY and cassette evidence.
 
 ## Status Model
 
@@ -225,6 +226,12 @@ If the harness reports only input and output, `total_tokens` is derived as
 `input_tokens + output_tokens`. Missing token fields are a failure for the
 primary baseline, not a zero value.
 
+For Claude and Codex, token-usage evidence must come from the harness native
+stream, transcript, status output, or another documented source of truth and be
+captured through the direct PTY/cassette path when the source is TUI-derived.
+Cache, reasoning, or provider-specific token subfields should be preserved when
+exposed, but the required baseline remains input, output, and total tokens.
+
 Cost is useful when exposed, but `cost_usd` is not part of this baseline.
 
 ### QuotaStatus
@@ -254,9 +261,10 @@ Quota evidence must include:
 - freshness TTL
 - parsed state
 
-Codex and Claude quota can currently be probed through TUI helpers. If the final
-transport changes from tmux to direct PTY, the capability requirement does not
-change.
+Codex and Claude quota can currently be probed through legacy tmux-backed TUI
+helpers, but ADR-002 requires direct PTY evidence for final support. The
+capability requirement does not change: tmux-only quota evidence is a visible
+gap until replaced by direct PTY capture.
 
 ### ErrorStatus
 
@@ -328,7 +336,8 @@ must not be used as the authoritative primary-harness health signal.
 
 ## Non-Goals
 
-- Designing the final PTY implementation.
+- Implementing the final PTY library in this baseline report; ADR-002 owns that
+  transport design and its conformance requirements.
 - Bringing secondary harnesses to parity.
 - Adding deterministic record/replay to production harnesses.
 - Making `CostUSD` a baseline requirement.

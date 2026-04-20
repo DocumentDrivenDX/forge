@@ -602,10 +602,12 @@ provider's native auth file format.
 
 Claude Code and Codex subscription quotas are read from durable service-owned
 caches by `ListHarnesses`; `HealthCheck` may refresh stale caches by invoking
-the authenticated PTY/tmux probe. Live record mode must fail fast with a clear
-unavailable or unauthenticated status when `claude`, `codex`, `tmux`, or
-credentials are missing. Replay mode reads committed/generated cassette data or
-quota cache fixtures and must not require credentials.
+the authenticated direct PTY probe. Existing tmux-backed quota probes are legacy
+diagnostics and must not be treated as final capability evidence. Live record
+mode must fail fast with a clear unavailable or unauthenticated status when the
+target binary, credentials, or direct PTY transport dependency is missing.
+Replay mode reads committed/generated cassette data or quota cache fixtures and
+must not require credentials.
 
 `UsageWindows` are the normalized historical-usage projection. An empty slice
 means no service-owned usage source is available for that harness/provider yet;
@@ -967,13 +969,15 @@ Harness Golden Masters](/Users/erik/Projects/agent/docs/helix/02-design/adr/ADR-
 The runnable replay/record workflow is documented in
 [Harness Golden-Master Integration](/Users/erik/Projects/agent/docs/helix/02-design/harness-golden-integration.md).
 
-ADR-002 selects direct PTY ownership inside DDX Agent as the canonical
-transport for live execution, record mode, replay mode, cancellation, quota
-probes, and inspection. tmux is not a required dependency for harness execution
-or cassette evidence. Replay-mode tests can prove parser, event, cleanup, and
-transport behavior, but a harness capability is not promoted to or retained as
-`supported` without fresh record-mode evidence from the real authenticated
-harness when that capability depends on an external binary or subscription.
+ADR-002 selects direct PTY ownership inside DDX Agent as the canonical service
+and cassette transport for live execution, record mode, replay mode,
+cancellation, quota probes, model-list probes, and inspection. tmux is not part
+of the core harness/cassette design, and tmux-only evidence must not promote a
+capability to final `supported` status. Replay-mode tests can prove parser,
+event, cleanup, and transport behavior, but a harness capability is not promoted
+to or retained as `supported` without fresh record-mode evidence from the real
+authenticated harness when that capability depends on an external binary or
+subscription.
 
 ## Behaviors the contract guarantees
 

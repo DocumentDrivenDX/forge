@@ -62,9 +62,20 @@ Required live harness binaries for this bead:
 - `pi`
 - `opencode`
 
-Until the direct PTY quota recorder from ADR-002 is implemented, quota preflight
-also requires `tmux` for the existing Claude/Codex quota capture helpers. Replay
-mode remains independent of `tmux` and credentials.
+Quota and model-list preflight must move to the direct PTY transport selected in
+ADR-002. Existing tmux capture helpers are legacy diagnostics only and do not
+count as accepted golden-master evidence. Replay mode remains independent of
+`tmux` and credentials.
+
+Before Claude/Codex authenticated cassettes can promote capability rows, the
+underlying PTY library must pass its own conformance suite. That suite starts
+with Unix `top` in a pinned Docker environment and must capture several useful
+screens from one run: initial paint, later refresh frames, and at least one
+interaction or resize that visibly changes the frame stream. The PTY suite also
+needs ordinary Unix process tests and at least two additional TUI shapes, such
+as a pager and editor/curses-style program. Harness probes then layer on top of
+that library to test quota/status extraction, model listings, reasoning levels,
+token usage, and failure normalization for Claude and Codex.
 
 ## Evidence Rules
 
