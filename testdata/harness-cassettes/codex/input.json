@@ -1,0 +1,11 @@
+{
+  "prompt": "golden replay prompt",
+  "model": "cassette-model",
+  "reasoning": "low",
+  "permissions": "safe",
+  "metadata": {
+    "mode": "replay",
+    "cassette": "codex",
+    "test_suite": "harness-golden"
+  }
+}

@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"os"
@@ -17,6 +18,8 @@ import (
 	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
 	codexharness "github.com/DocumentDrivenDX/agent/internal/harnesses/codex"
 )
+
+const harnessCassetteRoot = "testdata/harness-cassettes"
 
 func TestHarnessGoldenReplay_ServiceExecute(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -210,6 +213,58 @@ exit 7
 	}
 }
 
+func TestHarnessGoldenCassetteReplay_ServiceEvents(t *testing.T) {
+	for _, tc := range []struct {
+		harness  string
+		toolName string
+		text     string
+	}{
+		{harness: "codex", toolName: "command_execution", text: "codex cassette final"},
+		{harness: "claude", toolName: "Bash", text: "claude cassette final"},
+	} {
+		t.Run(tc.harness, func(t *testing.T) {
+			dir := filepath.Join(harnessCassetteRoot, tc.harness)
+			requireCassetteArtifacts(t, dir)
+			events := readCassetteServiceEvents(t, filepath.Join(dir, "service-events.jsonl"))
+			ch := make(chan ServiceEvent, len(events))
+			for _, ev := range events {
+				ch <- ev
+			}
+			close(ch)
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			result, err := DrainExecute(ctx, ch)
+			if err != nil {
+				t.Fatalf("DrainExecute: %v", err)
+			}
+			if result.FinalStatus != "success" {
+				t.Fatalf("FinalStatus: got %q (err=%q)", result.FinalStatus, result.TerminalError)
+			}
+			if !strings.Contains(result.FinalText, tc.text) {
+				t.Fatalf("FinalText: got %q, want %q", result.FinalText, tc.text)
+			}
+			if result.Usage == nil {
+				t.Fatal("expected usage in cassette final")
+			}
+			if len(result.ToolCalls) != 1 || len(result.ToolResults) != 1 {
+				t.Fatalf("expected one tool call/result, got calls=%v results=%v", result.ToolCalls, result.ToolResults)
+			}
+			if result.ToolCalls[0].Name != tc.toolName {
+				t.Fatalf("tool name: got %q, want %q", result.ToolCalls[0].Name, tc.toolName)
+			}
+			if result.ToolResults[0].ID != result.ToolCalls[0].ID {
+				t.Fatalf("tool result ID %q does not match call ID %q", result.ToolResults[0].ID, result.ToolCalls[0].ID)
+			}
+			for _, ev := range result.Events {
+				if ev.Metadata["cassette"] != tc.harness || ev.Metadata["test_suite"] != "harness-golden" {
+					t.Fatalf("event metadata not echoed for %s: %#v", ev.Type, ev.Metadata)
+				}
+			}
+		})
+	}
+}
+
 func TestHarnessGoldenRecordModePreflight(t *testing.T) {
 	if os.Getenv("AGENT_HARNESS_RECORD") != "1" {
 		t.Skip("set AGENT_HARNESS_RECORD=1 to run live harness record-mode preflight")
@@ -255,28 +310,178 @@ func TestHarnessGoldenRecordModeLive(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Execute: %v", err)
 			}
-			result, err := DrainExecute(ctx, events)
+			rawEvents, result, err := drainRawExecute(ctx, events)
 			if err != nil {
 				t.Fatalf("DrainExecute: %v", err)
 			}
 			if result.FinalStatus != "success" {
 				t.Fatalf("record mode %s failed before cassette write: status=%q error=%q", harness, result.FinalStatus, result.TerminalError)
 			}
-			cassette := map[string]any{
-				"version":     1,
-				"harness":     harness,
-				"recorded_at": time.Now().UTC().Format(time.RFC3339),
-				"result":      result,
-			}
-			data, err := json.MarshalIndent(cassette, "", "  ")
-			if err != nil {
-				t.Fatalf("marshal cassette: %v", err)
-			}
-			path := filepath.Join(cassetteDir, harness+".json")
-			if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
-				t.Fatalf("write cassette %s: %v", path, err)
-			}
+			writeVersionedHarnessCassette(t, cassetteDir, harness, ServiceExecuteRequest{
+				Prompt:      "Reply with exactly: harness golden record ok",
+				Harness:     harness,
+				WorkDir:     "<tempdir>",
+				Permissions: "safe",
+				Reasoning:   ReasoningLow,
+				Timeout:     90 * time.Second,
+				Metadata: map[string]string{
+					"mode":       "record",
+					"cassette":   harness,
+					"test_suite": "harness-golden",
+				},
+			}, rawEvents, result)
 		})
+	}
+}
+
+func drainRawExecute(ctx context.Context, events <-chan ServiceEvent) ([]ServiceEvent, *DrainExecuteResult, error) {
+	result := &DrainExecuteResult{}
+	var raw []ServiceEvent
+	for {
+		select {
+		case <-ctx.Done():
+			return raw, result, ctx.Err()
+		case ev, ok := <-events:
+			if !ok {
+				if result.Final == nil {
+					return raw, result, context.Canceled
+				}
+				return raw, result, nil
+			}
+			raw = append(raw, ev)
+			decoded, err := DecodeServiceEvent(ev)
+			if err != nil {
+				return raw, result, err
+			}
+			result.append(decoded)
+		}
+	}
+}
+
+func requireCassetteArtifacts(t *testing.T, dir string) {
+	t.Helper()
+	for _, name := range []string{"manifest.json", "input.json", "frames.jsonl", "service-events.jsonl", "final.json", "quota.json", "scrub-report.json"} {
+		path := filepath.Join(dir, name)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("cassette artifact %s: %v", path, err)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("cassette artifact %s is empty", path)
+		}
+	}
+}
+
+func readCassetteServiceEvents(t *testing.T, path string) []ServiceEvent {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("open service events: %v", err)
+	}
+	defer f.Close()
+
+	var events []ServiceEvent
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		var ev ServiceEvent
+		if err := json.Unmarshal(scanner.Bytes(), &ev); err != nil {
+			t.Fatalf("decode service event %s: %v", scanner.Text(), err)
+		}
+		events = append(events, ev)
+	}
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("scan service events: %v", err)
+	}
+	if len(events) == 0 {
+		t.Fatalf("no service events in %s", path)
+	}
+	return events
+}
+
+func writeVersionedHarnessCassette(t *testing.T, cassetteRoot, harness string, req ServiceExecuteRequest, events []ServiceEvent, result *DrainExecuteResult) {
+	t.Helper()
+	dir := filepath.Join(cassetteRoot, harness)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("create cassette dir: %v", err)
+	}
+	writeCassetteJSON(t, filepath.Join(dir, "manifest.json"), map[string]any{
+		"version":     1,
+		"harness":     harness,
+		"accepted":    true,
+		"recorded_at": time.Now().UTC().Format(time.RFC3339),
+		"command": map[string]any{
+			"workdir_policy":  "tempdir",
+			"env_allowlist":   []string{"PATH"},
+			"timeout_ms":      req.Timeout.Milliseconds(),
+			"permission_mode": req.Permissions,
+		},
+	})
+	writeCassetteJSON(t, filepath.Join(dir, "input.json"), map[string]any{
+		"prompt":      req.Prompt,
+		"reasoning":   string(req.Reasoning),
+		"permissions": req.Permissions,
+		"metadata":    req.Metadata,
+	})
+	writeCassetteJSON(t, filepath.Join(dir, "final.json"), result.Final)
+	writeCassetteJSON(t, filepath.Join(dir, "quota.json"), map[string]any{
+		"source": "record-mode",
+		"status": "captured-by-harness-status",
+	})
+	writeCassetteJSON(t, filepath.Join(dir, "scrub-report.json"), map[string]any{
+		"status":     "clean",
+		"redactions": []string{},
+		"checked":    []string{"service-events", "metadata"},
+	})
+	writeCassetteJSONL(t, filepath.Join(dir, "service-events.jsonl"), events)
+	writeCassetteFrames(t, filepath.Join(dir, "frames.jsonl"), events)
+}
+
+func writeCassetteJSON(t *testing.T, path string, value any) {
+	t.Helper()
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, append(data, '\n'), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func writeCassetteJSONL(t *testing.T, path string, values []ServiceEvent) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	for _, value := range values {
+		if err := enc.Encode(value); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+}
+
+func writeCassetteFrames(t *testing.T, path string, events []ServiceEvent) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("open %s: %v", path, err)
+	}
+	defer f.Close()
+	enc := json.NewEncoder(f)
+	for i, ev := range events {
+		raw, err := json.Marshal(ev)
+		if err != nil {
+			t.Fatalf("marshal frame: %v", err)
+		}
+		if err := enc.Encode(map[string]any{
+			"delta_ms": i,
+			"stream":   "service_event",
+			"data":     string(raw) + "\n",
+		}); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
 	}
 }
 

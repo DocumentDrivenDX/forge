@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "exit_code": 0,
+  "final_text": "claude cassette final",
+  "duration_ms": 10,
+  "usage": {
+    "input_tokens": 13,
+    "output_tokens": 6,
+    "total_tokens": 19
+  },
+  "cost_usd": 0.0001,
+  "routing_actual": {
+    "harness": "claude",
+    "model": "cassette-model"
+  }
+}

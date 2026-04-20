@@ -1,0 +1,18 @@
+{
+  "source": "cassette",
+  "status": "ok",
+  "windows": [
+    {
+      "name": "5h",
+      "window_minutes": 300,
+      "used_percent": 10,
+      "state": "ok"
+    },
+    {
+      "name": "weekly",
+      "window_minutes": 10080,
+      "used_percent": 10,
+      "state": "ok"
+    }
+  ]
+}

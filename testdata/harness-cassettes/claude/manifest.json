@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "harness": "claude",
+  "accepted": true,
+  "recorded_at": "2026-04-20T00:00:00Z",
+  "command": {
+    "argv": ["claude", "--print", "-p", "--verbose", "--output-format", "stream-json", "golden replay prompt"],
+    "workdir_policy": "tempdir",
+    "env_allowlist": ["PATH"],
+    "timeout_ms": 90000,
+    "permission_mode": "safe"
+  }
+}

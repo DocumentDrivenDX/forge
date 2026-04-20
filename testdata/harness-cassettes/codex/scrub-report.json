@@ -1,0 +1,5 @@
+{
+  "status": "clean",
+  "redactions": [],
+  "checked": ["command.argv", "frames", "service-events", "metadata"]
+}

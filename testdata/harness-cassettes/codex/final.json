@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "exit_code": 0,
+  "final_text": "codex cassette final",
+  "duration_ms": 10,
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 5,
+    "total_tokens": 17
+  },
+  "routing_actual": {
+    "harness": "codex",
+    "model": "cassette-model"
+  }
+}
