@@ -46,7 +46,8 @@ Each cassette directory contains:
 
 - `manifest.json` — version, harness, scrubbed command policy, timeout, and
   permission mode, plus terminal and timing metadata. Version `1` uses
-  `manifest.timing.resolution_ms: 100` by default.
+  `manifest.timing.resolution_ms: 100` by default, but recorders may choose a
+  finer resolution without changing the version.
 - `input.jsonl` — timed prompt/input, paste, control-key, resize, and signal
   events with monotonic `t_ms` timestamps.
 - `output.raw` — scrubbed raw PTY output bytes.
@@ -79,6 +80,11 @@ needs ordinary Unix process tests and at least two additional TUI shapes, such
 as a pager and editor/curses-style program. Harness probes then layer on top of
 that library to test quota/status extraction, model listings, reasoning levels,
 token usage, and failure normalization for Claude and Codex.
+
+Primary PTY support also requires host smoke coverage on Linux and macOS.
+Docker-backed conformance is not enough by itself because it only proves the
+Linux path. Windows remains an explicit unsupported gap until a Windows PTY
+adapter and fixtures are designed.
 
 Replay mode supports `realtime`, `scaled`, and `collapsed` timing. Human
 inspection should use `realtime` playback so screen changes preserve recorded

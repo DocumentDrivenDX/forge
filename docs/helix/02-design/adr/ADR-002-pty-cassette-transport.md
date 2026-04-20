@@ -86,7 +86,10 @@ No package below `internal/pty` may import `internal/harnesses`. The PTY
 library must be testable with synthetic programs and ordinary Unix TUIs before
 Claude or Codex are involved. Claude and Codex quota/model probes are acceptance
 tests for the harness adapters, not proof that the PTY library is complete by
-themselves.
+themselves. The terminal rendering decision is detailed in
+[ADR-003](/Users/erik/Projects/agent/docs/helix/02-design/adr/ADR-003-pty-terminal-rendering.md)
+and supported by the `top` spike in
+[SPIKE-001](/Users/erik/Projects/agent/docs/helix/02-design/spikes/SPIKE-001-direct-pty-top-rendering.md).
 
 ## Data Flow
 
@@ -97,13 +100,16 @@ harness-specific parsing.
 internal/pty/session raw bytes and input events
   -> internal/pty/terminal frame derivation and screen normalization
   -> internal/harnesses/<name> adapter parsing and service-event emission
-  -> internal/pty/cassette tee writes raw output, timed input, frames,
+  -> internal/pty/cassette CassetteTee writes raw output, timed input, frames,
      opaque service-event JSON, final metadata, and scrub reports
 ```
 
 `internal/pty/cassette` may store and replay opaque service-event JSON, but it
 must not import harness adapters or CONTRACT-003 typed-event decoders. Service
-assertions stay above the cassette library.
+assertions stay above the cassette library. Harness adapters hand timed opaque
+events to the cassette layer through a narrow `CassetteTee`-style interface so
+the dependency direction stays `internal/harnesses/<name>` -> `internal/pty`,
+never the reverse.
 
 ## Cassette Data Contract
 
@@ -112,11 +118,11 @@ append-only event streams. Version `1` contains:
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `manifest.version` | Yes | Cassette schema version. Starts at `1`; incompatible changes increment it. |
+| `manifest.version` | Yes | Cassette schema version. Starts at `1`; incompatible changes increment the major version. |
 | `manifest.harness` | Yes | Harness name, binary path fingerprint, binary version string when available, and capability row snapshot. |
 | `manifest.command` | Yes | Scrubbed argv, working directory policy, environment allowlist names, timeout settings, and permission mode. |
 | `manifest.terminal` | Yes | Initial rows/cols, resize events, locale, TERM value, and PTY mode flags needed for replay. |
-| `manifest.timing` | Yes | Clock policy, timestamp resolution, replay default, and any scaling/collapse policy used by tests. Version `1` defaults to 100ms timestamp resolution. |
+| `manifest.timing` | Yes | Clock policy, timestamp resolution, replay default, and any scaling/collapse policy used by tests. Version `1` defaults to 100ms timestamp resolution, but recorders may choose a finer `resolution_ms` without a schema bump. |
 | `manifest.provenance` | Yes | Agent git SHA, contract version, OS/arch, recorded-at timestamp, and recorder version. |
 | `input.jsonl` | Yes | User/input events: bytes sent to stdin, paste boundaries, control keys, resize events, and signal events. Every record includes monotonic `t_ms`. |
 | `output.raw` | Yes | Raw output bytes from the PTY, exactly as observed after environment scrubbing. |
@@ -129,7 +135,9 @@ append-only event streams. Version `1` contains:
 Timing is stored as monotonic milliseconds from cassette start, quantized to
 `manifest.timing.resolution_ms`. Version `1` uses `resolution_ms: 100` by
 default so replay preserves the shape of a real TUI session without pretending
-to be nanosecond-accurate. Replay supports three timing modes:
+to be nanosecond-accurate. Recorders may use a finer capture resolution in
+version `1` when a TUI or test needs it; replay mode remains orthogonal to
+capture resolution. Replay supports three timing modes:
 
 - `realtime`: sleep according to recorded `t_ms` values at the recorded
   resolution; this is the default for human inspection and visual playback.
@@ -145,6 +153,16 @@ Nondeterministic terminal content normalization is separate from secret
 scrubbing. Scrubbing removes sensitive values. Normalization handles volatile
 screen facts such as clocks, PIDs, elapsed durations, and animation counters so
 semantic frame assertions remain stable without weakening raw evidence storage.
+
+## Schema Evolution
+
+Version `1` readers reject cassettes with a `manifest.version` higher than the
+reader supports, missing required artifacts, missing required fields, or unknown
+required feature flags. Readers may ignore unknown optional fields within the
+same major version. Additive optional fields do not require a schema bump;
+renaming, removing, or changing the meaning of required fields requires a new
+major version. Writers stamp the supported `manifest.version` and refuse to
+overwrite a cassette written with a newer major version.
 
 ## Record Mode
 
@@ -187,8 +205,9 @@ terminal programs, not only fake sessions and happy-path harness probes.
 | Test Class | Required Coverage |
 |------------|-------------------|
 | Unit and fake-session tests | Startup failure, normal exit, EOF, timeout, cancellation, process-group cleanup, large input, multiline paste boundaries, control keys, resize events, raw output capture, frame derivation, deterministic fake clock, and replay ordering. |
-| Host PTY smoke tests | Portable Unix commands such as `sh`, `cat`, `stty size`, and `sleep` verify stdin/stdout, exit status, terminal sizing, cancellation, and no leaked child processes without credentials or network. |
+| Host PTY smoke tests | Portable Unix commands such as `sh`, `cat`, `stty size`, and `sleep` verify stdin/stdout, exit status, terminal sizing, cancellation, and no leaked child processes without credentials or network. Linux and macOS host smoke targets are required before primary PTY support is promoted. Windows support is an explicit gap until a Windows PTY adapter and fixtures are designed. |
 | Docker TUI conformance tests | A pinned Linux container image supplies known TUI programs. The first required target is Unix `top`: capture several distinct screens from one run, including initial paint, later refresh frames, and at least one interaction or resize that changes the screen. Assertions check semantic screen facts and frame progression rather than brittle byte-for-byte full-screen output. |
+| Terminal rendering tests | `internal/pty/terminal` must wrap a real VT/ANSI emulator. Tests must prove screen clears, cursor movement, SGR style policy, alternate-screen behavior where available, Unicode/wide characters, partial escape sequences, resize races, and volatile-content normalization. Regex ANSI stripping is not accepted as the screen model. |
 | Additional TUI diversity | Add at least two more common terminal shapes before calling the library mature: a pager flow such as `less`, and an editor or curses-style full-screen flow such as `vim`, `nano`, or `dialog`, using Docker when host availability is inconsistent. |
 | Cassette replay tests | Record a deterministic synthetic terminal run, replay it through the cassette reader/player, and assert manifest fields, input ordering, raw output, frame snapshots, scrub report, final status, and read-only replay behavior. |
 | Authenticated harness tests | Opt-in recorder tests drive Claude and Codex through the same PTY library to extract quota/status, model listings, reasoning levels, and token usage. Missing binary/auth/quota/timeout cases must fail before writing accepted cassettes. |
@@ -232,7 +251,7 @@ never normalizes or rewrites the evidence.
 | Legacy tmux helpers linger and hide direct PTY gaps | M | H | Track replacement beads and mark tmux-only capabilities `gap` until direct PTY evidence exists |
 | Cassette scrub rules remove data needed for replay | M | M | Store scrub reports and compare replay against typed events rather than raw secrets |
 | Replay creates false confidence about live harness availability | H | M | Keep live-run policy: fresh record-mode evidence is required to promote or retain `supported` capability status |
-| Cross-platform PTY behavior diverges | M | M | Define OS-specific transport adapters behind one cassette contract and require per-OS fixtures before claiming support |
+| Cross-platform PTY behavior diverges | M | M | Require Linux and macOS host smoke tests before claiming primary PTY support; track Windows as an explicit unsupported gap until an OS-specific adapter and fixtures exist |
 
 ## Validation
 
@@ -240,6 +259,7 @@ never normalizes or rewrites the evidence.
 |----------------|----------------|
 | A future cassette runner can record and replay one codex or claude run through the same direct PTY transport | Record and replay use different process/session supervisors |
 | PTY conformance tests capture useful multi-frame output from Unix `top` and at least two other terminal program shapes | The library is marked complete using only fake sessions or Claude/Codex probes |
+| Linux and macOS host PTY smoke tests pass or report an explicit platform gap | Primary PTY support is claimed from Docker-only Linux evidence |
 | Codex and Claude model-list and quota probes run through the direct PTY library | A capability is marked supported from tmux-only evidence |
 | Accepted cassettes contain manifest, input, output, frames, service events, final metadata, quota data when applicable, and scrub report | A cassette lacks any required version-1 artifact |
 | Record mode refuses missing auth/quota/binary cases before writing accepted evidence | CI or local record mode creates a passing cassette for an unauthenticated harness |
@@ -258,6 +278,8 @@ never normalizes or rewrites the evidence.
 - [CONTRACT-003 DdxAgent Service Interface](/Users/erik/Projects/agent/docs/helix/02-design/contracts/CONTRACT-003-ddx-agent-service.md)
 - [Concerns](/Users/erik/Projects/agent/docs/helix/01-frame/concerns.md)
 - [Architecture](/Users/erik/Projects/agent/docs/helix/02-design/architecture.md)
+- [ADR-003 PTY Terminal Rendering and Screen Model](/Users/erik/Projects/agent/docs/helix/02-design/adr/ADR-003-pty-terminal-rendering.md)
+- [SPIKE-001 Direct PTY Rendering With Unix Top](/Users/erik/Projects/agent/docs/helix/02-design/spikes/SPIKE-001-direct-pty-top-rendering.md)
 - [gastown local tmux wrapper](/Users/erik/Projects/gastown/internal/tmux/tmux.go)
 - [dun local harness spike](/Users/erik/Projects/dun/main/docs/helix/01-frame/spikes/SPIKE-001-nested-agent-harness.md)
 - [Named Tmux Manager](https://github.com/Dicklesworthstone/ntm)

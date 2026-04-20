@@ -194,6 +194,12 @@ Evidence:
 - source metadata
 - tests proving unsupported reasoning levels are rejected or reported
 
+Claude reasoning/effort support must be owned by an explicit compatibility
+decision. If the installed Claude CLI exposes stable `--effort` values, the
+adapter may use that source. Otherwise the baseline requires a version-pinned
+compatibility table with freshness metadata and tests that stale mappings leave
+the capability as `gap` or `blocked`, not silently supported.
+
 ### SetReasoning
 
 The harness accepts one listed reasoning level and applies the correct
@@ -208,8 +214,9 @@ Evidence must include:
 Examples:
 
 - Codex: `-c reasoning.effort=<level>`
-- Claude: `--effort <level>` if supported by the installed CLI; otherwise this
-  capability remains `gap` until a supported mapping is implemented
+- Claude: `--effort <level>` if supported by the installed CLI, or a
+  version-pinned compatibility table accepted by the reasoning-listing
+  evidence; otherwise this capability remains `gap`
 - agent: resolved provider request metadata or internal reasoning-budget
   metadata
 
@@ -231,6 +238,11 @@ stream, transcript, status output, or another documented source of truth and be
 captured through the direct PTY/cassette path when the source is TUI-derived.
 Cache, reasoning, or provider-specific token subfields should be preserved when
 exposed, but the required baseline remains input, output, and total tokens.
+
+When more than one source is available, the default precedence is native stream,
+then transcript/session artifact, then status output, then an explicitly
+documented fallback. If sources disagree, the normalized final metadata must
+record a warning with the sources and values instead of silently picking one.
 
 Cost is useful when exposed, but `cost_usd` is not part of this baseline.
 
