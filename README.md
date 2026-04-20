@@ -165,15 +165,7 @@ top-level `preset` config field:
 | `minimal`   | Bare minimum — one sentence                           |
 | `benchmark` | Non-interactive prompt optimized for evaluation       |
 
-```bash
-ddx-agent -p "prompt" --preset smart
-ddx-agent -p "prompt" --preset cheap
-```
-
 When no preset is specified, `default` is used.
-Deprecated harness-flavored aliases (`agent`, `worker`, `cursor`, `claude`,
-and `codex`) still resolve with warnings for one release window; use
-`default`, `smart`, or `cheap` in new config.
 
 ## Session Replay
 

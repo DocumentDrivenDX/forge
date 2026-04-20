@@ -5,13 +5,6 @@ Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
 
 ## [Unreleased]
 
-### Added
-- **Deprecation warnings for harness-flavored preset names.** Old preset names
-  (`agent`, `worker`, `cursor`, `claude`, `codex`) now emit a stderr warning
-  and resolve to their intent-flavored equivalents (`default`, `smart`, `cheap`)
-  instead of failing. The warnings will become errors in a future release.
-  (`agent-a365bcf2`)
-
 ## [v0.5.0] — 2026-04-19
 
 ### Breaking

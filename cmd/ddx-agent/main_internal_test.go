@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,51 +55,12 @@ func TestResolvePreset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "default", got)
 
-	// Deprecated alias codex resolves to cheap with a warning.
-	warning := captureCommandStderr(t, func() {
-		got, err = resolvePreset("codex", cfg)
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "cheap", got)
-	assert.Contains(t, warning, `preset name "codex" is deprecated; use "cheap" instead`)
-
-	// Deprecated alias "agent" resolves to default
-	got, err = resolvePreset("agent", cfg)
-	require.NoError(t, err)
-	assert.Equal(t, "default", got)
-
-	// Deprecated alias "claude" resolves to smart
-	got, err = resolvePreset("claude", cfg)
-	require.NoError(t, err)
-	assert.Equal(t, "smart", got)
-
-	// Deprecated alias "cursor" resolves to default
-	got, err = resolvePreset("cursor", cfg)
-	require.NoError(t, err)
-	assert.Equal(t, "default", got)
-}
-
-func captureCommandStderr(t *testing.T, fn func()) string {
-	t.Helper()
-
-	old := os.Stderr
-	r, w, err := os.Pipe()
-	require.NoError(t, err)
-	os.Stderr = w
-	defer func() {
-		os.Stderr = old
-		_ = r.Close()
-		_ = w.Close()
-	}()
-
-	fn()
-
-	os.Stderr = old
-	require.NoError(t, w.Close())
-
-	out, err := io.ReadAll(r)
-	require.NoError(t, err)
-	return string(out)
+	// Deprecated aliases are now rejected.
+	for _, alias := range []string{"agent", "worker", "cursor", "claude", "codex"} {
+		_, err := resolvePreset(alias, cfg)
+		require.Error(t, err, "alias %q should be rejected", alias)
+		assert.Contains(t, err.Error(), "unknown preset")
+	}
 }
 
 func TestResolveRunReasoningNormalizesExplicitValues(t *testing.T) {

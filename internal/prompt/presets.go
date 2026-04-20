@@ -2,7 +2,6 @@ package prompt
 
 import (
 	"fmt"
-	"os"
 )
 
 // Preset is a named system prompt configuration.
@@ -140,32 +139,18 @@ Work systematically: read relevant files first using the read tool, make changes
 	},
 }
 
-var deprecatedPresetAliases = map[string]string{
-	"agent":  "default",
-	"worker": "default",
-	"cursor": "default",
-	"claude": "smart",
-	"codex":  "cheap",
-}
-
 // PresetNames returns all current canonical preset names in a stable order.
 func PresetNames() []string {
 	return []string{"default", "smart", "cheap", "minimal", "benchmark"}
 }
 
 // ResolvePresetName resolves a preset name to its canonical form.
-// Deprecated aliases (agent, worker, cursor, claude, codex) are resolved
-// with a stderr warning directing users to the replacement name.
 func ResolvePresetName(name string) (string, error) {
 	if name == "" {
 		return "default", nil
 	}
 	if _, ok := Presets[name]; ok {
 		return name, nil
-	}
-	if replacement, ok := deprecatedPresetAliases[name]; ok {
-		fmt.Fprintf(os.Stderr, "ddx-agent: warning: preset name %q is deprecated; use %q instead; this alias will be removed in a future release\n", name, replacement)
-		return replacement, nil
 	}
 	return "", fmt.Errorf("unknown preset %q (available: default, smart, cheap, minimal, benchmark)", name)
 }

@@ -162,11 +162,6 @@ DDX Agent ships with built-in system prompt presets that describe prompt intent:
 | `minimal` | Bare minimum — one sentence |
 | `benchmark` | Non-interactive prompt optimized for evaluation |
 
-Deprecated harness-flavored aliases (`agent`, `worker`, `cursor`, `claude`,
-and `codex`) are compatibility-only. They resolve to `default`, `default`,
-`default`, `smart`, and `cheap` respectively, emit warnings, and are scheduled
-for removal after the deprecation window.
-
 ### Boundary with Model Catalog
 
 Prompt presets are strictly about system prompt behavior. They do **not**
