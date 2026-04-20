@@ -901,6 +901,8 @@ candidates with `Reason`, `LastError`, `LastAttempt`, and `Until` timestamps.
 Real subprocess harness support uses versioned PTY cassettes as golden-master
 evidence. The transport decision is [ADR-002: PTY Cassette Transport for
 Harness Golden Masters](/Users/erik/Projects/agent/docs/helix/02-design/adr/ADR-002-pty-cassette-transport.md).
+The runnable replay/record workflow is documented in
+[Harness Golden-Master Integration](/Users/erik/Projects/agent/docs/helix/02-design/harness-golden-integration.md).
 
 ADR-002 selects direct PTY ownership inside DDX Agent as the canonical
 transport for live execution, record mode, replay mode, cancellation, quota
