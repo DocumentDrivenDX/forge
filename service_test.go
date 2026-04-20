@@ -182,7 +182,7 @@ func TestListHarnesses_shape(t *testing.T) {
 				ProgressEvents:  capStatus(agent.HarnessCapabilityRequired),
 				UsageCapture:    capStatus(agent.HarnessCapabilityOptional),
 				FinalText:       capStatus(agent.HarnessCapabilityOptional),
-				ToolEvents:      capStatus(agent.HarnessCapabilityUnsupported),
+				ToolEvents:      capStatus(agent.HarnessCapabilityOptional),
 				QuotaStatus:     capStatus(agent.HarnessCapabilityOptional),
 				RecordReplay:    capStatus(agent.HarnessCapabilityUnsupported),
 			},

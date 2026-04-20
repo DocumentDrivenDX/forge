@@ -666,7 +666,7 @@ Current builtin matrix:
 
 | Harness | ExecutePrompt | ModelDiscovery | ModelPinning | WorkdirContext | ReasoningLevels | PermissionModes | ProgressEvents | UsageCapture | FinalText | ToolEvents | QuotaStatus | RecordReplay |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| codex | required | unsupported | optional | optional | optional | optional | required | optional | optional | unsupported | optional | unsupported |
+| codex | required | unsupported | optional | optional | optional | optional | required | optional | optional | optional | optional | unsupported |
 | claude | required | unsupported | optional | optional | optional | optional | required | optional | optional | optional | optional | unsupported |
 | gemini | required | unsupported | optional | optional | unsupported | unsupported | required | optional | optional | unsupported | unsupported | unsupported |
 | opencode | required | unsupported | optional | optional | optional | optional | required | optional | optional | unsupported | unsupported | unsupported |

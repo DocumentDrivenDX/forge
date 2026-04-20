@@ -1,0 +1,4 @@
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/sh -lc \"printf codex-tool\"","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/sh -lc \"printf codex-tool\"","aggregated_output":"codex-tool","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_2","type":"message","content":[{"type":"output_text","text":"codex final"}]}}
+{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":5}}

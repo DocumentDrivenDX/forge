@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,9 +24,14 @@ import (
 type codexEvent struct {
 	Type string `json:"type"`
 	Item struct {
-		Type    string          `json:"type"`
-		Text    string          `json:"text"`
-		Content json.RawMessage `json:"content"`
+		ID               string          `json:"id"`
+		Type             string          `json:"type"`
+		Text             string          `json:"text"`
+		Content          json.RawMessage `json:"content"`
+		Command          string          `json:"command"`
+		AggregatedOutput string          `json:"aggregated_output"`
+		ExitCode         *int            `json:"exit_code"`
+		Status           string          `json:"status"`
 	} `json:"item"`
 	Usage struct {
 		InputTokens  int `json:"input_tokens"`
@@ -43,10 +49,12 @@ type streamAggregate struct {
 // parseCodexStream reads newline-delimited codex exec --json events from r
 // and emits harness Events on out. Mapping per CONTRACT-003:
 //
-//   - codex output/agent_message     -> EventTypeTextDelta
-//   - codex item.completed text item -> EventTypeTextDelta
-//   - codex turn.completed           -> (no event; aggregate populated with usage)
-//   - all other types                -> skipped
+//   - codex output/agent_message              -> EventTypeTextDelta
+//   - codex item.started command_execution    -> EventTypeToolCall
+//   - codex item.completed command_execution  -> EventTypeToolResult
+//   - codex item.completed text item          -> EventTypeTextDelta
+//   - codex turn.completed                    -> (no event; aggregate populated with usage)
+//   - all other types                         -> skipped
 func parseCodexStream(ctx context.Context, r io.Reader, out chan<- harnesses.Event, metadata map[string]string, seq *int64) (*streamAggregate, error) {
 	agg := &streamAggregate{}
 	scanner := bufio.NewScanner(r)
@@ -99,12 +107,36 @@ func parseCodexStream(ctx context.Context, r io.Reader, out chan<- harnesses.Eve
 				agg.FinalText = ev.Item.Text
 			}
 		case "item.completed":
+			if ev.Item.Type == "command_execution" {
+				if err := emit(harnesses.EventTypeToolResult, harnesses.ToolResultData{
+					ID:     codexToolID(ev.Item.ID),
+					Output: ev.Item.AggregatedOutput,
+					Error:  codexCommandError(ev.Item.Status, ev.Item.ExitCode),
+				}); err != nil {
+					return agg, err
+				}
+				continue
+			}
 			text := codexCompletedItemText(ev.Item.Text, ev.Item.Content)
 			if text != "" {
 				if err := emit(harnesses.EventTypeTextDelta, harnesses.TextDeltaData{Text: text}); err != nil {
 					return agg, err
 				}
 				agg.FinalText = text
+			}
+		case "item.started":
+			if ev.Item.Type == "command_execution" {
+				input, err := codexCommandInput(ev.Item.Command)
+				if err != nil {
+					return agg, err
+				}
+				if err := emit(harnesses.EventTypeToolCall, harnesses.ToolCallData{
+					ID:    codexToolID(ev.Item.ID),
+					Name:  "command_execution",
+					Input: input,
+				}); err != nil {
+					return agg, err
+				}
 			}
 		case "turn.completed":
 			if ev.Usage.InputTokens > 0 {
@@ -119,6 +151,28 @@ func parseCodexStream(ctx context.Context, r io.Reader, out chan<- harnesses.Eve
 		return agg, err
 	}
 	return agg, nil
+}
+
+func codexToolID(id string) string {
+	if id != "" {
+		return id
+	}
+	return "codex-command"
+}
+
+func codexCommandInput(command string) (json.RawMessage, error) {
+	raw, err := json.Marshal(map[string]string{"command": command})
+	return raw, err
+}
+
+func codexCommandError(status string, exitCode *int) string {
+	if exitCode != nil && *exitCode != 0 {
+		return "exit status " + strconv.Itoa(*exitCode)
+	}
+	if status != "" && status != "completed" {
+		return status
+	}
+	return ""
 }
 
 func codexCompletedItemText(text string, content json.RawMessage) string {

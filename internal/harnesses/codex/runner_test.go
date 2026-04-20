@@ -174,6 +174,94 @@ func TestParseCodexStream_ItemCompletedFinalText(t *testing.T) {
 	}
 }
 
+func TestParseCodexStream_CommandExecutionToolEvents(t *testing.T) {
+	input, err := os.ReadFile("testdata/tool_events.jsonl")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	out := make(chan harnesses.Event, 16)
+	var seq int64
+	agg, err := parseCodexStream(context.Background(), strings.NewReader(string(input)), out, nil, &seq)
+	close(out)
+	if err != nil {
+		t.Fatalf("parseCodexStream: %v", err)
+	}
+	if agg.FinalText != "codex final" {
+		t.Fatalf("FinalText: got %q", agg.FinalText)
+	}
+	if agg.InputTokens != 12 || agg.OutputTokens != 5 {
+		t.Fatalf("usage: got input=%d output=%d", agg.InputTokens, agg.OutputTokens)
+	}
+
+	var events []harnesses.Event
+	for ev := range out {
+		events = append(events, ev)
+	}
+	if len(events) != 3 {
+		t.Fatalf("events: got %d, want 3", len(events))
+	}
+	if events[0].Type != harnesses.EventTypeToolCall {
+		t.Fatalf("event[0] type: got %q", events[0].Type)
+	}
+	var call harnesses.ToolCallData
+	if err := json.Unmarshal(events[0].Data, &call); err != nil {
+		t.Fatalf("unmarshal tool_call: %v", err)
+	}
+	if call.ID != "item_1" || call.Name != "command_execution" {
+		t.Fatalf("tool_call: got %+v", call)
+	}
+	if !strings.Contains(string(call.Input), "/bin/sh -lc") {
+		t.Fatalf("tool_call input: %s", string(call.Input))
+	}
+
+	if events[1].Type != harnesses.EventTypeToolResult {
+		t.Fatalf("event[1] type: got %q", events[1].Type)
+	}
+	var result harnesses.ToolResultData
+	if err := json.Unmarshal(events[1].Data, &result); err != nil {
+		t.Fatalf("unmarshal tool_result: %v", err)
+	}
+	if result.ID != call.ID {
+		t.Fatalf("tool_result ID: got %q, want %q", result.ID, call.ID)
+	}
+	if result.Output != "codex-tool" || result.Error != "" {
+		t.Fatalf("tool_result: got %+v", result)
+	}
+
+	if events[2].Type != harnesses.EventTypeTextDelta {
+		t.Fatalf("event[2] type: got %q", events[2].Type)
+	}
+}
+
+func TestParseCodexStream_CommandExecutionFailure(t *testing.T) {
+	input := `{"type":"item.started","item":{"id":"item_fail","type":"command_execution","command":"false","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_fail","type":"command_execution","command":"false","aggregated_output":"boom","exit_code":2,"status":"completed"}}
+`
+	out := make(chan harnesses.Event, 16)
+	var seq int64
+	if _, err := parseCodexStream(context.Background(), strings.NewReader(input), out, nil, &seq); err != nil {
+		t.Fatalf("parseCodexStream: %v", err)
+	}
+	close(out)
+	var events []harnesses.Event
+	for ev := range out {
+		events = append(events, ev)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events: got %d, want 2", len(events))
+	}
+	var result harnesses.ToolResultData
+	if err := json.Unmarshal(events[1].Data, &result); err != nil {
+		t.Fatalf("unmarshal tool_result: %v", err)
+	}
+	if result.Error != "exit status 2" {
+		t.Fatalf("tool_result error: got %q", result.Error)
+	}
+	if result.Output != "boom" {
+		t.Fatalf("tool_result output: got %q", result.Output)
+	}
+}
+
 func reviewerVerdictFromFinalText(text string) string {
 	if strings.Contains(text, "APPROVE") {
 		return "APPROVE"

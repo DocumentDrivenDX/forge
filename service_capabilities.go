@@ -176,7 +176,7 @@ func toolEventsCapability(name string, cfg harnesses.HarnessConfig) HarnessCapab
 		return capNotApplicable("test-only harness does not expose live tool events")
 	}
 	switch name {
-	case "agent", "claude":
+	case "agent", "claude", "codex":
 		return capOptional("Service.Execute emits tool_call and tool_result events")
 	default:
 		return capUnsupported("tool-call/tool-result events are not exposed for this harness")

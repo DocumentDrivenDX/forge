@@ -32,6 +32,8 @@ EOF
 `)
 	writeGoldenHarnessScript(t, binDir, "codex", `#!/bin/sh
 cat <<'EOF'
+{"type":"item.started","item":{"id":"codex_cmd_1","type":"command_execution","command":"/bin/sh -lc \"printf codex-tool\"","status":"in_progress"}}
+{"type":"item.completed","item":{"id":"codex_cmd_1","type":"command_execution","command":"/bin/sh -lc \"printf codex-tool\"","aggregated_output":"codex-tool","exit_code":0,"status":"completed"}}
 {"type":"output","item":{"type":"agent_message","text":"codex cassette final"}}
 {"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":5}}
 EOF
@@ -69,15 +71,16 @@ EOF
 	assertGoldenCapabilities(t, svc)
 
 	cases := []struct {
-		harness string
-		text    string
-		usage   bool
+		harness  string
+		text     string
+		usage    bool
+		toolName string
 	}{
-		{"claude", "claude cassette final", true},
-		{"codex", "codex cassette final", true},
-		{"pi", "pi cassette final", true},
-		{"opencode", "opencode cassette final", false},
-		{"gemini", "gemini cassette final", true},
+		{"claude", "claude cassette final", true, ""},
+		{"codex", "codex cassette final", true, "command_execution"},
+		{"pi", "pi cassette final", true, ""},
+		{"opencode", "opencode cassette final", false, ""},
+		{"gemini", "gemini cassette final", true, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.harness, func(t *testing.T) {
@@ -122,6 +125,20 @@ EOF
 			}
 			if tc.usage && result.Usage == nil {
 				t.Fatal("expected usage from replay cassette")
+			}
+			if tc.toolName != "" {
+				if len(result.ToolCalls) != 1 || len(result.ToolResults) != 1 {
+					t.Fatalf("expected one tool_call and one tool_result, got calls=%v results=%v", result.ToolCalls, result.ToolResults)
+				}
+				if result.ToolCalls[0].Name != tc.toolName {
+					t.Fatalf("tool call name: got %q, want %q", result.ToolCalls[0].Name, tc.toolName)
+				}
+				if result.ToolResults[0].ID != result.ToolCalls[0].ID {
+					t.Fatalf("tool result ID %q does not match call ID %q", result.ToolResults[0].ID, result.ToolCalls[0].ID)
+				}
+				if !strings.Contains(result.ToolResults[0].Output, "codex-tool") {
+					t.Fatalf("tool result output: got %q", result.ToolResults[0].Output)
+				}
 			}
 		})
 	}
