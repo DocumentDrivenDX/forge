@@ -62,7 +62,7 @@ func run() int {
 	workDir := fs.String("work-dir", "", "Working directory")
 	version := fs.Bool("version", false, "Print version")
 	sysPromptFlag := fs.String("system", "", "System prompt (appended to preset)")
-	presetFlag := fs.String("preset", "", "System prompt preset: default, smart, cheap, minimal, benchmark (default, smart, cheap also available as deprecated aliases: agent→default, claude→smart, codex→cheap, cursor→default, worker→default)")
+	presetFlag := fs.String("preset", "", "System prompt preset: default, smart, cheap, minimal, benchmark (old harness-flavored names are deprecated aliases: agent→default, claude→smart, codex→cheap, cursor→default, worker→default)")
 
 	if err := fs.Parse(cliArgs); err != nil {
 		return 2

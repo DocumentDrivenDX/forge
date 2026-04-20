@@ -1,6 +1,8 @@
 package prompt
 
 import (
+	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -44,30 +46,38 @@ func TestResolvePresetName(t *testing.T) {
 	})
 
 	t.Run("deprecated aliases resolve to replacements", func(t *testing.T) {
-		// agent -> default
-		got, err := ResolvePresetName("agent")
-		require.NoError(t, err)
-		assert.Equal(t, "default", got)
+		out := captureStderr(t, func() {
+			// agent -> default
+			got, err := ResolvePresetName("agent")
+			require.NoError(t, err)
+			assert.Equal(t, "default", got)
 
-		// claude -> smart
-		got, err = ResolvePresetName("claude")
-		require.NoError(t, err)
-		assert.Equal(t, "smart", got)
+			// claude -> smart
+			got, err = ResolvePresetName("claude")
+			require.NoError(t, err)
+			assert.Equal(t, "smart", got)
 
-		// codex -> cheap
-		got, err = ResolvePresetName("codex")
-		require.NoError(t, err)
-		assert.Equal(t, "cheap", got)
+			// codex -> cheap
+			got, err = ResolvePresetName("codex")
+			require.NoError(t, err)
+			assert.Equal(t, "cheap", got)
 
-		// cursor -> default
-		got, err = ResolvePresetName("cursor")
-		require.NoError(t, err)
-		assert.Equal(t, "default", got)
+			// cursor -> default
+			got, err = ResolvePresetName("cursor")
+			require.NoError(t, err)
+			assert.Equal(t, "default", got)
 
-		// worker -> default
-		got, err = ResolvePresetName("worker")
-		require.NoError(t, err)
-		assert.Equal(t, "default", got)
+			// worker -> default
+			got, err = ResolvePresetName("worker")
+			require.NoError(t, err)
+			assert.Equal(t, "default", got)
+		})
+
+		assert.Contains(t, out, `preset name "agent" is deprecated; use "default" instead`)
+		assert.Contains(t, out, `preset name "claude" is deprecated; use "smart" instead`)
+		assert.Contains(t, out, `preset name "codex" is deprecated; use "cheap" instead`)
+		assert.Contains(t, out, `preset name "cursor" is deprecated; use "default" instead`)
+		assert.Contains(t, out, `preset name "worker" is deprecated; use "default" instead`)
 	})
 
 	t.Run("unknown preset errors", func(t *testing.T) {
@@ -75,6 +85,29 @@ func TestResolvePresetName(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), `unknown preset "nope"`)
 	})
+}
+
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+
+	old := os.Stderr
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stderr = w
+	defer func() {
+		os.Stderr = old
+		_ = r.Close()
+		_ = w.Close()
+	}()
+
+	fn()
+
+	os.Stderr = old
+	require.NoError(t, w.Close())
+
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	return string(out)
 }
 
 func TestNewFromPreset(t *testing.T) {
