@@ -111,6 +111,70 @@ func TestExecute_SubprocessHarnessMissingBinaryFinalFailure(t *testing.T) {
 	}
 }
 
+func TestExecute_DispatchesVirtualAndScriptHarnesses(t *testing.T) {
+	svc, err := agent.New(agent.ServiceOptions{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name     string
+		req      agent.ServiceExecuteRequest
+		wantText string
+	}{
+		{
+			name: "virtual",
+			req: agent.ServiceExecuteRequest{
+				Prompt:  "hello virtual",
+				Harness: "virtual",
+				Model:   "recorded",
+				Metadata: map[string]string{
+					"virtual.response":      "virtual replay response",
+					"virtual.input_tokens":  "7",
+					"virtual.output_tokens": "3",
+					"virtual.total_tokens":  "10",
+				},
+			},
+			wantText: "virtual replay response",
+		},
+		{
+			name: "script",
+			req: agent.ServiceExecuteRequest{
+				Prompt:  "hello script",
+				Harness: "script",
+				Model:   "deterministic",
+				Metadata: map[string]string{
+					"script.stdout": "script definition response",
+				},
+			},
+			wantText: "script definition response",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			ch, err := svc.Execute(ctx, tc.req)
+			if err != nil {
+				t.Fatalf("Execute: %v", err)
+			}
+			result, err := agent.DrainExecute(ctx, ch)
+			if err != nil {
+				t.Fatalf("DrainExecute: %v", err)
+			}
+			if result.FinalStatus != "success" {
+				t.Fatalf("FinalStatus: got %q (err=%q)", result.FinalStatus, result.TerminalError)
+			}
+			if result.FinalText != tc.wantText {
+				t.Fatalf("FinalText: got %q, want %q", result.FinalText, tc.wantText)
+			}
+			if result.RoutingActual == nil || result.RoutingActual.Harness != tc.name {
+				t.Fatalf("RoutingActual: got %#v, want harness %q", result.RoutingActual, tc.name)
+			}
+		})
+	}
+}
+
 func writeFakeHarness(t *testing.T, dir, name, body string) {
 	t.Helper()
 	path := filepath.Join(dir, name)

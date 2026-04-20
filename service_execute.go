@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	geminiharness "github.com/DocumentDrivenDX/agent/internal/harnesses/gemini"
 	opencodeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/opencode"
 	piharness "github.com/DocumentDrivenDX/agent/internal/harnesses/pi"
+	virtualprovider "github.com/DocumentDrivenDX/agent/internal/provider/virtual"
 	"github.com/DocumentDrivenDX/agent/internal/sessionlog"
 )
 
@@ -193,6 +195,10 @@ func (s *service) runExecute(ctx context.Context, req ServiceExecuteRequest, dec
 		s.runSubprocess(runCtx, req, decision, meta, out, &seq, start, &opencodeharness.Runner{})
 	case "pi":
 		s.runSubprocess(runCtx, req, decision, meta, out, &seq, start, &piharness.Runner{})
+	case "virtual":
+		s.runVirtual(runCtx, req, decision, meta, out, &seq, start)
+	case "script":
+		s.runScript(runCtx, req, decision, meta, out, &seq, start)
 	default:
 		if cfg, ok := s.registry.Get(decision.Harness); ok && cfg.IsHTTPProvider {
 			s.runNative(runCtx, req, decision, meta, out, &seq, start)
@@ -211,6 +217,146 @@ func (s *service) runExecute(ctx context.Context, req ServiceExecuteRequest, dec
 			},
 		})
 	}
+}
+
+func (s *service) runVirtual(ctx context.Context, req ServiceExecuteRequest, decision RouteDecision, meta map[string]string, out chan<- ServiceEvent, seq *atomic.Int64, start time.Time) {
+	inlineText := meta["virtual.response"]
+	cfg := virtualprovider.Config{
+		DictDir: meta["virtual.dict_dir"],
+	}
+	if inlineText != "" {
+		cfg.InlineResponses = []virtualprovider.InlineResponse{{
+			PromptMatch: metaValue(meta, "virtual.prompt_match", req.Prompt),
+			Response: agentcore.Response{
+				Content: inlineText,
+				Usage: agentcore.TokenUsage{
+					Input:  metadataInt(meta, "virtual.input_tokens"),
+					Output: metadataInt(meta, "virtual.output_tokens"),
+					Total:  metadataInt(meta, "virtual.total_tokens"),
+				},
+				Model: metaValue(meta, "virtual.model", decision.Model),
+			},
+			DelayMS: metadataInt(meta, "virtual.delay_ms"),
+		}}
+	}
+	if cfg.DictDir == "" && len(cfg.InlineResponses) == 0 {
+		emitFinal(out, seq, meta, harnesses.FinalData{
+			Status:     "failed",
+			Error:      "virtual harness requires metadata virtual.response or virtual.dict_dir",
+			DurationMS: time.Since(start).Milliseconds(),
+			RoutingActual: &harnesses.RoutingActual{
+				Harness:  decision.Harness,
+				Provider: decision.Provider,
+				Model:    decision.Model,
+			},
+		})
+		return
+	}
+
+	resp, err := virtualprovider.New(cfg).Chat(ctx, []agentcore.Message{{Role: agentcore.RoleUser, Content: req.Prompt}}, nil, agentcore.Options{})
+	final := harnesses.FinalData{
+		DurationMS: time.Since(start).Milliseconds(),
+		RoutingActual: &harnesses.RoutingActual{
+			Harness:  decision.Harness,
+			Provider: decision.Provider,
+			Model:    metaValue(meta, "virtual.model", decision.Model),
+		},
+	}
+	if err != nil {
+		final.Status = "failed"
+		final.Error = err.Error()
+		emitFinal(out, seq, meta, final)
+		return
+	}
+	final.Status = "success"
+	final.FinalText = resp.Content
+	if resp.Usage.Input > 0 || resp.Usage.Output > 0 || resp.Usage.Total > 0 {
+		final.Usage = &harnesses.FinalUsage{
+			InputTokens:  resp.Usage.Input,
+			OutputTokens: resp.Usage.Output,
+			TotalTokens:  resp.Usage.Total,
+		}
+	}
+	if resp.Content != "" {
+		emitJSONRaw(out, seq, harnesses.EventTypeTextDelta, meta, harnesses.TextDeltaData{Text: resp.Content})
+	}
+	emitFinal(out, seq, meta, final)
+}
+
+func (s *service) runScript(ctx context.Context, req ServiceExecuteRequest, decision RouteDecision, meta map[string]string, out chan<- ServiceEvent, seq *atomic.Int64, start time.Time) {
+	delay := metadataInt(meta, "script.delay_ms")
+	if delay > 0 {
+		timer := time.NewTimer(time.Duration(delay) * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			emitFinal(out, seq, meta, harnesses.FinalData{
+				Status:     "cancelled",
+				Error:      ctx.Err().Error(),
+				DurationMS: time.Since(start).Milliseconds(),
+				RoutingActual: &harnesses.RoutingActual{
+					Harness:  decision.Harness,
+					Provider: decision.Provider,
+					Model:    decision.Model,
+				},
+			})
+			return
+		case <-timer.C:
+		}
+	}
+
+	text, ok := meta["script.stdout"]
+	if !ok {
+		emitFinal(out, seq, meta, harnesses.FinalData{
+			Status:     "failed",
+			Error:      "script harness requires metadata script.stdout",
+			DurationMS: time.Since(start).Milliseconds(),
+			RoutingActual: &harnesses.RoutingActual{
+				Harness:  decision.Harness,
+				Provider: decision.Provider,
+				Model:    decision.Model,
+			},
+		})
+		return
+	}
+	exitCode := metadataInt(meta, "script.exit_code")
+	final := harnesses.FinalData{
+		Status:     "success",
+		ExitCode:   exitCode,
+		FinalText:  text,
+		DurationMS: time.Since(start).Milliseconds(),
+		RoutingActual: &harnesses.RoutingActual{
+			Harness:  decision.Harness,
+			Provider: decision.Provider,
+			Model:    decision.Model,
+		},
+	}
+	if text != "" {
+		emitJSONRaw(out, seq, harnesses.EventTypeTextDelta, meta, harnesses.TextDeltaData{Text: text})
+	}
+	if exitCode != 0 {
+		final.Status = "failed"
+		final.Error = metaValue(meta, "script.stderr", fmt.Sprintf("script exited with status %d", exitCode))
+	}
+	emitFinal(out, seq, meta, final)
+}
+
+func metaValue(meta map[string]string, key, fallback string) string {
+	if meta == nil {
+		return fallback
+	}
+	if v := meta[key]; v != "" {
+		return v
+	}
+	return fallback
+}
+
+func metadataInt(meta map[string]string, key string) int {
+	if meta == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(meta[key])
+	return n
 }
 
 // runNative drives the in-process agent loop (loop.go's Run). The provider

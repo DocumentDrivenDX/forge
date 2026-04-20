@@ -72,7 +72,7 @@ func harnessCapabilityMatrix(name string, cfg harnesses.HarnessConfig) HarnessCa
 
 func serviceExecuteWired(name string, cfg harnesses.HarnessConfig) bool {
 	switch name {
-	case "agent", "claude", "codex", "gemini", "opencode", "pi":
+	case "agent", "claude", "codex", "gemini", "opencode", "pi", "virtual", "script":
 		return true
 	default:
 		return cfg.IsHTTPProvider
@@ -154,6 +154,9 @@ func usageCaptureCapability(name string, cfg harnesses.HarnessConfig) HarnessCap
 }
 
 func finalTextCapability(name string, cfg harnesses.HarnessConfig) HarnessCapability {
+	if name == "virtual" || name == "script" {
+		return capOptional("test-only final events include deterministic final_text")
+	}
 	if cfg.TestOnly {
 		return capNotApplicable("test-only harness does not expose normalized live response text")
 	}

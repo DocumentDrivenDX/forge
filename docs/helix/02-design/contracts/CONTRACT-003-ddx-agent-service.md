@@ -636,8 +636,8 @@ Current builtin matrix:
 | opencode | required | unsupported | optional | optional | optional | optional | required | optional | optional | unsupported | unsupported | unsupported |
 | agent | required | optional | optional | optional | optional | unsupported | required | optional | optional | optional | not_applicable | unsupported |
 | pi | required | unsupported | optional | optional | optional | unsupported | required | optional | optional | unsupported | unsupported | unsupported |
-| virtual | unsupported | not_applicable | not_applicable | not_applicable | not_applicable | not_applicable | unsupported | unsupported | not_applicable | not_applicable | not_applicable | required |
-| script | unsupported | not_applicable | not_applicable | not_applicable | not_applicable | not_applicable | unsupported | unsupported | not_applicable | not_applicable | not_applicable | required |
+| virtual | required | not_applicable | not_applicable | not_applicable | not_applicable | not_applicable | required | optional | optional | not_applicable | not_applicable | required |
+| script | required | not_applicable | not_applicable | not_applicable | not_applicable | not_applicable | required | optional | optional | not_applicable | not_applicable | required |
 | openrouter | required | optional | unsupported | unsupported | unsupported | unsupported | required | optional | optional | unsupported | unsupported | unsupported |
 | lmstudio | required | optional | unsupported | unsupported | unsupported | unsupported | required | optional | optional | unsupported | not_applicable | unsupported |
 | omlx | required | optional | unsupported | unsupported | unsupported | unsupported | required | optional | optional | unsupported | not_applicable | unsupported |
@@ -656,6 +656,28 @@ Notes:
 - `RecordReplay=required` only for test-only harnesses (`virtual`, `script`).
   Production harnesses do not currently expose deterministic record/replay
   through this service contract.
+
+## Test-Only Execute Harnesses
+
+`virtual` and `script` are explicit test-only harnesses. The router and profile
+routing never choose them implicitly; callers must set `ExecuteRequest.Harness`
+or pass a `PreResolved` decision with that harness.
+
+`Harness="virtual"` accepts either:
+
+- `Metadata["virtual.response"]`: an inline deterministic final response.
+  Optional keys: `virtual.prompt_match`, `virtual.input_tokens`,
+  `virtual.output_tokens`, `virtual.total_tokens`, `virtual.delay_ms`,
+  `virtual.model`.
+- `Metadata["virtual.dict_dir"]`: a virtual-provider dictionary directory keyed
+  by normalized prompt hash.
+
+`Harness="script"` accepts a pinned script definition through metadata:
+`script.stdout` is required; optional keys are `script.stderr`,
+`script.exit_code`, and `script.delay_ms`. This is intentionally data-driven and
+does not require fake `claude`, `codex`, `opencode`, `gemini`, or `pi` binaries.
+Both harnesses emit the normal `routing_decision` → progress/text → `final`
+sequence and can be consumed through `DrainExecute`.
 
 ## Event JSON shapes
 

@@ -370,18 +370,20 @@ func TestSmellSingleCooldownAbstraction(t *testing.T) {
 // routing — only explicit Harness override reaches them.
 func TestSmellTestOnlyHarnessExcluded(t *testing.T) {
 	in := newTestRoutingEngine()
-	in.Harnesses = append(in.Harnesses, HarnessEntry{
-		Name:            "script",
-		Surface:         "script",
-		CostClass:       "local",
-		IsLocal:         true,
-		TestOnly:        true,
-		Available:       true,
-		QuotaOK:         true,
-		SubscriptionOK:  true,
-		ExactPinSupport: true,
-		DefaultModel:    "recorded",
-	})
+	for _, name := range []string{"script", "virtual"} {
+		in.Harnesses = append(in.Harnesses, HarnessEntry{
+			Name:            name,
+			Surface:         name,
+			CostClass:       "local",
+			IsLocal:         true,
+			TestOnly:        true,
+			Available:       true,
+			QuotaOK:         true,
+			SubscriptionOK:  true,
+			ExactPinSupport: true,
+			DefaultModel:    "recorded",
+		})
+	}
 
 	for _, profile := range []string{"cheap", "standard", "smart"} {
 		req := Request{Profile: profile}
@@ -390,20 +392,21 @@ func TestSmellTestOnlyHarnessExcluded(t *testing.T) {
 			continue
 		}
 		for _, c := range dec.Candidates {
-			if c.Harness == "script" {
-				t.Errorf("profile=%s: TestOnly harness 'script' leaked into candidates", profile)
+			if c.Harness == "script" || c.Harness == "virtual" {
+				t.Errorf("profile=%s: TestOnly harness %q leaked into candidates", profile, c.Harness)
 			}
 		}
 	}
 
-	// Explicit Harness=script override must reach the candidate.
-	req := Request{Harness: "script"}
-	dec, err := Resolve(req, in)
-	if err != nil {
-		t.Fatalf("explicit Harness=script must succeed: %v", err)
-	}
-	if dec.Harness != "script" {
-		t.Errorf("explicit Harness=script: got %q, want script", dec.Harness)
+	for _, name := range []string{"script", "virtual"} {
+		req := Request{Harness: name}
+		dec, err := Resolve(req, in)
+		if err != nil {
+			t.Fatalf("explicit Harness=%s must succeed: %v", name, err)
+		}
+		if dec.Harness != name {
+			t.Errorf("explicit Harness=%s: got %q", name, dec.Harness)
+		}
 	}
 }
 
