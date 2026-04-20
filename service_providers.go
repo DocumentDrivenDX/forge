@@ -22,6 +22,7 @@ import (
 
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
 	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
+	codexharness "github.com/DocumentDrivenDX/agent/internal/harnesses/codex"
 )
 
 // healthCheckQuotaFreshnessWindow is the minimum age a quota cache entry must
@@ -35,6 +36,10 @@ const healthCheckQuotaFreshnessWindow = 60 * time.Second
 // spawning real tmux sessions.
 var healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
 	return claudeharness.ReadClaudeQuotaViaTmux(timeout)
+}
+
+var healthCheckCodexQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, error) {
+	return codexharness.ReadCodexQuotaViaTmux(timeout)
 }
 
 // ListProviders returns providers known to the native-agent harness with live
@@ -84,8 +89,13 @@ func (s *service) ListProviders(ctx context.Context) ([]ProviderInfo, error) {
 
 			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
+			capturedAt := time.Now().UTC()
 			info.Status, info.ModelCount, info.Capabilities = probeServiceProvider(probeCtx, entry)
 			info.CooldownState = serviceProviderCooldown(sc, name, cooldown)
+			info.Auth = providerAuthStatus(entry, info.Status, capturedAt)
+			info.EndpointStatus = providerEndpointStatus(entry, info.Status, info.ModelCount, capturedAt)
+			info.Quota = providerQuotaState(entry, capturedAt)
+			info.LastError = statusError(info.Status, info.EndpointStatus[0].Source, capturedAt)
 
 			results[idx] = indexedInfo{idx: idx, info: info}
 		}(i, name)
@@ -132,6 +142,9 @@ func (s *service) HealthCheck(ctx context.Context, target HealthTarget) error {
 			// For tmux-quota harnesses, refresh the quota cache when stale.
 			if target.Name == "claude" {
 				healthCheckRefreshClaudeQuota(ctx)
+			}
+			if target.Name == "codex" {
+				healthCheckRefreshCodexQuota(ctx)
 			}
 			return nil
 		}
@@ -313,7 +326,7 @@ func healthCheckRefreshClaudeQuota(_ context.Context) {
 	}
 
 	// Cache is absent or stale — run a tmux probe with a 5s cap.
-	windows, _, probeErr := healthCheckClaudeQuotaRefresher(5 * time.Second)
+	windows, acct, probeErr := healthCheckClaudeQuotaRefresher(5 * time.Second)
 	if probeErr != nil || len(windows) == 0 {
 		return
 	}
@@ -323,6 +336,7 @@ func healthCheckRefreshClaudeQuota(_ context.Context) {
 	newSnap := claudeharness.ClaudeQuotaSnapshot{
 		CapturedAt: time.Now().UTC(),
 		Source:     "pty",
+		Account:    acct,
 	}
 	for _, w := range windows {
 		switch w.LimitID {
@@ -339,4 +353,27 @@ func healthCheckRefreshClaudeQuota(_ context.Context) {
 	}
 
 	_ = claudeharness.WriteClaudeQuota(cachePath, newSnap)
+}
+
+func healthCheckRefreshCodexQuota(_ context.Context) {
+	cachePath, err := codexharness.CodexQuotaCachePath()
+	if err != nil {
+		return
+	}
+
+	snap, _ := codexharness.ReadCodexQuotaFrom(cachePath)
+	if snap != nil && codexharness.CodexQuotaSnapshotAge(snap, time.Now()) <= healthCheckQuotaFreshnessWindow {
+		return
+	}
+
+	windows, probeErr := healthCheckCodexQuotaRefresher(5 * time.Second)
+	if probeErr != nil || len(windows) == 0 {
+		return
+	}
+
+	_ = codexharness.WriteCodexQuota(cachePath, codexharness.CodexQuotaSnapshot{
+		CapturedAt: time.Now().UTC(),
+		Windows:    windows,
+		Source:     "pty",
+	})
 }

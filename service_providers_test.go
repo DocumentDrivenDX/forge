@@ -12,6 +12,7 @@ import (
 
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
 	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
+	codexharness "github.com/DocumentDrivenDX/agent/internal/harnesses/codex"
 )
 
 // fakeServiceConfig implements ServiceConfig for tests.
@@ -118,6 +119,15 @@ func TestListProviders_Connected(t *testing.T) {
 	if info.Type != "lmstudio" {
 		t.Errorf("Type: got %q, want %q", info.Type, "lmstudio")
 	}
+	if len(info.EndpointStatus) != 1 {
+		t.Fatalf("EndpointStatus length: got %d, want 1", len(info.EndpointStatus))
+	}
+	if info.EndpointStatus[0].Status != "connected" || info.EndpointStatus[0].ModelCount != 2 || info.EndpointStatus[0].LastSuccessAt.IsZero() {
+		t.Fatalf("EndpointStatus[0]: %#v", info.EndpointStatus[0])
+	}
+	if info.LastError != nil {
+		t.Fatalf("LastError: got %#v, want nil", info.LastError)
+	}
 }
 
 func TestListProviders_Unreachable(t *testing.T) {
@@ -139,6 +149,12 @@ func TestListProviders_Unreachable(t *testing.T) {
 	}
 	if infos[0].Status != "unreachable" {
 		t.Errorf("Status: got %q, want %q", infos[0].Status, "unreachable")
+	}
+	if infos[0].LastError == nil || infos[0].LastError.Type != "unavailable" {
+		t.Fatalf("LastError: got %#v, want unavailable", infos[0].LastError)
+	}
+	if len(infos[0].EndpointStatus) == 0 || infos[0].EndpointStatus[0].Status != "unreachable" {
+		t.Fatalf("EndpointStatus: %#v", infos[0].EndpointStatus)
 	}
 }
 
@@ -182,6 +198,12 @@ func TestListProviders_AnthropicNoKey(t *testing.T) {
 	}
 	if infos[0].Status != "error: api_key not configured" {
 		t.Errorf("unexpected status: %s", infos[0].Status)
+	}
+	if !infos[0].Auth.Unauthenticated {
+		t.Fatalf("Auth: got %#v, want unauthenticated", infos[0].Auth)
+	}
+	if infos[0].LastError == nil || infos[0].LastError.Type != "unauthenticated" {
+		t.Fatalf("LastError: got %#v, want unauthenticated", infos[0].LastError)
 	}
 }
 
@@ -454,5 +476,42 @@ func TestHealthCheck_GeminiDoesNotInvokeTmux(t *testing.T) {
 
 	if tmuxCalled {
 		t.Error("healthCheckClaudeQuotaRefresher must not be called for gemini harness")
+	}
+}
+
+func TestHealthCheck_CodexRefreshesQuotaWhenStale(t *testing.T) {
+	dir := t.TempDir()
+	cachePath := filepath.Join(dir, "codex-quota.json")
+	t.Setenv("DDX_AGENT_CODEX_QUOTA_CACHE", cachePath)
+
+	staleSnap := codexharness.CodexQuotaSnapshot{
+		CapturedAt: time.Now().UTC().Add(-90 * time.Second),
+		Source:     "pty",
+		Windows:    []harnesses.QuotaWindow{{LimitID: "codex", UsedPercent: 80}},
+	}
+	if err := codexharness.WriteCodexQuota(cachePath, staleSnap); err != nil {
+		t.Fatalf("setup: WriteCodexQuota: %v", err)
+	}
+
+	refreshCalled := false
+	orig := healthCheckCodexQuotaRefresher
+	healthCheckCodexQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, error) {
+		refreshCalled = true
+		return []harnesses.QuotaWindow{{LimitID: "codex", Name: "5h", UsedPercent: 10, State: "ok"}}, nil
+	}
+	t.Cleanup(func() { healthCheckCodexQuotaRefresher = orig })
+
+	healthCheckRefreshCodexQuota(context.Background())
+
+	if !refreshCalled {
+		t.Error("expected healthCheckCodexQuotaRefresher to be called for stale cache")
+	}
+	loaded, ok := codexharness.ReadCodexQuotaFrom(cachePath)
+	if !ok {
+		t.Fatal("expected cache file to exist after refresh")
+	}
+	if !loaded.CapturedAt.After(staleSnap.CapturedAt) {
+		t.Errorf("expected cache CapturedAt to be newer than stale snapshot: got %v, stale was %v",
+			loaded.CapturedAt, staleSnap.CapturedAt)
 	}
 }

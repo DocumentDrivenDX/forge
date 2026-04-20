@@ -10,6 +10,7 @@ import (
 
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
 	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
+	codexharness "github.com/DocumentDrivenDX/agent/internal/harnesses/codex"
 )
 
 // DdxAgent is the entire public Go surface of the ddx-agent module.
@@ -104,6 +105,59 @@ type QuotaState struct {
 	Windows    []harnesses.QuotaWindow `json:"windows"`
 	CapturedAt time.Time               `json:"captured_at"`
 	Fresh      bool                    `json:"fresh"`
+	Source     string                  `json:"source,omitempty"`
+	Status     string                  `json:"status,omitempty"` // ok|stale|unavailable|unauthenticated|unknown
+	LastError  *StatusError            `json:"last_error,omitempty"`
+}
+
+// StatusError describes the most recent normalized status error for a harness,
+// provider, or endpoint.
+type StatusError struct {
+	Type      string    // unavailable|unauthenticated|error
+	Detail    string    // human-readable detail, safe for diagnostics
+	Source    string    // config path, endpoint, cache path, or probe name
+	Timestamp time.Time // zero when the source did not include a timestamp
+}
+
+// AccountStatus describes authentication/account state without exposing
+// provider-specific native files to consumers.
+type AccountStatus struct {
+	Authenticated   bool
+	Unauthenticated bool
+	Email           string
+	PlanType        string
+	OrgName         string
+	Source          string
+	CapturedAt      time.Time
+	Fresh           bool
+	Detail          string
+}
+
+// UsageWindow describes normalized usage attribution over a time window.
+// Empty token/cost totals mean the service has no historical usage source yet.
+type UsageWindow struct {
+	Name         string
+	Source       string
+	CapturedAt   time.Time
+	Fresh        bool
+	InputTokens  int
+	OutputTokens int
+	TotalTokens  int
+	CostUSD      float64
+}
+
+// EndpointStatus describes one configured provider endpoint probe.
+type EndpointStatus struct {
+	Name          string
+	BaseURL       string
+	ProbeURL      string
+	Status        string // connected|unreachable|unauthenticated|error|unknown
+	Source        string
+	CapturedAt    time.Time
+	Fresh         bool
+	LastSuccessAt time.Time
+	ModelCount    int
+	LastError     *StatusError
 }
 
 // HarnessInfo describes a registered harness as defined in CONTRACT-003.
@@ -122,6 +176,9 @@ type HarnessInfo struct {
 	SupportedReasoning   []string // values such as {"low","medium","high","xhigh","max"}
 	CostClass            string   // "local" | "cheap" | "medium" | "expensive"
 	Quota                *QuotaState
+	Account              *AccountStatus
+	UsageWindows         []UsageWindow
+	LastError            *StatusError
 	CapabilityMatrix     HarnessCapabilityMatrix
 }
 
@@ -136,16 +193,21 @@ type CooldownState struct {
 
 // ProviderInfo describes a provider with live status per CONTRACT-003.
 type ProviderInfo struct {
-	Name          string
-	Type          string // "openai" | "openrouter" | "lmstudio" | "omlx" | "ollama" | "anthropic" | "virtual"
-	BaseURL       string
-	Endpoints     []ServiceProviderEndpoint
-	Status        string // "connected" | "unreachable" | "error: <msg>"
-	ModelCount    int
-	Capabilities  []string       // e.g. {"tool_use","streaming","json_mode"}
-	IsDefault     bool           // matches the configured default_provider
-	DefaultModel  string         // per-provider configured default model, if any
-	CooldownState *CooldownState // nil if not in cooldown
+	Name           string
+	Type           string // "openai" | "openrouter" | "lmstudio" | "omlx" | "ollama" | "anthropic" | "virtual"
+	BaseURL        string
+	Endpoints      []ServiceProviderEndpoint
+	Status         string // "connected" | "unreachable" | "error: <msg>"
+	ModelCount     int
+	Capabilities   []string       // e.g. {"tool_use","streaming","json_mode"}
+	IsDefault      bool           // matches the configured default_provider
+	DefaultModel   string         // per-provider configured default model, if any
+	CooldownState  *CooldownState // nil if not in cooldown
+	Auth           AccountStatus
+	EndpointStatus []EndpointStatus
+	Quota          *QuotaState
+	UsageWindows   []UsageWindow
+	LastError      *StatusError
 }
 
 // CostInfo holds per-token cost metadata for a model.
@@ -447,12 +509,18 @@ func supportedReasoning(cfg harnesses.HarnessConfig) []string {
 func claudeQuotaState() *QuotaState {
 	snap, ok := claudeharness.ReadClaudeQuota()
 	if !ok || snap == nil {
-		return nil
+		source, err := claudeharness.ClaudeQuotaCachePath()
+		if err != nil {
+			source = "claude quota cache"
+		}
+		return unavailableQuotaState(source, "claude quota cache unavailable")
 	}
-	decision := claudeharness.DecideClaudeQuotaRouting(snap, time.Now(), 0)
+	now := time.Now()
+	decision := claudeharness.DecideClaudeQuotaRouting(snap, now, 0)
 	qs := &QuotaState{
 		CapturedAt: snap.CapturedAt,
 		Fresh:      decision.Fresh,
+		Source:     snap.Source,
 	}
 	if snap.FiveHourLimit > 0 {
 		var used float64
@@ -478,7 +546,51 @@ func claudeQuotaState() *QuotaState {
 			State:         harnesses.QuotaStateFromUsedPercent(int(used)),
 		})
 	}
+	qs.Status = quotaStatus(qs.Fresh, qs.Windows)
 	return qs
+}
+
+func claudeAccountStatus() *AccountStatus {
+	snap, ok := claudeharness.ReadClaudeQuota()
+	if !ok || snap == nil {
+		return nil
+	}
+	decision := claudeharness.DecideClaudeQuotaRouting(snap, time.Now(), 0)
+	return accountStatusFromInfo(snap.Account, snap.Source, snap.CapturedAt, decision.Fresh)
+}
+
+// codexQuotaState reads the durable Codex quota cache and converts it to QuotaState.
+func codexQuotaState() *QuotaState {
+	snap, ok := codexharness.ReadCodexQuota()
+	if !ok || snap == nil {
+		source, err := codexharness.CodexQuotaCachePath()
+		if err != nil {
+			source = "codex quota cache"
+		}
+		return unavailableQuotaState(source, "codex quota cache unavailable")
+	}
+	fresh := codexharness.IsCodexQuotaFresh(snap, time.Now(), 0)
+	windows := append([]harnesses.QuotaWindow(nil), snap.Windows...)
+	return &QuotaState{
+		Windows:    windows,
+		CapturedAt: snap.CapturedAt,
+		Fresh:      fresh,
+		Source:     snap.Source,
+		Status:     quotaStatus(fresh, windows),
+	}
+}
+
+func unavailableQuotaState(source, detail string) *QuotaState {
+	return &QuotaState{
+		Source: source,
+		Status: "unavailable",
+		LastError: &StatusError{
+			Type:      "unavailable",
+			Detail:    detail,
+			Source:    source,
+			Timestamp: time.Now().UTC(),
+		},
+	}
 }
 
 // ListHarnesses returns metadata for every registered harness.
@@ -518,15 +630,17 @@ func (s *service) ListHarnesses(_ context.Context) ([]HarnessInfo, error) {
 			CostClass:            cfg.CostClass,
 			CapabilityMatrix:     harnessCapabilityMatrix(name, cfg),
 		}
+		if !st.Available {
+			info.LastError = statusError(st.Error, "harness discovery", time.Now())
+		}
 
 		// Populate live Quota for harnesses that have durable quota caches.
 		switch name {
 		case "claude":
 			info.Quota = claudeQuotaState()
+			info.Account = claudeAccountStatus()
 		case "codex":
-			// Codex quota is only available via PTY/tmux probe (expensive);
-			// we don't invoke it inline — leave nil unless a fresh cache exists.
-			// A future bead can add a codex quota cache analogous to claude's.
+			info.Quota = codexQuotaState()
 		}
 
 		out = append(out, info)

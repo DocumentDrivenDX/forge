@@ -271,7 +271,72 @@ type HarnessInfo struct {
     SupportedReasoning   []string // values such as {"off","low","medium","high","minimal","xhigh","max"}
     CostClass            string   // "local" | "cheap" | "medium" | "expensive"
     Quota                *QuotaState // nil if not applicable; live field
+    Account              *AccountStatus
+    UsageWindows         []UsageWindow
+    LastError            *StatusError
     CapabilityMatrix     HarnessCapabilityMatrix
+}
+
+type QuotaState struct {
+    Windows    []QuotaWindow
+    CapturedAt time.Time
+    Fresh      bool
+    Source     string
+    Status     string // ok|blocked|stale|unavailable|unauthenticated|unknown
+    LastError  *StatusError
+}
+
+type QuotaWindow struct {
+    Name          string
+    LimitID       string
+    WindowMinutes int
+    UsedPercent   float64
+    ResetsAt      string
+    ResetsAtUnix  int64
+    State         string // ok|blocked|unknown
+}
+
+type AccountStatus struct {
+    Authenticated   bool
+    Unauthenticated bool
+    Email           string
+    PlanType        string
+    OrgName         string
+    Source          string
+    CapturedAt      time.Time
+    Fresh           bool
+    Detail          string
+}
+
+type UsageWindow struct {
+    Name         string
+    Source       string
+    CapturedAt   time.Time
+    Fresh        bool
+    InputTokens  int
+    OutputTokens int
+    TotalTokens  int
+    CostUSD      float64
+}
+
+type EndpointStatus struct {
+    Name          string
+    BaseURL       string
+    ProbeURL      string
+    Status        string // connected|unreachable|unauthenticated|error|unknown
+    Source        string
+    CapturedAt    time.Time
+    Fresh         bool
+    LastSuccessAt time.Time
+    ModelCount    int
+    LastError     *StatusError
+}
+
+type StatusError struct {
+    Type      string // unavailable|unauthenticated|error
+    Detail    string
+    Source    string
+    Timestamp time.Time
 }
 
 type HarnessCapabilityStatus string
@@ -313,6 +378,11 @@ type ProviderInfo struct {
     IsDefault     bool      // matches the configured default_provider
     DefaultModel  string    // the per-provider configured default model, if any
     CooldownState *CooldownState  // nil if not in cooldown
+    Auth          AccountStatus
+    EndpointStatus []EndpointStatus
+    Quota         *QuotaState
+    UsageWindows  []UsageWindow
+    LastError     *StatusError
 }
 
 type ModelInfo struct {
@@ -486,6 +556,38 @@ type DrainExecuteResult struct {
 
 func DrainExecute(ctx context.Context, events <-chan Event) (*DrainExecuteResult, error)
 ```
+
+## Status Signal Semantics
+
+`ListHarnesses`, `ListProviders`, and `RouteStatus` are the status API for
+doctor-style consumers. Consumers must not read provider-native files, auth
+stores, quota caches, or config files directly to build routing diagnostics.
+
+Every normalized status datum carries:
+
+- `Source`: the endpoint, cache, config, or probe path that produced it.
+- `CapturedAt`: when the service captured or read the datum.
+- `Fresh`: whether the value is inside the service's freshness window.
+- `LastError`: normalized `unavailable`, `unauthenticated`, or `error`
+  information when the datum could not be captured successfully.
+
+Provider endpoint probes report `EndpointStatus` with reachability,
+`ModelCount`, and `LastSuccessAt` when connected. Provider authentication is
+reported through `ProviderInfo.Auth`; missing API keys or 401/403-style probe
+failures are `Unauthenticated=true` and do not require consumers to know the
+provider's native auth file format.
+
+Claude Code and Codex subscription quotas are read from durable service-owned
+caches by `ListHarnesses`; `HealthCheck` may refresh stale caches by invoking
+the authenticated PTY/tmux probe. Live record mode must fail fast with a clear
+unavailable or unauthenticated status when `claude`, `codex`, `tmux`, or
+credentials are missing. Replay mode reads committed/generated cassette data or
+quota cache fixtures and must not require credentials.
+
+`UsageWindows` are the normalized historical-usage projection. An empty slice
+means no service-owned usage source is available for that harness/provider yet;
+consumers should display that as unavailable rather than reading native logs
+directly.
 
 ## Catalog Profile Projection
 

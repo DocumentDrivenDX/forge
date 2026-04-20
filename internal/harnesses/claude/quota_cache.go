@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/DocumentDrivenDX/agent/internal/harnesses"
 )
 
 // ClaudeQuotaSnapshot captures Claude's current-quota headroom as absolute
@@ -16,12 +18,13 @@ import (
 // QuotaSignal: foreground routing needs concrete numbers to reason about
 // 5-hour / weekly headroom without invoking PTY capture inline.
 type ClaudeQuotaSnapshot struct {
-	CapturedAt        time.Time `json:"captured_at"`
-	FiveHourRemaining int       `json:"five_hour_remaining"`
-	FiveHourLimit     int       `json:"five_hour_limit"`
-	WeeklyRemaining   int       `json:"weekly_remaining"`
-	WeeklyLimit       int       `json:"weekly_limit"`
-	Source            string    `json:"source"` // e.g. "pty", "heuristic"
+	CapturedAt        time.Time              `json:"captured_at"`
+	FiveHourRemaining int                    `json:"five_hour_remaining"`
+	FiveHourLimit     int                    `json:"five_hour_limit"`
+	WeeklyRemaining   int                    `json:"weekly_remaining"`
+	WeeklyLimit       int                    `json:"weekly_limit"`
+	Source            string                 `json:"source"` // e.g. "pty", "heuristic"
+	Account           *harnesses.AccountInfo `json:"account,omitempty"`
 }
 
 // DefaultClaudeQuotaStaleAfter is the default maximum age before a cached
