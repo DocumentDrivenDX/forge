@@ -58,7 +58,7 @@ This ADR closes the build-vs-buy gate for the first implementation pass:
 | Input automation | Build small DDX helpers over the PTY session, borrowing expect-style ideas where useful. | `go-expect` is a useful pattern but not the lifecycle, cassette, or service-event owner. |
 | Recording format | Build the DDX cassette schema, reusing asciicast event/timing ideas. | Existing recorders do not carry DDX service events, quota evidence, scrub reports, assertion binding, or accepted-vs-diagnostic policy. |
 | Replay and assertions | Build a test-only cassette assertion layer under `internal/ptytest` or equivalent. | DDX needs collapsed virtual-clock replay, service-event assertions, parallel-safe fixture isolation, and harness capability evidence. |
-| tmux operator UX | Keep out of the accepted core path; allow only a future optional diagnostic/operator adapter if it is socket-isolated, inspectable, timeout-protected, and proven not to promote capabilities by itself. | SPIKE-002 showed tmux's human attachability is useful, but also reproduced stale socket cleanup and pane-targeting costs. NTM and Gas Town confirm those costs become substantial. |
+| tmux operator UX | Exclude from the baseline entirely. No tmux adapter, tmux shell-outs, tmux sockets, or tmux-backed capability promotion in the current plan. | SPIKE-002 showed tmux's human attachability is useful, but also reproduced stale socket cleanup and pane-targeting costs. NTM and Gas Town confirm those costs become substantial. If this tradeoff changes later, it requires a new ADR. |
 | Project boundary | Keep the first pass internal under `internal/pty` and `internal/ptytest`. | There is no second consumer yet. Extraction triggers are documented below and should be revisited after one working Claude/Codex cassette path. |
 | Non-TUI modes | Do not let `claude --print`, `codex exec`, or similar non-TUI paths promote TUI capability support. | They may later share cassette ideas for stream evidence, but primary harness model/quota/status parity is governed by the direct PTY/TUI evidence path. |
 
@@ -71,12 +71,13 @@ record that evidence before `agent-949a5ba4` starts.
 
 SPIKE-002 pressure-tested the real primary-harness goal against `script`,
 asciinema, tmux, NTM, Gas Town, Claude, and Codex. It proved that Claude and
-Codex expose the required usage/quota/model-list surfaces through their TUIs
-and that tmux can drive them, but it also confirmed that tmux's session/socket
-state is an operational concern rather than a free abstraction. Therefore tmux
-may be revisited for optional human-inspection diagnostics, but direct PTY
-replay remains the only accepted evidence path for primary harness capability
-support.
+Codex expose the required quota/status/model-list/reasoning surfaces through
+their TUIs and that tmux can drive them, but it also confirmed that tmux's
+session/socket state is an operational concern rather than a free abstraction.
+Per-run token usage remains required, but it should stay on native stream or
+batch JSON evidence unless it becomes TUI-derived. Therefore tmux is explicitly
+out of the baseline. Direct PTY replay is the only accepted evidence path for
+primary harness TUI-only capability support.
 
 ## Decision
 
@@ -120,6 +121,14 @@ of these triggers occurs:
   maintained outside DDX Agent;
 - build or release constraints make terminal dependencies a burden for ordinary
   agent library consumers.
+
+The first production shape is intentionally smaller than a terminal
+application: a background metadata probe that starts a harness briefly, extracts
+quota/status/model/reasoning facts, records a scrubbed snapshot or cassette when
+requested, and exits cleanly. Normal prompt execution continues to use
+harness-native batch modes where those modes satisfy DDX requirements. The PTY
+wrapper becomes the fallback execution path only if a harness's batch mode stops
+working for DDX.
 
 ## Non-Goals
 

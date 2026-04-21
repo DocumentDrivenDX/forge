@@ -23,8 +23,8 @@ primary baseline.
 This spec covers capability reporting and evidence requirements for primary
 harness health. ADR-002 selects direct PTY as the service/cassette transport
 for TUI-derived Claude and Codex evidence. If a capability is naturally exposed
-through a harness TUI, the capability remains required; tmux-only evidence is a
-gap until replaced by direct PTY and cassette evidence.
+through a harness TUI, the capability remains required; tmux evidence is out of
+scope for the baseline and does not count toward a pass.
 
 ## Status Model
 
@@ -273,10 +273,9 @@ Quota evidence must include:
 - freshness TTL
 - parsed state
 
-Codex and Claude quota can currently be probed through legacy tmux-backed TUI
-helpers, but ADR-002 requires direct PTY evidence for final support. The
-capability requirement does not change: tmux-only quota evidence is a visible
-gap until replaced by direct PTY capture.
+Codex and Claude quota must be proven through direct PTY evidence for final
+support. Legacy tmux-backed helpers are not part of the baseline and do not
+count as accepted evidence.
 
 ### ErrorStatus
 
@@ -328,6 +327,11 @@ the broad harness/provider capability matrix. The report must:
 
 The broader compatibility matrix may continue to exist during migration, but it
 must not be used as the authoritative primary-harness health signal.
+
+TUI-only capability rows are feature complete only when the corresponding
+record/playback checklist in
+[Harness Golden-Master Integration](/Users/erik/Projects/agent/docs/helix/02-design/harness-golden-integration.md)
+passes in both live record mode and credential-free playback mode.
 
 ## Acceptance Criteria
 

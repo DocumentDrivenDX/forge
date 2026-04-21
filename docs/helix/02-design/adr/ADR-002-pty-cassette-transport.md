@@ -18,7 +18,7 @@ ddx:
 |--------|-------------|
 | Problem | Real subprocess harness support needs golden-master evidence that exercises the same PTY behavior users see, but the project has not chosen whether tmux, direct PTY supervision, or a separate terminal recorder owns that lifecycle. |
 | Current State | Runtime subprocess execution uses `os/exec` plus harness-specific runners. Quota probes have used tmux-shaped experiments, but normal harness execution does not have one attachable PTY transport. Existing concerns require either standardizing on tmux for the whole lifecycle or owning PTY/session supervision directly. |
-| Requirements | One transport must cover live execution, record mode, replay mode, cancellation, cleanup, inspection, quota/status probing, service-event capture, and deterministic cassette playback. Record mode must fail fast on missing binary/auth/subscription/quota instead of writing misleading fixtures. |
+| Requirements | One direct PTY transport must cover metadata probe mode, record mode, replay mode, cancellation, cleanup, quota/status/model/reasoning probing, service-event capture, and deterministic cassette playback. Normal prompt execution may continue to use harness-native batch modes when they satisfy DDX requirements. Record mode must fail fast on missing binary/auth/subscription/quota instead of writing misleading fixtures. |
 
 ## Current-State Research
 
@@ -62,12 +62,22 @@ the core service/cassette path and consume DDX Agent outputs like any other
 client. The DDX Agent baseline is direct PTY only.
 
 SPIKE-002 clarified the only acceptable success criteria for this area:
-DDX Agent must control Claude/Codex well enough to extract usage/quota,
-available models, reasoning levels, and related status facts; and it must
-replay cassettes well enough that client-side parsers and terminal assertions
-run without live Claude/Codex binaries, credentials, or network. tmux's human
-attachability is useful operator UX, but it is optional diagnostic surface area,
-not the accepted replay or capability-evidence path.
+DDX Agent must control Claude/Codex well enough to extract TUI-only quota,
+available-model, reasoning-level, and related status facts; and it must replay
+cassettes well enough that client-side parsers and terminal assertions run
+without live Claude/Codex binaries, credentials, or network. Per-run token
+usage remains a core capability, but it should stay on native stream or batch
+JSON evidence unless a future harness path makes it TUI-derived. tmux's human
+attachability is useful operator UX, but it is not in the current baseline and
+is not the accepted replay or capability-evidence path.
+
+The baseline live process is a small background probe, not a general terminal
+control plane. It may periodically start Claude, Codex, or another harness,
+drive the minimum TUI flow required to read quota/status/model/reasoning facts,
+write a scrubbed snapshot/cache, and exit. If a harness's batch prompt mode
+later stops working for normal execution, the same PTY wrapper may be promoted
+to drive an interactive session, but that is a future fallback decision rather
+than the first implementation target.
 
 The cassette recorder and player remain part of `internal/pty` for the baseline
 implementation, subject to the build-vs-buy gate in
@@ -93,6 +103,7 @@ live inside it.
 | Cassette record/replay | `internal/pty/cassette` | Versioned manifest, input/output/frame streams, event timestamps, timing normalization, scrub reports, replay scheduler, deterministic and real-time playback drivers, read-only inspection inputs | Live credentials, provider calls, harness-specific capability decisions |
 | Cassette assertion tests | `internal/ptytest` or equivalent test-only package | Scenario specs, fixture discovery, cassette playback assertions, time-coded predicates, replay clocks, fixture isolation, parallel-safe temp homes, and test reporting | Production harness behavior, credential storage, terminal emulation internals |
 | Harness probes | `internal/harnesses/<name>` | Claude/Codex prompt flows, quota/status/model-list extraction, reasoning-level discovery, normalized errors, capability matrix updates | PTY lifecycle primitives or cassette file-format internals |
+| Debug snapshots | CLI/debug helpers over `internal/pty` | Dump current rendered VT state, cursor/screen metadata, recent raw byte offsets, and recent timed input/output events for failed probes | Interactive terminal UI, long-lived session management, tmux-style attachability |
 
 No package below `internal/pty` may import `internal/harnesses`. The PTY
 library must be testable with synthetic programs and ordinary Unix TUIs before
@@ -331,9 +342,9 @@ The initial scenario set is:
 1. `top` through Docker conformance, with initial paint, refresh, input-driven
    change, and resize-driven layout change.
 2. `claude` authenticated record mode plus replay cassettes for quota/status,
-   model list, reasoning levels, token usage, and one prompt run.
+   model list, and reasoning levels.
 3. `codex` authenticated record mode plus replay cassettes for quota/status,
-   model list, reasoning levels, token usage, and one prompt run.
+   model list, and reasoning levels.
 
 The framework must be extensible before those scenarios are marked complete.
 Adding a new weird terminal case should require adding a scenario fixture and
@@ -366,7 +377,7 @@ outside the selected emulator.
 | Terminal rendering tests | `internal/pty/terminal` must wrap a real VT/ANSI emulator. Tests must prove screen clears, cursor movement, SGR style policy, alternate-screen behavior where available, Unicode/wide characters, partial escape sequences, resize races, buffering/delay behavior, and volatile-content normalization. Regex ANSI stripping is not accepted as the screen model. |
 | Additional TUI diversity | Add at least two more common terminal shapes before calling the library mature: a pager flow such as `less`, and an editor or curses-style full-screen flow such as `vim`, `nano`, or `dialog`, using Docker when host availability is inconsistent. Each new TUI shape must be a reusable scenario fixture. |
 | Cassette replay tests | Record a deterministic synthetic terminal run, replay it through the cassette reader/player and assertion framework, and assert manifest fields, input ordering, raw output, frame snapshots, scrub report, final status, read-only replay behavior, and parallel replay safety. |
-| Authenticated harness tests | Opt-in recorder tests drive Claude and Codex through the same PTY library to extract quota/status, model listings, reasoning levels, token usage, and one prompt run. Missing binary/auth/quota/timeout cases must fail before writing accepted cassettes. Replay cassettes for these flows must run in default CI without credentials. |
+| Authenticated harness tests | Opt-in recorder tests drive Claude and Codex through the same PTY library to extract TUI-only quota/status, model listings, and reasoning levels. Per-run token usage is covered by native stream capability tests unless it becomes TUI-derived; then it must get its own checklist row and cassette scenario. Missing binary/auth/quota/timeout cases must fail before writing accepted cassettes. Replay cassettes for these flows must run in default CI without credentials. |
 
 ## Inspection
 

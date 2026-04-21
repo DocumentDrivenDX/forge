@@ -12,8 +12,8 @@ terminal product?
 The pass/fail criteria for this spike are deliberately narrow:
 
 1. DDX Agent must be able to control Claude and Codex as terminal users and
-   extract usage/quota, model lists, reasoning levels, and adjacent status
-   facts that the CLIs expose only through their TUIs.
+   extract quota/status, model lists, reasoning levels, and adjacent facts that
+   the CLIs expose only through their TUIs.
 2. DDX Agent must be able to replay captured terminal evidence so client-side
    parsers, terminal rendering, and capability assertions can run in unit tests
    without installed, authenticated, or functional Claude/Codex binaries.
@@ -67,7 +67,7 @@ rows. This proves timed output replay is mature and useful, but not sufficient:
 asciinema records terminal sessions; it does not own Claude/Codex command
 sequencing, service events, scrub reports, or capability parsing.
 
-### tmux
+### tmux Diagnostic Spike
 
 A bounded `top` run through an isolated tmux socket succeeded when targeting the
 returned pane id rather than assuming a window index:
@@ -93,9 +93,11 @@ and session name. It also brings global-state costs:
 - every key injection must account for literal send vs paste-buffer semantics;
 - record and replay semantics are still DDX-owned.
 
-The correct boundary, if tmux remains available at all, is a non-core
-diagnostic/operator adapter with explicit socket isolation and cleanup. It must
-not be the only path that promotes primary harness capability support.
+The final baseline excludes tmux entirely. The spike remains useful as negative
+evidence and as a record of the human-inspection tradeoff, but no tmux adapter
+is part of the current implementation plan. If a future operator UI needs tmux
+attachability, that must be a new design decision outside the core probe and
+cassette path.
 
 ### NTM and Gas Town Prior Art
 
@@ -190,7 +192,8 @@ be described only as "noise." It has one real product benefit: operator
 inspectability while an authenticated TUI is live. However, the costs are also
 real and recurring. NTM and Gas Town both had to build safety rails around
 socket naming, session registries, stale cleanup, command timeouts, pane-target
-identity, paste semantics, and split-brain detection.
+identity, paste semantics, and split-brain detection. For the finalized plan,
+that cost is not justified.
 
 The core DDX success criteria still point at a direct PTY cassette library:
 
@@ -203,29 +206,35 @@ The core DDX success criteria still point at a direct PTY cassette library:
 - service events and scrub reports are DDX-specific and do not fit cleanly in
   tmux, `script`, or asciinema alone.
 
-## Follow-Up Requirements
+## Finalized Follow-Up Requirements
 
-1. `internal/pty/session` should remain the core live controller for accepted
-   capability evidence.
+1. tmux is off the baseline entirely. Do not build a tmux adapter, do not shell
+   out to tmux from harness probes, and do not use tmux evidence to promote a
+   capability.
 2. `internal/pty/cassette` should reuse asciicast-style event timing ideas, but
    keep DDX-owned sidecar streams for input, frames, service events, quota, and
    scrub reports.
-3. Add a small optional `tmux` diagnostic adapter only if operator
-   inspectability is needed during record mode. It must use:
-   - unique socket paths or names per run;
-   - advertised attach instructions;
-   - strict session-name validation;
-   - pane-id targeting;
-   - command timeouts and circuit breaking;
-   - stale socket/session cleanup;
-   - no capability promotion unless the same behavior is proven through direct
-     PTY replay.
-4. Claude and Codex harness adapters must encode slash-command flows as
+3. The first production use is a small background probe process. It starts a
+   harness briefly, extracts current quota/status/model/reasoning facts, writes
+   a scrubbed cache/snapshot, and exits cleanly.
+4. Batch execution remains preferred for normal prompt runs where the harness
+   supports it, such as `claude -p` or the existing Codex execution path. The
+   PTY wrapper is the control path for TUI-only metadata and the fallback path
+   if a harness's batch mode stops meeting DDX requirements.
+5. Add minimal debug commands around the direct PTY stack so a developer can
+   dump current VT state, raw byte offsets, recent input/output events, and the
+   latest derived frame when a probe parser fails. These commands are diagnostic
+   only; they are not a user-facing terminal UI.
+6. Claude and Codex harness adapters must encode slash-command flows as
    predicate-driven interactions:
    - Claude: `/status`, `/model`, model-row extraction, effort extraction.
    - Codex: `/status`, `/model` + completion sequence, quota-window extraction,
      model-row extraction, reasoning-effort follow-up.
-5. Authenticated raw captures must remain local/transient until the scrubber and
+7. All supported harnesses must be classified in the harness-golden TUI-only
+   checklist. Rows that have TUI-only requirements must have matching
+   record/playback scenarios; rows with no TUI-only requirements must point to
+   their CLI/API evidence instead of disappearing from the plan.
+8. Authenticated raw captures must remain local/transient until the scrubber and
    cassette acceptance gate are implemented.
 
 ## Confidence

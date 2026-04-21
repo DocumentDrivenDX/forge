@@ -28,6 +28,18 @@ claimed as live-authenticated.
 Record mode is opt-in and must fail fast before writing evidence when a required
 binary, auth state, subscription/quota path, or transport dependency is absent.
 
+The finalized first live path is a short-lived background probe, not a
+long-running terminal manager. The probe starts one harness, drives the minimum
+TUI flow needed to read quota/status/model/reasoning facts, emits a scrubbed
+snapshot/cache and optional cassette, and exits. It is intended to run
+periodically or on demand so routing can make decisions from current
+subscription state.
+
+Normal prompt execution should keep using harness-native batch modes when those
+modes work, such as Claude print mode or the existing Codex execution path. The
+PTY wrapper is the fallback for prompt execution only if a harness batch mode no
+longer provides the behavior DDX needs.
+
 Run the preflight:
 
 ```sh
@@ -63,13 +75,15 @@ Required live harness binaries for this bead:
 
 - `claude`
 - `codex`
-- `pi`
-- `opencode`
 
 Quota and model-list preflight must move to the direct PTY transport selected in
-ADR-002. Existing tmux capture helpers are legacy diagnostics only and do not
-count as accepted golden-master evidence. Replay mode remains independent of
-`tmux` and credentials.
+ADR-002. Existing tmux capture helpers are legacy diagnostics only and must not
+be used by new probe code. Replay mode remains independent of live credentials.
+
+Secondary harnesses such as `gemini`, `opencode`, and `pi` follow the same
+classification rule, but only their TUI-only capabilities require PTY
+record/playback tests. If a secondary harness exposes the needed capability via
+a stable CLI/API path, its non-PTY capability test owns that evidence.
 
 Before Claude/Codex authenticated cassettes can promote capability rows, the
 underlying PTY library must pass its own conformance suite. That suite starts
@@ -79,7 +93,52 @@ interaction or resize that visibly changes the frame stream. The PTY suite also
 needs ordinary Unix process tests and at least two additional TUI shapes, such
 as a pager and editor/curses-style program. Harness probes then layer on top of
 that library to test quota/status extraction, model listings, reasoning levels,
-token usage, and failure normalization for Claude and Codex.
+and failure normalization for Claude and Codex. Token usage remains a core
+capability, but it is only part of the PTY checklist when the source becomes
+TUI-derived.
+
+Debuggability is required but deliberately small: the PTY stack should expose
+commands or equivalent test helpers that dump the current rendered VT screen,
+cursor metadata, terminal size, recent raw byte offsets, and recent timed
+input/output events. These snapshots are for diagnosing parser failures; they
+are not an interactive terminal UI and do not imply tmux attachability.
+
+## TUI-Only Capability Checklist
+
+Every TUI-only capability below must become a recordable test scenario. Feature
+complete means every row marked `record/playback required` passes in both:
+
+- record mode against a live authenticated harness, producing a scrubbed
+  accepted cassette or failing before artifact acceptance with a normalized
+  blocker;
+- playback mode from that cassette, without the harness binary, credentials, or
+  network, using collapsed-time assertions by default.
+
+| Scenario | Harness | TUI-only aspect | Record flow | Playback assertions | Gate |
+|---|---|---|---|---|---|
+| n/a | `agent` | None known. Model, reasoning, token usage, and quota/provider health are provider/config surfaces. | n/a | n/a | Non-PTY capability tests must pass. |
+| `claude.status` | `claude` | Subscription/account/quota/status. | Start `claude` through direct PTY, wait for prompt, run `/status` and/or `/usage`, capture frames and service events, exit cleanly. | Parsed account class, quota/status windows, current model when exposed, freshness timestamp, and normalized unavailable/auth/quota blockers. | record/playback required. |
+| `claude.models` | `claude` | Available model list and effort/reasoning levels. | Start `claude`, run `/model`, capture model rows, selected/default model, and effort selector state. | Non-empty model rows, selected/default marker, effort levels or version-pinned effort metadata, stale mapping detection. | record/playback required. |
+| `codex.status` | `codex` | Subscription/account/quota/status. | Start `codex --no-alt-screen` through direct PTY, run `/status`, wait for the rendered status panel, capture frames and service events, exit cleanly. | Parsed account class, current model/reasoning, quota windows including model-specific limits, freshness timestamp, and normalized blockers. | record/playback required. |
+| `codex.models` | `codex` | Available model list and reasoning-level path. | Start `codex --no-alt-screen`, type `/model`, complete/confirm the slash command when required, capture the model picker, and step into reasoning selection when needed without changing persisted state. | Non-empty model rows, selected/current marker, reasoning-effort choices or chooser transition, unsupported-value behavior. | record/playback required. |
+| n/a | `gemini` | No required TUI-only aspect identified from current harness config/help. Headless mode, model setting, output format, and session listing are CLI surfaces. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests must pass; add a row before claiming any TUI-only Gemini capability. |
+| n/a | `opencode` | No required TUI-only aspect identified. `opencode models`, `opencode stats`, `opencode providers`, `opencode run`, and JSON output are CLI surfaces. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests must pass; add a row before claiming any TUI-only opencode capability. |
+| n/a | `pi` | No required TUI-only aspect identified. `--list-models`, `--thinking`, `--models`, `--mode json`, and `--print` are CLI surfaces. `pi config` is configuration UI, not a core harness capability. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests must pass; add a row before claiming any TUI-only Pi capability. |
+
+Token usage remains a core capability, but it is not classified as TUI-only
+when the harness native run stream or batch JSON output exposes authoritative
+per-run token usage. Current Claude and Codex token usage should stay covered by
+their native stream capability tests unless a future runner path must extract
+tokens from an interactive TUI transcript. If that happens, add explicit
+`claude.prompt-usage` or `codex.prompt-usage` rows here before marking the
+capability complete. Claude `/usage` is quota/subscription evidence, not a
+substitute for per-run token utilization.
+
+The checklist is append-only for supported harness behavior: if a harness gains
+a required TUI-only surface, add a row here and add matching record/playback
+tests before marking the capability complete. A broad capability matrix cell is
+not `pass` unless its TUI-only checklist row, when present, has both accepted
+record evidence and deterministic playback evidence.
 
 Primary PTY support also requires host smoke coverage on Linux and macOS.
 Docker-backed conformance is not enough by itself because it only proves the
