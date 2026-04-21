@@ -27,6 +27,7 @@ func NewScrubber(cfg Scrubber) *Scrubber {
 	s.rules = []scrubRule{
 		{name: "bearer-token", re: regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._~+/=-]+`), replacement: "Bearer <redacted>"},
 		{name: "api-token", re: regexp.MustCompile(`(?i)(api[_-]?key|token|secret)=?[A-Za-z0-9._~+/=-]{8,}`), replacement: "$1=<redacted>"},
+		{name: "email", re: regexp.MustCompile(`[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}`), replacement: "<account>"},
 		{name: "uuid", re: regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`), replacement: "<uuid>"},
 		{name: "rfc3339", re: regexp.MustCompile(`\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?`), replacement: "<timestamp>"},
 		{name: "local-time", re: regexp.MustCompile(`\b\d{1,2}:\d{2}:\d{2}\b`), replacement: "<time>"},

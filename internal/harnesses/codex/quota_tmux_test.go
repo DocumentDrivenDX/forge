@@ -7,11 +7,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fixtureCodexStatusOutput is a representative sample of tmux-captured /status output
-// matching the real codex TUI format.
+// fixtureCodexStatusOutput is a representative sanitized /status screen matching
+// the real codex TUI format.
 const fixtureCodexStatusOutput = `
 › /status
-  gpt-5.4 high · 100% left · /home/user/project
+  gpt-5.4 high · 100% left · $WORKTREE
 Heads up, you have less than 5% of your weekly limit left.
 `
 
@@ -42,6 +42,11 @@ func TestParseCodexStatusOutput_WeeklyWarning(t *testing.T) {
 
 func TestParseCodexStatusOutput_NoOutput(t *testing.T) {
 	windows := parseCodexStatusOutput("Welcome to codex")
+	assert.Empty(t, windows)
+}
+
+func TestParseCodexStatusOutput_MalformedPercent(t *testing.T) {
+	windows := parseCodexStatusOutput("gpt-5.4 high · many left · /tmp/work")
 	assert.Empty(t, windows)
 }
 

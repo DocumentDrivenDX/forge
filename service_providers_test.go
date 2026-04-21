@@ -375,7 +375,7 @@ func TestHealthCheck_ClaudeRefreshesQuotaWhenStale(t *testing.T) {
 		t.Fatalf("setup: WriteClaudeQuota: %v", err)
 	}
 
-	// Inject a fake refresher so no real tmux is invoked.
+	// Inject a fake refresher so no real PTY probe is invoked.
 	refreshCalled := false
 	orig := healthCheckClaudeQuotaRefresher
 	healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
@@ -411,7 +411,7 @@ func TestHealthCheck_ClaudeRefreshesQuotaWhenStale(t *testing.T) {
 }
 
 // TestHealthCheck_ClaudeSkipsRefreshWhenFresh verifies that HealthCheck does
-// NOT invoke the tmux quota refresher when the cached snapshot is younger than
+// NOT invoke the PTY quota refresher when the cached snapshot is younger than
 // healthCheckQuotaFreshnessWindow (60s).
 func TestHealthCheck_ClaudeSkipsRefreshWhenFresh(t *testing.T) {
 	dir := t.TempDir()
@@ -457,24 +457,24 @@ func TestHealthCheck_ClaudeSkipsRefreshWhenFresh(t *testing.T) {
 	}
 }
 
-// TestHealthCheck_GeminiDoesNotInvokeTmux verifies that HealthCheck for a
-// non-tmux-quota harness (gemini) never calls the Claude quota refresher.
-func TestHealthCheck_GeminiDoesNotInvokeTmux(t *testing.T) {
+// TestHealthCheck_GeminiDoesNotInvokeQuotaProbe verifies that HealthCheck for a
+// non-subscription harness (gemini) never calls the Claude quota refresher.
+func TestHealthCheck_GeminiDoesNotInvokeQuotaProbe(t *testing.T) {
 	// Inject a counter to detect unexpected calls.
-	tmuxCalled := false
+	probeCalled := false
 	orig := healthCheckClaudeQuotaRefresher
 	healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
-		tmuxCalled = true
+		probeCalled = true
 		return nil, nil, nil
 	}
 	t.Cleanup(func() { healthCheckClaudeQuotaRefresher = orig })
 
 	svc := &service{opts: ServiceOptions{}, registry: harnesses.NewRegistry()}
 	// "gemini" is registered but unavailable in CI (binary not found).
-	// HealthCheck returns an error but must not invoke the tmux refresher.
+	// HealthCheck returns an error but must not invoke the quota refresher.
 	_ = svc.HealthCheck(context.Background(), HealthTarget{Type: "harness", Name: "gemini"})
 
-	if tmuxCalled {
+	if probeCalled {
 		t.Error("healthCheckClaudeQuotaRefresher must not be called for gemini harness")
 	}
 }

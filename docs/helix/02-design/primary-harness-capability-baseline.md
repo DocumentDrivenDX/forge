@@ -276,6 +276,9 @@ Quota evidence must include:
 Codex and Claude quota must be proven through direct PTY evidence for final
 support. Legacy tmux-backed helpers are not part of the baseline and do not
 count as accepted evidence.
+The supported implementation drives Claude `/usage` and Codex `/status` through
+direct PTYs, normalizes missing binary/auth/timeout failures, and validates
+sanitized quota cassettes through the replay layer.
 
 ### ErrorStatus
 

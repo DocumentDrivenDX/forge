@@ -79,6 +79,9 @@ Required live harness binaries for this bead:
 Quota and model-list preflight must move to the direct PTY transport selected in
 ADR-002. Existing tmux capture helpers are legacy diagnostics only and must not
 be used by new probe code. Replay mode remains independent of live credentials.
+Claude and Codex quota/status probes now use direct PTY transport for supported
+health refreshes, write accepted cassettes only after quota parsing succeeds,
+and keep tmux helpers as diagnostic-only fallbacks.
 
 Secondary harnesses such as `gemini`, `opencode`, and `pi` follow the same
 classification rule, but only their TUI-only capabilities require PTY

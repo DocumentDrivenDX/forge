@@ -12,7 +12,7 @@ import (
 )
 
 // CodexQuotaSnapshot captures Codex subscription quota windows in a durable
-// cache so foreground service status calls do not need to spawn tmux.
+// cache so foreground service status calls do not need to spawn a live PTY probe.
 type CodexQuotaSnapshot struct {
 	CapturedAt time.Time               `json:"captured_at"`
 	Windows    []harnesses.QuotaWindow `json:"windows"`

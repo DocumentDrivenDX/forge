@@ -539,11 +539,6 @@ func preflightLiveHarnessRecordMode(t *testing.T) {
 			t.Fatalf("record mode requires git in PATH to prepare codex workdirs: %v", err)
 		}
 	}
-	for _, binary := range []string{"tmux"} {
-		if _, err := exec.LookPath(binary); err != nil {
-			t.Fatalf("record mode quota preflight requires %s in PATH until direct PTY quota capture lands: %v", binary, err)
-		}
-	}
 }
 
 func containsString(values []string, target string) bool {

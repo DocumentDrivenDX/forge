@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// fixtureClaudeUsageOutput is a representative sample of tmux-captured /usage output
-// (post-ANSI-strip) matching the real claude TUI format.
+// fixtureClaudeUsageOutput is a representative sanitized /usage screen matching
+// the real claude TUI format.
 const fixtureClaudeUsageOutput = `
 Sonnet 4.6 · Claude Max
 Status   Config   Usage   Stats
@@ -93,6 +93,17 @@ func TestParseClaudeUsageOutput_NoSections(t *testing.T) {
 	windows, acct := parseClaudeUsageOutput("Welcome to Claude")
 	assert.Empty(t, windows)
 	assert.Nil(t, acct)
+}
+
+func TestParseClaudeUsageOutput_MalformedPercent(t *testing.T) {
+	windows, acct := parseClaudeUsageOutput(`Claude Max
+Current session
+almost full
+Resets 5pm (UTC)
+`)
+	assert.Empty(t, windows)
+	require.NotNil(t, acct)
+	assert.Equal(t, "Claude Max", acct.PlanType)
 }
 
 func TestParseClaudeUsageOutput_PartialOutput(t *testing.T) {

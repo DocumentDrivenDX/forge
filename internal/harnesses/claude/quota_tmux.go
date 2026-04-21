@@ -20,6 +20,9 @@ func stripANSI(s string) string {
 
 // ReadClaudeQuotaViaTmux starts claude in a detached tmux session, sends /usage,
 // captures the pane output, and returns parsed quota windows and account info.
+//
+// Deprecated: this is a diagnostic-only legacy path. Supported quota probes use
+// ReadClaudeQuotaViaPTY so accepted evidence passes through direct PTY cassettes.
 // Returns an error if tmux or claude are not found, or probing times out.
 func ReadClaudeQuotaViaTmux(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
 	if _, err := exec.LookPath("tmux"); err != nil {

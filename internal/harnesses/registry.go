@@ -27,7 +27,7 @@ var builtinHarnesses = map[string]HarnessConfig{
 		IsLocal:         false,
 		IsSubscription:  true,
 		ExactPinSupport: true,
-		TUIQuotaCommand: "exec /status",
+		TUIQuotaCommand: "/status",
 	},
 	// #nosec G101 -- not credentials; this is the harness invocation config
 	// for the claude CLI (binary name, flags, permission mode strings).
@@ -57,7 +57,7 @@ var builtinHarnesses = map[string]HarnessConfig{
 		IsLocal:         false,
 		IsSubscription:  true,
 		ExactPinSupport: true,
-		TUIQuotaCommand: "--bare --print /usage",
+		TUIQuotaCommand: "/usage",
 	},
 	"gemini": {
 		Name:            "gemini",

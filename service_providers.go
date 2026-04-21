@@ -27,19 +27,19 @@ import (
 
 // healthCheckQuotaFreshnessWindow is the minimum age a quota cache entry must
 // reach before HealthCheck triggers a refresh. Callers that invoke HealthCheck
-// rapidly (e.g. ddx doctor --routing polling) therefore hit tmux at most once
-// per window rather than on every call.
+// rapidly (e.g. ddx doctor --routing polling) therefore hit direct PTY quota
+// probes at most once per window rather than on every call.
 const healthCheckQuotaFreshnessWindow = 60 * time.Second
 
-// healthCheckClaudeQuotaRefresher is the function used to probe Claude's tmux
-// quota. It is a package-level variable so tests can substitute a fake without
-// spawning real tmux sessions.
+// healthCheckClaudeQuotaRefresher is the function used to probe Claude's direct
+// PTY quota. It is a package-level variable so tests can substitute a fake
+// without spawning real harness sessions.
 var healthCheckClaudeQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, *harnesses.AccountInfo, error) {
-	return claudeharness.ReadClaudeQuotaViaTmux(timeout)
+	return claudeharness.ReadClaudeQuotaViaPTY(timeout)
 }
 
 var healthCheckCodexQuotaRefresher = func(timeout time.Duration) ([]harnesses.QuotaWindow, error) {
-	return codexharness.ReadCodexQuotaViaTmux(timeout)
+	return codexharness.ReadCodexQuotaViaPTY(timeout)
 }
 
 // ListProviders returns providers known to the native-agent harness with live
@@ -139,7 +139,7 @@ func (s *service) HealthCheck(ctx context.Context, target HealthTarget) error {
 			if !st.Available {
 				return fmt.Errorf("service: harness %q unavailable: %s", target.Name, st.Error)
 			}
-			// For tmux-quota harnesses, refresh the quota cache when stale.
+			// For subscription harnesses, refresh the quota cache when stale.
 			if target.Name == "claude" {
 				healthCheckRefreshClaudeQuota(ctx)
 			}
@@ -306,12 +306,12 @@ func serviceRouteStateKey(routeName string) string {
 	return replacer.Replace(routeName)
 }
 
-// healthCheckRefreshClaudeQuota refreshes the Claude tmux quota cache when the
+// healthCheckRefreshClaudeQuota refreshes the Claude direct PTY quota cache when the
 // cached snapshot is older than healthCheckQuotaFreshnessWindow. It is a
-// best-effort operation: errors are silently discarded so that a tmux/claude
-// absence does not fail HealthCheck.
+// best-effort operation: errors are silently discarded so that a claude absence
+// does not fail HealthCheck.
 //
-// The ctx parameter is accepted for interface consistency; the tmux probe
+// The ctx parameter is accepted for interface consistency; the direct PTY probe
 // itself uses a fixed 5s timeout derived from the freshness window.
 func healthCheckRefreshClaudeQuota(_ context.Context) {
 	cachePath, err := claudeharness.ClaudeQuotaCachePath()
@@ -321,17 +321,17 @@ func healthCheckRefreshClaudeQuota(_ context.Context) {
 
 	snap, _ := claudeharness.ReadClaudeQuotaFrom(cachePath)
 	if snap != nil && claudeharness.ClaudeQuotaSnapshotAge(snap, time.Now()) <= healthCheckQuotaFreshnessWindow {
-		// Cache is fresh enough; skip the expensive tmux probe.
+		// Cache is fresh enough; skip the expensive PTY probe.
 		return
 	}
 
-	// Cache is absent or stale — run a tmux probe with a 5s cap.
+	// Cache is absent or stale - run a direct PTY probe with a 5s cap.
 	windows, acct, probeErr := healthCheckClaudeQuotaRefresher(5 * time.Second)
 	if probeErr != nil || len(windows) == 0 {
 		return
 	}
 
-	// Convert QuotaWindow slice to ClaudeQuotaSnapshot. The tmux path returns
+	// Convert QuotaWindow slice to ClaudeQuotaSnapshot. The PTY path returns
 	// percent-based windows; synthesise remaining counts from UsedPercent.
 	newSnap := claudeharness.ClaudeQuotaSnapshot{
 		CapturedAt: time.Now().UTC(),

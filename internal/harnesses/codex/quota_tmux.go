@@ -38,6 +38,9 @@ func tmuxOutput(args ...string) ([]byte, error) {
 
 // ReadCodexQuotaViaTmux starts codex in a detached tmux session, sends /status,
 // captures the output, and returns parsed quota windows.
+//
+// Deprecated: this is a diagnostic-only legacy path. Supported quota probes use
+// ReadCodexQuotaViaPTY so accepted evidence passes through direct PTY cassettes.
 func ReadCodexQuotaViaTmux(timeout time.Duration) ([]harnesses.QuotaWindow, error) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		return nil, fmt.Errorf("tmux not found in PATH: %w", err)
