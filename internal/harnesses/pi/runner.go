@@ -9,6 +9,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -51,8 +52,10 @@ func (r *Runner) Info() harnesses.HarnessInfo {
 		IsLocal:              false,
 		IsSubscription:       false,
 		ExactPinSupport:      true,
+		DefaultModel:         "gemini-2.5-flash",
+		AutoRoutingEligible:  true,
 		SupportedPermissions: nil,
-		SupportedReasoning:   []string{"low", "medium", "high"},
+		SupportedReasoning:   []string{"minimal", "low", "medium", "high", "xhigh"},
 		CostClass:            "medium",
 	}
 	path := r.Binary
@@ -254,15 +257,16 @@ func (r *Runner) runStreaming(ctx context.Context, binary string, req harnesses.
 		_, _ = io.Copy(&stringBuilderWriter{&stderrBuf}, stderrPipe)
 	}()
 
-	var timedOut bool
+	var timedOut atomic.Bool
 	if req.Timeout > 0 {
 		stop := make(chan struct{})
 		go func() {
 			select {
 			case <-stop:
 			case <-time.After(req.Timeout):
-				timedOut = true
+				timedOut.Store(true)
 				cancel()
+				killProcessGroup(cmd)
 			}
 		}()
 		defer close(stop)
@@ -272,7 +276,7 @@ func (r *Runner) runStreaming(ctx context.Context, binary string, req harnesses.
 	go func() {
 		defer close(cancelDone)
 		select {
-		case <-ctx.Done():
+		case <-runCtx.Done():
 			killProcessGroup(cmd)
 		case <-stdoutDone:
 		}
@@ -286,7 +290,7 @@ func (r *Runner) runStreaming(ctx context.Context, binary string, req harnesses.
 	stderr = stderrBuf.String()
 
 	switch {
-	case timedOut:
+	case timedOut.Load():
 		return parseAgg, -1, stderr, context.DeadlineExceeded, "timed_out"
 	case ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled):
 		return parseAgg, -1, stderr, ctx.Err(), "cancelled"

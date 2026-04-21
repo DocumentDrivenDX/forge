@@ -43,11 +43,12 @@ EOF
 
 	for _, tc := range []struct {
 		harness string
+		model   string
 		text    string
 	}{
-		{harness: "gemini", text: "gemini service response"},
-		{harness: "opencode", text: "opencode service response"},
-		{harness: "pi", text: "pi service response"},
+		{harness: "gemini", model: "fake-model", text: "gemini service response"},
+		{harness: "opencode", model: "opencode/gpt-5.4", text: "opencode service response"},
+		{harness: "pi", model: "gemini-2.5-flash", text: "pi service response"},
 	} {
 		t.Run(tc.harness, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -56,7 +57,7 @@ EOF
 			ch, err := svc.Execute(ctx, agent.ServiceExecuteRequest{
 				Prompt:      "hello",
 				Harness:     tc.harness,
-				Model:       "fake-model",
+				Model:       tc.model,
 				WorkDir:     t.TempDir(),
 				Permissions: "safe",
 				Reasoning:   agent.ReasoningLow,

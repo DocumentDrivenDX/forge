@@ -481,6 +481,66 @@ func TestAutoRoutingEligibilityGate(t *testing.T) {
 	}
 }
 
+func TestPromotedSecondaryHarnessesEnterAutoRouting(t *testing.T) {
+	in := Inputs{
+		Harnesses: []HarnessEntry{
+			{
+				Name:                "opencode",
+				Surface:             "embedded-openai",
+				CostClass:           "medium",
+				AutoRoutingEligible: true,
+				Available:           true,
+				QuotaOK:             true,
+				SubscriptionOK:      true,
+				ExactPinSupport:     true,
+				SupportsTools:       true,
+				DefaultModel:        "opencode/gpt-5.4",
+			},
+			{
+				Name:                "pi",
+				Surface:             "pi",
+				CostClass:           "medium",
+				AutoRoutingEligible: true,
+				Available:           true,
+				QuotaOK:             true,
+				SubscriptionOK:      true,
+				ExactPinSupport:     true,
+				SupportsTools:       true,
+				DefaultModel:        "gemini-2.5-flash",
+			},
+			{
+				Name:            "gemini",
+				Surface:         "gemini",
+				CostClass:       "experimental",
+				Available:       true,
+				QuotaOK:         true,
+				SubscriptionOK:  true,
+				ExactPinSupport: true,
+				SupportsTools:   true,
+				DefaultModel:    "gemini-2.5-flash",
+			},
+		},
+		Now: time.Date(2026, 4, 18, 0, 0, 0, 0, time.UTC),
+	}
+
+	dec, err := Resolve(Request{Profile: "standard"}, in)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	seen := map[string]Candidate{}
+	for _, c := range dec.Candidates {
+		seen[c.Harness] = c
+	}
+	for _, name := range []string{"opencode", "pi"} {
+		if c, ok := seen[name]; !ok || !c.Eligible {
+			t.Fatalf("promoted harness %q should be eligible, got %#v", name, c)
+		}
+	}
+	if _, ok := seen["gemini"]; ok {
+		t.Fatalf("gemini should remain outside auto-routing candidates without full coverage")
+	}
+}
+
 // === Profile policy semantics ported from DDx routing_test.go ===
 
 func TestCheapPrefersLocal(t *testing.T) {

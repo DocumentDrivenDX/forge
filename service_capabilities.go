@@ -93,6 +93,9 @@ func modelDiscoveryCapability(name string, cfg harnesses.HarnessConfig) HarnessC
 	if name == "codex" || name == "claude" {
 		return capOptional("models are discovered from direct PTY TUI evidence or documented CLI help")
 	}
+	if name == "opencode" || name == "pi" {
+		return capOptional("models are discovered from a stable harness CLI command or documented CLI help")
+	}
 	if name == "agent" || cfg.IsHTTPProvider {
 		return capOptional("models are discovered through the native provider catalog when configured")
 	}

@@ -235,6 +235,30 @@ func TestListModels_harnessFilter(t *testing.T) {
 			t.Errorf("unexpected claude model info: %#v", info)
 		}
 	}
+
+	// Promoted subprocess harnesses expose their documented CLI model surface.
+	for _, harness := range []string{"opencode", "pi"} {
+		infos, err := svc.ListModels(context.Background(), ModelFilter{Harness: harness})
+		if err != nil {
+			t.Fatalf("ListModels harness=%s: %v", harness, err)
+		}
+		if len(infos) == 0 {
+			t.Fatalf("want harness-native models for harness=%s", harness)
+		}
+		for _, info := range infos {
+			if info.Provider != harness || info.Harness != harness || !info.Available {
+				t.Errorf("unexpected %s model info: %#v", harness, info)
+			}
+		}
+	}
+
+	infos3, err := svc.ListModels(context.Background(), ModelFilter{Harness: "gemini"})
+	if err != nil {
+		t.Fatalf("ListModels harness=gemini: %v", err)
+	}
+	if len(infos3) != 0 {
+		t.Fatalf("gemini should not expose a harness-native model list until promoted, got %v", modelInfoDebug(infos3))
+	}
 }
 
 func TestListModels_rankPosition(t *testing.T) {

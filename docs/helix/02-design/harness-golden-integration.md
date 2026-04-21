@@ -102,6 +102,17 @@ classification rule, but only their TUI-only capabilities require PTY
 record/playback tests. If a secondary harness exposes the needed capability via
 a stable CLI/API path, its non-PTY capability test owns that evidence.
 
+## Secondary Harness Promotion Status
+
+`opencode` and `pi` are promoted for automatic routing because their required
+non-PTY capability surfaces are covered by package and service tests:
+
+| Harness | Auto-routing status | Evidence |
+|---|---|---|
+| `opencode` | eligible | `internal/harnesses/opencode/runner_test.go` covers prompt delivery, `--dir`, `-m`, `--variant`, permission no-op semantics, final text, token totals, stderr/exit mapping, and request timeout cleanup. `internal/harnesses/opencode/model_discovery_test.go` covers `opencode models` parsing and compatibility-table fallback metadata. `service_models_test.go`, `service_test.go`, `service_route_attempts_test.go`, and `internal/routing/engine_test.go` cover model listing, capability metadata, and automatic-routing eligibility. |
+| `pi` | eligible | `internal/harnesses/pi/runner_test.go` covers prompt delivery, subprocess workdir, `--model`, `--thinking`, permission unsupported semantics, final text, token totals, stderr/exit mapping, and request timeout cleanup. `internal/harnesses/pi/model_discovery_test.go` covers `pi --help`, `pi --list-models`, and compatibility-table fallback metadata. `service_models_test.go`, `service_test.go`, `service_route_attempts_test.go`, and `internal/routing/engine_test.go` cover model listing, capability metadata, and automatic-routing eligibility. |
+| `gemini` | explicit-only | Package tests now cover `-m`, workdir, stdin delivery, unsupported reasoning/permission metadata, token totals from stats blocks, and text-based model extraction from supplied output. Promotion remains blocked on verified headless invocation, live or recorded CLI usage output, default model discovery, permission/approval-mode mapping, quota/account/auth status behavior, and profile/catalog routing evidence. |
+
 Before Claude/Codex authenticated cassettes can promote capability rows, the
 underlying PTY library must pass its own conformance suite. That suite starts
 with Unix `top` in a pinned Docker environment and must capture several useful
@@ -176,9 +187,9 @@ complete means every row marked `record/playback required` passes in both:
 | `claude.models` | `claude` | Available model list and effort/reasoning levels. | Start `claude`, run `/model`, capture model rows, selected/default model, and effort selector state. | Non-empty model rows, selected/default marker, effort levels or version-pinned effort metadata, stale mapping detection. | record/playback required. |
 | `codex.status` | `codex` | Subscription/account/quota/status. | Start `codex --no-alt-screen` through direct PTY, run `/status`, wait for the rendered status panel, capture frames and service events, exit cleanly. | Parsed account class, current model/reasoning, quota windows including model-specific limits, freshness timestamp, and normalized blockers. | record/playback required. |
 | `codex.models` | `codex` | Available model list and reasoning-level path. | Start `codex --no-alt-screen`, type `/model`, complete/confirm the slash command when required, capture the model picker, and step into reasoning selection when needed without changing persisted state. | Non-empty model rows, selected/current marker, reasoning-effort choices or chooser transition, unsupported-value behavior. | record/playback required. |
-| n/a | `gemini` | No required TUI-only aspect identified from current harness config/help. Headless mode, model setting, output format, and session listing are CLI surfaces. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests must pass; add a row before claiming any TUI-only Gemini capability. |
-| n/a | `opencode` | No required TUI-only aspect identified. `opencode models`, `opencode stats`, `opencode providers`, `opencode run`, and JSON output are CLI surfaces. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests must pass; add a row before claiming any TUI-only opencode capability. |
-| n/a | `pi` | No required TUI-only aspect identified. `--list-models`, `--thinking`, `--models`, `--mode json`, and `--print` are CLI surfaces. `pi config` is configuration UI, not a core harness capability. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests must pass; add a row before claiming any TUI-only Pi capability. |
+| n/a | `gemini` | No required TUI-only aspect is accepted yet. Headless mode, model setting, output format, approval mode, and session listing appear to be CLI surfaces, but the harness still lacks verified evidence for these surfaces. | n/a unless future discovery finds an interactive-only capability. | n/a | Explicit-only until the non-PTY blockers in the secondary promotion table pass. |
+| n/a | `opencode` | No required TUI-only aspect identified. `opencode models`, `opencode stats`, `opencode providers`, `opencode run`, and JSON output are CLI surfaces. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests pass; automatic routing is allowed. |
+| n/a | `pi` | No required TUI-only aspect identified. `--list-models`, `--thinking`, `--models`, `--mode json`, and `--print` are CLI surfaces. `pi config` is configuration UI, not a core harness capability. | n/a unless future discovery finds an interactive-only capability. | n/a | Non-PTY capability tests pass; automatic routing is allowed. |
 
 Token usage remains a core capability, but it is not classified as TUI-only
 when the harness native run stream or batch JSON output exposes authoritative

@@ -176,8 +176,11 @@ func TestListHarnesses_shape(t *testing.T) {
 
 	t.Run("opencode_permissions_all_levels", func(t *testing.T) {
 		h := byName["opencode"]
-		if h.AutoRoutingEligible {
-			t.Errorf("opencode AutoRoutingEligible: want false")
+		if !h.AutoRoutingEligible {
+			t.Errorf("opencode AutoRoutingEligible: want true")
+		}
+		if h.DefaultModel != "opencode/gpt-5.4" {
+			t.Errorf("opencode DefaultModel: want opencode/gpt-5.4, got %q", h.DefaultModel)
 		}
 		assertContains(t, h.SupportedPermissions, "safe", "opencode permissions")
 		assertContains(t, h.SupportedPermissions, "supervised", "opencode permissions")
@@ -190,11 +193,16 @@ func TestListHarnesses_shape(t *testing.T) {
 		assertContains(t, h.SupportedReasoning, "max", "opencode reasoning")
 	})
 
-	t.Run("pi_explicit_only", func(t *testing.T) {
+	t.Run("pi_auto_routing_eligible", func(t *testing.T) {
 		h := byName["pi"]
-		if h.AutoRoutingEligible {
-			t.Errorf("pi AutoRoutingEligible: want false")
+		if !h.AutoRoutingEligible {
+			t.Errorf("pi AutoRoutingEligible: want true")
 		}
+		if h.DefaultModel != "gemini-2.5-flash" {
+			t.Errorf("pi DefaultModel: want gemini-2.5-flash, got %q", h.DefaultModel)
+		}
+		assertContains(t, h.SupportedReasoning, "minimal", "pi reasoning")
+		assertContains(t, h.SupportedReasoning, "xhigh", "pi reasoning")
 	})
 
 	t.Run("capability_matrix_all_harnesses", func(t *testing.T) {
@@ -243,7 +251,7 @@ func TestListHarnesses_shape(t *testing.T) {
 			},
 			"opencode": {
 				ExecutePrompt:   capStatus(agent.HarnessCapabilityRequired),
-				ModelDiscovery:  capStatus(agent.HarnessCapabilityUnsupported),
+				ModelDiscovery:  capStatus(agent.HarnessCapabilityOptional),
 				ModelPinning:    capStatus(agent.HarnessCapabilityOptional),
 				WorkdirContext:  capStatus(agent.HarnessCapabilityOptional),
 				ReasoningLevels: capStatus(agent.HarnessCapabilityOptional),
@@ -271,7 +279,7 @@ func TestListHarnesses_shape(t *testing.T) {
 			},
 			"pi": {
 				ExecutePrompt:   capStatus(agent.HarnessCapabilityRequired),
-				ModelDiscovery:  capStatus(agent.HarnessCapabilityUnsupported),
+				ModelDiscovery:  capStatus(agent.HarnessCapabilityOptional),
 				ModelPinning:    capStatus(agent.HarnessCapabilityOptional),
 				WorkdirContext:  capStatus(agent.HarnessCapabilityOptional),
 				ReasoningLevels: capStatus(agent.HarnessCapabilityOptional),

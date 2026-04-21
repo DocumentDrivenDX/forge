@@ -212,6 +212,33 @@ func TestBuildRoutingInputs_CodexQuotaStaleOrBlockedIsIneligible(t *testing.T) {
 	}
 }
 
+func TestBuildRoutingInputs_PromotedSecondaryHarnessMetadata(t *testing.T) {
+	registry := harnesses.NewRegistry()
+	svc := &service{opts: ServiceOptions{}, registry: registry}
+	inputs := svc.buildRoutingInputs()
+
+	opencode := routingHarnessEntry(t, inputs.Harnesses, "opencode")
+	if !opencode.AutoRoutingEligible || opencode.DefaultModel != "opencode/gpt-5.4" {
+		t.Fatalf("opencode routing metadata: AutoRoutingEligible=%v DefaultModel=%q", opencode.AutoRoutingEligible, opencode.DefaultModel)
+	}
+	if !containsRouteString(opencode.SupportedReasoning, "max") {
+		t.Fatalf("opencode reasoning metadata missing max: %v", opencode.SupportedReasoning)
+	}
+
+	pi := routingHarnessEntry(t, inputs.Harnesses, "pi")
+	if !pi.AutoRoutingEligible || pi.DefaultModel != "gemini-2.5-flash" {
+		t.Fatalf("pi routing metadata: AutoRoutingEligible=%v DefaultModel=%q", pi.AutoRoutingEligible, pi.DefaultModel)
+	}
+	if !containsRouteString(pi.SupportedReasoning, "xhigh") {
+		t.Fatalf("pi reasoning metadata missing xhigh: %v", pi.SupportedReasoning)
+	}
+
+	gemini := routingHarnessEntry(t, inputs.Harnesses, "gemini")
+	if gemini.AutoRoutingEligible {
+		t.Fatalf("gemini should remain explicit-only until full coverage is complete")
+	}
+}
+
 func routeAttemptTestService(cooldown time.Duration) *service {
 	sc := &fakeServiceConfig{
 		providers: map[string]ServiceProviderEntry{
@@ -244,4 +271,13 @@ func routingHarnessEntry(t *testing.T, entries []routing.HarnessEntry, name stri
 	}
 	t.Fatalf("routing entry %q not found", name)
 	return routing.HarnessEntry{}
+}
+
+func containsRouteString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
