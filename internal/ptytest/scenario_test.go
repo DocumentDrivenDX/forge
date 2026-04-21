@@ -75,6 +75,7 @@ groups:
     - {type: frame_stable_for, text: "stable", at_ms: 700, stable_for_ms: 200}
     - {type: cursor, at_ms: 5200, cursor_row: 2, cursor_col: 16, cursor_visible: true}
     - {type: size, at_ms: 5200, rows: 6, cols: 40}
+    - {type: size_eventually, at_ms: 1000, within_ms: 4500, rows: 6, cols: 40}
     - {type: style, at_ms: 600, text: "red", fg: 1}
   streams:
     - {type: raw_output_order}

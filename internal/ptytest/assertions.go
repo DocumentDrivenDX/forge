@@ -62,6 +62,17 @@ func evaluateAssertion(group string, spec AssertionSpec, events []cassette.Event
 			return failure(group, spec, events, frame.TMS, fmt.Sprintf("size got=%dx%d want=%dx%d", frame.Size.Rows, frame.Size.Cols, spec.Rows, spec.Cols))
 		}
 		return nil
+	case "size_eventually":
+		end := targetMS(spec) + spec.WithinMS
+		if spec.WithinMS == 0 {
+			end = events[len(events)-1].TMS
+		}
+		if frame := findFrameInWindow(events, targetMS(spec), end, func(fr *cassette.FrameRecord) bool {
+			return fr.Size.Rows == spec.Rows && fr.Size.Cols == spec.Cols
+		}); frame != nil {
+			return nil
+		}
+		return failure(group, spec, events, targetMS(spec), fmt.Sprintf("size %dx%d not found", spec.Rows, spec.Cols))
 	case "style":
 		frame := nearestFrame(events, targetMS(spec))
 		if frame == nil {

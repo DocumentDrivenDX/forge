@@ -1,0 +1,29 @@
+name: docker-less
+replay_mode: collapsed
+terminal_size:
+  rows: 20
+  cols: 72
+expected_artifacts:
+  - manifest.json
+  - input.jsonl
+  - output.raw
+  - output.jsonl
+  - frames.jsonl
+  - service-events.jsonl
+  - final.json
+  - scrub-report.json
+resolution_ms: 50
+groups:
+  screen:
+    - {name: initial-page, type: frame_eventually_contains, text: "less-line-001", within_ms: 5000}
+    - {name: later-page, type: frame_eventually_contains, text: "less-line-030", within_ms: 5000}
+  streams:
+    - {type: raw_output_order}
+    - {name: page-key, type: input_bytes, bytes_hex: "20"}
+    - {name: quit-key, type: input_bytes, bytes_hex: "71"}
+    - {type: timing_gap, kind: frame, min_ms: 0, max_ms: 2500}
+  service:
+    - {type: service_json, json_path: "$.type", equals: "tui-conformance"}
+    - {type: service_json, json_path: "$.case", equals: "less"}
+    - {type: final_metadata, metadata_key: "case", equals: "less"}
+    - {type: exit_status, exit_code: 0, signaled: false}

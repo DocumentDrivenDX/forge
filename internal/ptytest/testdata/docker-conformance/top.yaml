@@ -1,0 +1,31 @@
+name: docker-top
+replay_mode: collapsed
+terminal_size:
+  rows: 24
+  cols: 80
+expected_artifacts:
+  - manifest.json
+  - input.jsonl
+  - output.raw
+  - output.jsonl
+  - frames.jsonl
+  - service-events.jsonl
+  - final.json
+  - scrub-report.json
+resolution_ms: 50
+groups:
+  screen:
+    - {name: initial-paint, type: frame_eventually_contains, text: "top -", within_ms: 5000}
+    - {name: process-table, type: frame_eventually_contains, text: "PID", within_ms: 5000}
+    - {name: command-column, type: frame_eventually_contains, text: "COMMAND", within_ms: 5000}
+  streams:
+    - {type: raw_output_order}
+    - {name: help-key, type: input_bytes, bytes_hex: "68"}
+    - {name: quit-key, type: input_bytes, bytes_hex: "71"}
+    - {type: resize_order, before_kind: output, after_kind: frame}
+    - {type: timing_gap, kind: frame, min_ms: 0, max_ms: 2500}
+  service:
+    - {type: service_json, json_path: "$.type", equals: "tui-conformance"}
+    - {type: service_json, json_path: "$.case", equals: "top"}
+    - {type: final_metadata, metadata_key: "case", equals: "top"}
+    - {type: exit_status, exit_code: 0, signaled: false}

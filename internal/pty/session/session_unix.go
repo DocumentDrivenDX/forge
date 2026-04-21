@@ -93,7 +93,7 @@ func (s *Session) readLoop(r io.Reader, bufferSize int) {
 			s.emitOutput(buf[:n], nil, false)
 		}
 		if err != nil {
-			if errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) || errors.Is(err, syscall.EIO) {
 				s.emitOutput(nil, nil, true)
 			} else {
 				s.emitOutput(nil, err, true)

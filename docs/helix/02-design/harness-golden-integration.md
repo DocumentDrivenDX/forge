@@ -97,6 +97,44 @@ and failure normalization for Claude and Codex. Token usage remains a core
 capability, but it is only part of the PTY checklist when the source becomes
 TUI-derived.
 
+## PTY Docker Conformance
+
+The direct PTY library has an opt-in Docker conformance target for real Linux
+TUIs. It builds a local image from the pinned base
+`debian:bookworm-slim@sha256:4724b8cc51e33e398f0e2e15e18d5ec2851ff0c2280647e1310bc1642182655d`
+and installs `procps`, `less`, and `vim-tiny` inside that image. The test then
+starts `docker run -it` through `internal/pty/session`, records version-1
+cassettes with `internal/pty/cassette`, derives frames through
+`internal/pty/terminal`, and replays the result with the
+`internal/ptytest` scenario assertion framework.
+
+Run the Docker gate only in environments where Docker and package-network
+access are expected:
+
+```sh
+AGENT_PTY_INTEGRATION=1 go test -tags=integration ./internal/pty/... ./internal/ptytest/...
+```
+
+Default CI and local development remain replay-only and Docker-free:
+
+```sh
+go test ./...
+```
+
+The Docker suite currently covers `top`, `less`, and `vim.tiny` with reusable
+fixtures under `internal/ptytest/testdata/docker-conformance/`. `top`
+assertions are scenario predicates over rendered frames and cassette service
+metadata: initial paint, later refresh, help-screen input, resize, raw output
+ordering, input bytes, final metadata, and artifact presence. The pager and
+editor flows prove scrolling, quit/input handling, full-screen redraw, inserted
+text, cursor-bearing frame streams, and deterministic cassette replay.
+
+Host-only subsets are explicitly insufficient for closing Docker conformance:
+they exercise the local PTY implementation, but they do not prove the pinned
+Linux TUI target or the Docker promotion gate. Conversely, Docker conformance
+does not replace the required Linux/macOS host smoke tests because Docker only
+proves the Linux container path.
+
 Debuggability is required but deliberately small: the PTY stack should expose
 commands or equivalent test helpers that dump the current rendered VT screen,
 cursor metadata, terminal size, recent raw byte offsets, and recent timed
