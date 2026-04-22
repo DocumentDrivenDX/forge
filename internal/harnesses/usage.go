@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	UsageSourceNativeStream = "native_stream"
-	UsageSourceTranscript   = "transcript"
-	UsageSourceStatusOutput = "status_output"
-	UsageSourceFallback     = "fallback"
+	UsageSourceNativeStream     = "native_stream"
+	UsageSourceNativeTokenCount = "native_token_count"
+	UsageSourceTranscript       = "transcript"
+	UsageSourceStatusOutput     = "status_output"
+	UsageSourceFallback         = "fallback"
 
 	UsageWarningMalformed    = "usage_malformed"
 	UsageWarningDisagreement = "usage_source_disagreement"
@@ -101,12 +102,14 @@ func usageSourceRank(source string) int {
 	switch source {
 	case UsageSourceNativeStream:
 		return 0
-	case UsageSourceTranscript:
+	case UsageSourceNativeTokenCount:
 		return 1
-	case UsageSourceStatusOutput:
+	case UsageSourceTranscript:
 		return 2
-	case UsageSourceFallback:
+	case UsageSourceStatusOutput:
 		return 3
+	case UsageSourceFallback:
+		return 4
 	default:
 		return 100
 	}

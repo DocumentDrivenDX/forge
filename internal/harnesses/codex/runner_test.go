@@ -349,13 +349,18 @@ func TestParseCodexStream_UsageCassettes(t *testing.T) {
 		wantOutput       int
 		wantCache        int
 		wantReasoning    int
+		wantSource       string
+		wantRateLimits   int
 		wantMalformed    bool
 		wantDisagreement bool
 	}{
-		{name: "present", wantUsage: true, wantInput: 12, wantOutput: 4, wantCache: 5, wantReasoning: 2},
+		{name: "present", wantUsage: true, wantInput: 12, wantOutput: 4, wantCache: 5, wantReasoning: 2, wantSource: harnesses.UsageSourceNativeStream},
 		{name: "absent"},
 		{name: "malformed", wantMalformed: true},
-		{name: "disagree", wantUsage: true, wantInput: 30, wantOutput: 6, wantDisagreement: true},
+		{name: "disagree", wantUsage: true, wantInput: 30, wantOutput: 6, wantSource: harnesses.UsageSourceNativeStream, wantDisagreement: true},
+		{name: "token_count_only", wantUsage: true, wantInput: 11, wantOutput: 3, wantCache: 8, wantReasoning: 1, wantSource: harnesses.UsageSourceNativeTokenCount, wantRateLimits: 1},
+		{name: "token_count_with_turn", wantUsage: true, wantInput: 20, wantOutput: 4, wantSource: harnesses.UsageSourceNativeStream, wantRateLimits: 1, wantDisagreement: true},
+		{name: "token_count_malformed", wantMalformed: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -382,6 +387,9 @@ func TestParseCodexStream_UsageCassettes(t *testing.T) {
 				if usage.OutputTokens == nil || *usage.OutputTokens != tc.wantOutput {
 					t.Fatalf("output usage: got %#v", usage)
 				}
+				if tc.wantSource != "" && usage.Source != tc.wantSource {
+					t.Fatalf("usage source: got %q, want %q", usage.Source, tc.wantSource)
+				}
 				if tc.wantCache > 0 && (usage.CacheTokens == nil || *usage.CacheTokens != tc.wantCache) {
 					t.Fatalf("cache usage: got %#v", usage)
 				}
@@ -389,11 +397,19 @@ func TestParseCodexStream_UsageCassettes(t *testing.T) {
 					t.Fatalf("reasoning usage: got %#v", usage)
 				}
 			}
+			if len(agg.TokenCountRateLimits) != tc.wantRateLimits {
+				t.Fatalf("token_count rate limits: got %d, want %d", len(agg.TokenCountRateLimits), tc.wantRateLimits)
+			}
 			if hasFinalWarning(warnings, harnesses.UsageWarningMalformed) != tc.wantMalformed {
 				t.Fatalf("malformed warnings: got %#v", warnings)
 			}
 			if hasFinalWarning(warnings, harnesses.UsageWarningDisagreement) != tc.wantDisagreement {
 				t.Fatalf("disagreement warnings: got %#v", warnings)
+			}
+			for _, warning := range warnings {
+				if strings.Contains(warning.Message, "secret prompt") || strings.Contains(warning.Message, "last_token_usage") {
+					t.Fatalf("warning leaked raw token_count content: %#v", warning)
+				}
 			}
 		})
 	}

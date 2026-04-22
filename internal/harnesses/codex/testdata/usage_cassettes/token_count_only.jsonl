@@ -1,0 +1,2 @@
+{"type":"output","item":{"type":"agent_message","text":"usage from token_count"}}
+{"type":"event_msg","timestamp":"2026-04-22T01:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":11,"cached_input_tokens":8,"output_tokens":3,"reasoning_output_tokens":1,"total_tokens":14}},"rate_limits":{"primary":{"used_percent":1.5,"window_minutes":300,"resets_at":1776840333,"limit_id":"codex"}}}}

@@ -20,6 +20,7 @@ import (
 //
 //	type=output, item.type=agent_message, item.text=<response text>
 //	type=turn.completed, usage.input_tokens=N, usage.output_tokens=N
+//	type=event_msg, payload.type=token_count, payload.info.last_token_usage=...
 //	(other types are passed through silently)
 type codexEvent struct {
 	Type   string `json:"type"`
@@ -37,12 +38,28 @@ type codexEvent struct {
 	} `json:"item"`
 	Usage      json.RawMessage `json:"usage"`
 	CapturedAt string          `json:"captured_at"`
+	Timestamp  string          `json:"timestamp"`
+	Payload    struct {
+		Type string `json:"type"`
+		Info struct {
+			LastTokenUsage json.RawMessage `json:"last_token_usage"`
+		} `json:"info"`
+		RateLimits json.RawMessage `json:"rate_limits"`
+	} `json:"payload"`
+}
+
+// tokenCountRateLimitEvidence preserves structured Codex quota evidence from
+// token_count events for a later service integration step.
+type tokenCountRateLimitEvidence struct {
+	CapturedAt string
+	RateLimits json.RawMessage
 }
 
 // streamAggregate captures running totals from the codex stream.
 type streamAggregate struct {
-	FinalText    string
-	UsageSources []harnesses.UsageCandidate
+	FinalText            string
+	UsageSources         []harnesses.UsageCandidate
+	TokenCountRateLimits []tokenCountRateLimitEvidence
 }
 
 // parseCodexStream reads newline-delimited codex exec --json events from r
@@ -53,6 +70,7 @@ type streamAggregate struct {
 //   - codex item.completed command_execution  -> EventTypeToolResult
 //   - codex item.completed text item          -> EventTypeTextDelta
 //   - codex turn.completed                    -> (no event; aggregate populated with usage)
+//   - codex event_msg token_count             -> (no event; aggregate populated with usage/quota evidence)
 //   - all other types                         -> skipped
 func parseCodexStream(ctx context.Context, r io.Reader, out chan<- harnesses.Event, metadata map[string]string, seq *int64) (*streamAggregate, error) {
 	agg := &streamAggregate{}
@@ -139,6 +157,10 @@ func parseCodexStream(ctx context.Context, r io.Reader, out chan<- harnesses.Eve
 			}
 		case "turn.completed":
 			agg.recordUsage(ev.Usage)
+		case "event_msg":
+			if ev.Payload.Type == "token_count" {
+				agg.recordTokenCountUsage(ev.Timestamp, ev.Payload.Info.LastTokenUsage, ev.Payload.RateLimits)
+			}
 		case "ddx.usage_source":
 			agg.recordUsageSource(ev.Source, ev.Fresh, ev.CapturedAt, ev.Usage)
 		}
@@ -151,6 +173,18 @@ func parseCodexStream(ctx context.Context, r io.Reader, out chan<- harnesses.Eve
 
 func (a *streamAggregate) recordUsage(raw json.RawMessage) {
 	a.recordUsageSource(harnesses.UsageSourceNativeStream, harnesses.BoolPtr(true), "", raw)
+}
+
+func (a *streamAggregate) recordTokenCountUsage(capturedAt string, usage json.RawMessage, rateLimits json.RawMessage) {
+	a.recordUsageSource(harnesses.UsageSourceNativeTokenCount, harnesses.BoolPtr(true), capturedAt, usage)
+	if len(rateLimits) == 0 || string(rateLimits) == "null" {
+		return
+	}
+	copied := append(json.RawMessage(nil), rateLimits...)
+	a.TokenCountRateLimits = append(a.TokenCountRateLimits, tokenCountRateLimitEvidence{
+		CapturedAt: capturedAt,
+		RateLimits: copied,
+	})
 }
 
 func (a *streamAggregate) recordUsageSource(source string, fresh *bool, capturedAt string, raw json.RawMessage) {

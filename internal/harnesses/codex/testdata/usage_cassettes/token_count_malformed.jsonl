@@ -1,0 +1,2 @@
+{"type":"output","item":{"type":"agent_message","text":"malformed token_count"}}
+{"type":"event_msg","timestamp":"2026-04-22T01:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":"changed-shape","output_tokens":4,"note":"secret prompt must not appear in warnings"}}}}
