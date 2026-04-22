@@ -106,6 +106,34 @@ func TestDefault_ReasoningDefaultsByTier(t *testing.T) {
 	}
 }
 
+func TestDefault_ProfileProviderPreferences(t *testing.T) {
+	catalog, err := Default()
+	require.NoError(t, err)
+
+	tests := []struct {
+		profile string
+		target  string
+		want    string
+	}{
+		{profile: "default", target: "code-medium", want: providerPreferenceLocalFirst},
+		{profile: "local", target: "code-economy", want: providerPreferenceLocalOnly},
+		{profile: "standard", target: "code-medium", want: providerPreferenceLocalFirst},
+		{profile: "smart", target: "code-high", want: providerPreferenceSubscriptionFirst},
+		{profile: "cheap", target: "code-economy", want: providerPreferenceLocalFirst},
+		{profile: "offline", target: "code-economy", want: providerPreferenceLocalOnly},
+		{profile: "air-gapped", target: "code-economy", want: providerPreferenceLocalOnly},
+	}
+	for _, tt := range tests {
+		t.Run(tt.profile, func(t *testing.T) {
+			profile, ok := catalog.Profile(tt.profile)
+			require.True(t, ok)
+			assert.Equal(t, tt.profile, profile.Name)
+			assert.Equal(t, tt.target, profile.Target)
+			assert.Equal(t, tt.want, profile.ProviderPreference)
+		})
+	}
+}
+
 func TestResolveAliasFromFixture(t *testing.T) {
 	catalog := loadFixtureCatalog(t)
 	resolved, err := catalog.Resolve("alpha", ResolveOptions{

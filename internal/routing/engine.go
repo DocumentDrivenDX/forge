@@ -318,6 +318,13 @@ func Resolve(req Request, in Inputs) (*Decision, error) {
 	if requested := requestedModelIntent(req); requested != "" && hasLiveDiscoveryCandidates(ranked) {
 		return &Decision{Candidates: out}, fmt.Errorf("no live endpoint offers a match for %s", requested)
 	}
+	if missingCapability := missingProfileCapability(req); missingCapability != "" {
+		return &Decision{Candidates: out}, &ErrNoProfileCandidate{
+			Profile:           req.Profile,
+			MissingCapability: missingCapability,
+			Rejected:          len(out),
+		}
+	}
 	return &Decision{Candidates: out}, &NoViableCandidateError{Rejected: len(out)}
 }
 
@@ -332,6 +339,13 @@ func explicitPinError(req Request, in Inputs) error {
 						ConflictingPin:    "Harness=" + canonicalHarness,
 						ProfileConstraint: constraint,
 					}
+				}
+			}
+			if req.Model != "" && modelPinViolatesProfileConstraint(req.Model, in, constraint) {
+				return &ErrProfilePinConflict{
+					Profile:           req.Profile,
+					ConflictingPin:    "Model=" + req.Model,
+					ProfileConstraint: constraint,
 				}
 			}
 		}
@@ -401,6 +415,61 @@ func harnessViolatesProfileConstraint(h HarnessEntry, constraint string) bool {
 		return !h.IsSubscription
 	default:
 		return false
+	}
+}
+
+func modelPinViolatesProfileConstraint(model string, in Inputs, constraint string) bool {
+	var constrainedCanServe bool
+	var outsideCanServe bool
+	for _, h := range in.Harnesses {
+		if h.TestOnly || !h.AutoRoutingEligible {
+			continue
+		}
+		if !harnessCanServeExactModel(h, model) {
+			continue
+		}
+		if harnessViolatesProfileConstraint(h, constraint) {
+			outsideCanServe = true
+		} else {
+			constrainedCanServe = true
+		}
+	}
+	return !constrainedCanServe && outsideCanServe
+}
+
+func harnessCanServeExactModel(h HarnessEntry, model string) bool {
+	if len(h.SupportedModels) > 0 && harnessSupportsModel(h.SupportedModels, model) {
+		return true
+	}
+	if h.DefaultModel == model {
+		return true
+	}
+	providers := h.Providers
+	if len(providers) == 0 {
+		providers = []ProviderEntry{{Name: ""}}
+	}
+	for _, p := range providers {
+		if p.DefaultModel == model {
+			return true
+		}
+		if len(p.DiscoveredIDs) > 0 && FuzzyMatch(model, p.DiscoveredIDs) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func missingProfileCapability(req Request) string {
+	if req.Profile == "" {
+		return ""
+	}
+	switch req.ProviderPreference {
+	case ProviderPreferenceLocalOnly:
+		return "local endpoint"
+	case ProviderPreferenceSubscriptionOnly:
+		return "subscription harness"
+	default:
+		return ""
 	}
 }
 

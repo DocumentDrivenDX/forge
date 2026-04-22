@@ -16,6 +16,11 @@ const (
 	statusDeprecated = "deprecated"
 	statusStale      = "stale"
 	maxSchemaVersion = 4
+
+	providerPreferenceLocalFirst        = "local-first"
+	providerPreferenceSubscriptionFirst = "subscription-first"
+	providerPreferenceLocalOnly         = "local-only"
+	providerPreferenceSubscriptionOnly  = "subscription-only"
 )
 
 //go:embed catalog/models.yaml
@@ -62,7 +67,8 @@ type manifest struct {
 }
 
 type profileEntry struct {
-	Target string `yaml:"target"`
+	Target             string `yaml:"target"`
+	ProviderPreference string `yaml:"provider_preference,omitempty"`
 }
 
 // surfaceValue represents a surface entry that may be a plain model ID string
@@ -193,14 +199,14 @@ func loadManifest(data []byte, source string) (*Catalog, error) {
 	}
 
 	catalog := &Catalog{
-		manifest:    m,
-		manifestSrc: source,
-		aliasToID:   make(map[string]string),
-		profileToID: make(map[string]string),
+		manifest:       m,
+		manifestSrc:    source,
+		aliasToID:      make(map[string]string),
+		profileEntries: make(map[string]profileEntry),
 	}
 
 	for profile, entry := range m.Profiles {
-		catalog.profileToID[profile] = entry.Target
+		catalog.profileEntries[profile] = entry
 	}
 	for targetID, target := range m.Targets {
 		for _, alias := range target.Aliases {
@@ -381,6 +387,11 @@ func validateManifest(m manifest) error {
 		if _, ok := m.Targets[entry.Target]; !ok {
 			return fmt.Errorf("profile %q references unknown target %q", profile, entry.Target)
 		}
+		switch entry.ProviderPreference {
+		case "", providerPreferenceLocalFirst, providerPreferenceSubscriptionFirst, providerPreferenceLocalOnly, providerPreferenceSubscriptionOnly:
+		default:
+			return fmt.Errorf("profile %q has invalid provider_preference %q", profile, entry.ProviderPreference)
+		}
 		if owner, exists := reserved[profile]; exists && profile != entry.Target {
 			return fmt.Errorf("profile %q collides with %s", profile, owner)
 		}
@@ -468,6 +479,14 @@ func normalizedStatus(status string) string {
 		return statusActive
 	}
 	return status
+}
+
+func normalizedProviderPreference(preference string) string {
+	preference = strings.ToLower(strings.TrimSpace(preference))
+	if preference == "" {
+		return providerPreferenceLocalFirst
+	}
+	return preference
 }
 
 func findReplacementCycle(m manifest, start string) string {

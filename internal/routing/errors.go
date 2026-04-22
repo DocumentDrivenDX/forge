@@ -9,6 +9,7 @@ import (
 var (
 	errHarnessModelIncompatible = errors.New("routing: harness model incompatible")
 	errProfilePinConflict       = errors.New("routing: profile pin conflict")
+	errNoProfileCandidate       = errors.New("routing: no profile candidate")
 )
 
 // ErrHarnessModelIncompatible reports an explicit Harness+Model pin that the
@@ -67,4 +68,29 @@ func (e ErrProfilePinConflict) Is(target error) bool {
 
 func (e ErrProfilePinConflict) Unwrap() error {
 	return errProfilePinConflict
+}
+
+// ErrNoProfileCandidate reports that a profile's hard placement requirement
+// could not be satisfied by any routed candidate.
+type ErrNoProfileCandidate struct {
+	Profile           string
+	MissingCapability string
+	Rejected          int
+}
+
+func (e ErrNoProfileCandidate) Error() string {
+	return fmt.Sprintf("profile %q has no candidate satisfying %s: %d candidates rejected", e.Profile, e.MissingCapability, e.Rejected)
+}
+
+func (e ErrNoProfileCandidate) Is(target error) bool {
+	switch target.(type) {
+	case ErrNoProfileCandidate, *ErrNoProfileCandidate:
+		return true
+	default:
+		return errors.Is(errNoProfileCandidate, target)
+	}
+}
+
+func (e ErrNoProfileCandidate) Unwrap() error {
+	return errNoProfileCandidate
 }

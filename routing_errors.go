@@ -9,6 +9,8 @@ import (
 var (
 	errHarnessModelIncompatible = errors.New("agent: harness model incompatible")
 	errProfilePinConflict       = errors.New("agent: profile pin conflict")
+	errNoProfileCandidate       = errors.New("agent: no profile candidate")
+	errUnknownProfile           = errors.New("agent: unknown profile")
 )
 
 // DecisionWithCandidates is implemented by routing errors that retain the
@@ -102,4 +104,52 @@ func (e ErrProfilePinConflict) Is(target error) bool {
 
 func (e ErrProfilePinConflict) Unwrap() error {
 	return errProfilePinConflict
+}
+
+// ErrNoProfileCandidate reports that a profile's hard placement requirement
+// could not be satisfied by any routed candidate.
+type ErrNoProfileCandidate struct {
+	Profile           string
+	MissingCapability string
+	Rejected          int
+}
+
+func (e ErrNoProfileCandidate) Error() string {
+	return fmt.Sprintf("profile %q has no candidate satisfying %s: %d candidates rejected", e.Profile, e.MissingCapability, e.Rejected)
+}
+
+func (e ErrNoProfileCandidate) Is(target error) bool {
+	switch target.(type) {
+	case ErrNoProfileCandidate, *ErrNoProfileCandidate:
+		return true
+	default:
+		return errors.Is(errNoProfileCandidate, target)
+	}
+}
+
+func (e ErrNoProfileCandidate) Unwrap() error {
+	return errNoProfileCandidate
+}
+
+// ErrUnknownProfile reports an explicit profile name that is not present in
+// the model catalog.
+type ErrUnknownProfile struct {
+	Profile string
+}
+
+func (e ErrUnknownProfile) Error() string {
+	return fmt.Sprintf("unknown routing profile %q", e.Profile)
+}
+
+func (e ErrUnknownProfile) Is(target error) bool {
+	switch target.(type) {
+	case ErrUnknownProfile, *ErrUnknownProfile:
+		return true
+	default:
+		return errors.Is(errUnknownProfile, target)
+	}
+}
+
+func (e ErrUnknownProfile) Unwrap() error {
+	return errUnknownProfile
 }

@@ -30,6 +30,12 @@ func TestServiceProfiles_ListResolveAliases(t *testing.T) {
 	if byName["standard"].CatalogVersion == "" {
 		t.Fatal("CatalogVersion should be populated")
 	}
+	if byName["default"].Target != "code-medium" || byName["default"].ProviderPreference != "local-first" {
+		t.Fatalf("default profile: %#v, want target code-medium/local-first", byName["default"])
+	}
+	if byName["local"].Target != "code-economy" || byName["local"].ProviderPreference != "local-only" {
+		t.Fatalf("local profile: %#v, want target code-economy/local-only", byName["local"])
+	}
 	if !byName["claude-sonnet"].Deprecated {
 		t.Fatal("claude-sonnet should be listed as a deprecated alias")
 	}

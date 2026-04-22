@@ -27,10 +27,10 @@ type ResolveOptions struct {
 
 // Catalog resolves logical model references into concrete consumer-specific model IDs.
 type Catalog struct {
-	manifest    manifest
-	manifestSrc string
-	aliasToID   map[string]string
-	profileToID map[string]string
+	manifest       manifest
+	manifestSrc    string
+	aliasToID      map[string]string
+	profileEntries map[string]profileEntry
 }
 
 // SurfacePolicy captures optional routing metadata for a resolved surface.
@@ -50,8 +50,9 @@ type Metadata struct {
 
 // Profile describes one named catalog profile.
 type Profile struct {
-	Name   string
-	Target string
+	Name               string
+	Target             string
+	ProviderPreference string
 }
 
 // Alias describes one catalog alias.
@@ -107,16 +108,34 @@ func (c *Catalog) Metadata() Metadata {
 
 // Profiles returns all named profiles in deterministic order.
 func (c *Catalog) Profiles() []Profile {
-	names := make([]string, 0, len(c.profileToID))
-	for name := range c.profileToID {
+	names := make([]string, 0, len(c.profileEntries))
+	for name := range c.profileEntries {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	out := make([]Profile, 0, len(names))
 	for _, name := range names {
-		out = append(out, Profile{Name: name, Target: c.profileToID[name]})
+		entry := c.profileEntries[name]
+		out = append(out, Profile{
+			Name:               name,
+			Target:             entry.Target,
+			ProviderPreference: normalizedProviderPreference(entry.ProviderPreference),
+		})
 	}
 	return out
+}
+
+// Profile returns one named profile definition.
+func (c *Catalog) Profile(name string) (Profile, bool) {
+	entry, ok := c.profileEntries[strings.TrimSpace(name)]
+	if !ok {
+		return Profile{}, false
+	}
+	return Profile{
+		Name:               strings.TrimSpace(name),
+		Target:             entry.Target,
+		ProviderPreference: normalizedProviderPreference(entry.ProviderPreference),
+	}, true
 }
 
 // Aliases returns all target aliases in deterministic order.
@@ -190,12 +209,12 @@ func (c *Catalog) Current(profile string, opts ResolveOptions) (ResolvedTarget, 
 		return ResolvedTarget{}, &UnknownReferenceError{Ref: profile}
 	}
 
-	targetID, ok := c.profileToID[profile]
+	entry, ok := c.profileEntries[profile]
 	if !ok {
 		return ResolvedTarget{}, &UnknownReferenceError{Ref: profile}
 	}
 
-	return c.resolveTarget(profile, profile, targetID, opts)
+	return c.resolveTarget(profile, profile, entry.Target, opts)
 }
 
 // Resolve resolves a profile, canonical target, or alias to a concrete model ID.
@@ -205,8 +224,8 @@ func (c *Catalog) Resolve(ref string, opts ResolveOptions) (ResolvedTarget, erro
 		return ResolvedTarget{}, &UnknownReferenceError{Ref: ref}
 	}
 
-	if targetID, ok := c.profileToID[ref]; ok {
-		return c.resolveTarget(ref, ref, targetID, opts)
+	if entry, ok := c.profileEntries[ref]; ok {
+		return c.resolveTarget(ref, ref, entry.Target, opts)
 	}
 	if _, ok := c.manifest.Targets[ref]; ok {
 		return c.resolveTarget(ref, "", ref, opts)

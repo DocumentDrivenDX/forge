@@ -25,21 +25,27 @@ var loadRoutingCatalog = modelcatalog.Default
 // agent-side provider failover ordering.
 func (s *service) ResolveRoute(ctx context.Context, req RouteRequest) (*RouteDecision, error) {
 	s.ensurePrimaryQuotaRefresh(ctx, quotaRefreshAsync)
-	in := s.buildRoutingInputs(ctx)
+	cat := serviceRoutingCatalog()
 	profile := req.Profile
 	if profile == "" {
-		profile = reqProfileFromModelRef(req.ModelRef)
+		profile = reqProfileFromModelRef(cat, req.ModelRef)
 	}
+	modelRef := reqModelRefStripProfile(cat, req.ModelRef)
+	providerPreference, err := providerPreferenceForProfile(cat, profile)
+	if err != nil {
+		return &RouteDecision{}, err
+	}
+	in := s.buildRoutingInputsWithCatalog(ctx, cat)
 
 	rReq := routing.Request{
 		Profile:            profile,
-		ModelRef:           reqModelRefStripProfile(req.ModelRef),
+		ModelRef:           modelRef,
 		Model:              req.Model,
 		Provider:           req.Provider,
 		Harness:            req.Harness,
 		Reasoning:          effectiveReasoningString(req.Reasoning),
 		Permissions:        req.Permissions,
-		ProviderPreference: providerPreferenceForProfile(profile),
+		ProviderPreference: providerPreference,
 	}
 	s.applyRouteAttemptCooldowns(&in)
 	dec, err := routing.Resolve(rReq, in)
@@ -111,6 +117,14 @@ func publicRoutingError(err error, candidates []RouteCandidate) error {
 			ProfileConstraint: profileErr.ProfileConstraint,
 		}, candidates)
 	}
+	var noProfileErr *routing.ErrNoProfileCandidate
+	if errors.As(err, &noProfileErr) {
+		return withRouteCandidates(&ErrNoProfileCandidate{
+			Profile:           noProfileErr.Profile,
+			MissingCapability: noProfileErr.MissingCapability,
+			Rejected:          noProfileErr.Rejected,
+		}, candidates)
+	}
 	return withRouteCandidates(err, candidates)
 }
 
@@ -169,9 +183,11 @@ func (s *service) routeAttemptTTL() time.Duration {
 
 // reqProfileFromModelRef returns ref when ref is a known profile alias,
 // or "" otherwise. The contract puts ModelRef and Profile in the same field.
-func reqProfileFromModelRef(ref string) string {
-	switch ref {
-	case "cheap", "standard", "smart":
+func reqProfileFromModelRef(cat *modelcatalog.Catalog, ref string) string {
+	if cat == nil {
+		return ""
+	}
+	if _, ok := cat.Profile(ref); ok {
 		return ref
 	}
 	return ""
@@ -179,9 +195,11 @@ func reqProfileFromModelRef(ref string) string {
 
 // reqModelRefStripProfile returns "" when ref is a known profile alias,
 // or ref otherwise.
-func reqModelRefStripProfile(ref string) string {
-	switch ref {
-	case "cheap", "standard", "smart":
+func reqModelRefStripProfile(cat *modelcatalog.Catalog, ref string) string {
+	if cat == nil {
+		return ref
+	}
+	if _, ok := cat.Profile(ref); ok {
 		return ""
 	}
 	return ref
@@ -197,7 +215,10 @@ func reqModelRefStripProfile(ref string) string {
 // ctx is used for cache probes with a short deadline; the cache's
 // stale-while-revalidate flow makes most calls non-blocking.
 func (s *service) buildRoutingInputs(ctx context.Context) routing.Inputs {
-	cat := serviceRoutingCatalog()
+	return s.buildRoutingInputsWithCatalog(ctx, serviceRoutingCatalog())
+}
+
+func (s *service) buildRoutingInputsWithCatalog(ctx context.Context, cat *modelcatalog.Catalog) routing.Inputs {
 	statuses := s.registry.Discover()
 	statusByName := make(map[string]harnesses.HarnessStatus, len(statuses))
 	for _, st := range statuses {
@@ -616,13 +637,22 @@ func (s *service) resolveExecuteRouteWithEngine(req ServiceExecuteRequest) (*Rou
 	return dec, nil
 }
 
-func providerPreferenceForProfile(profile string) string {
-	switch profile {
-	case "local", "offline", "air-gapped":
-		return routing.ProviderPreferenceLocalOnly
-	case "smart", "code-high":
-		return routing.ProviderPreferenceSubscriptionFirst
+func providerPreferenceForProfile(cat *modelcatalog.Catalog, profile string) (string, error) {
+	if profile == "" {
+		return routing.ProviderPreferenceLocalFirst, nil
+	}
+	if cat == nil {
+		return "", &ErrUnknownProfile{Profile: profile}
+	}
+	info, ok := cat.Profile(profile)
+	if !ok {
+		return "", &ErrUnknownProfile{Profile: profile}
+	}
+	switch info.ProviderPreference {
+	case routing.ProviderPreferenceLocalOnly, routing.ProviderPreferenceSubscriptionOnly,
+		routing.ProviderPreferenceLocalFirst, routing.ProviderPreferenceSubscriptionFirst:
+		return info.ProviderPreference, nil
 	default:
-		return routing.ProviderPreferenceLocalFirst
+		return "", fmt.Errorf("profile %q has unsupported provider preference %q", profile, info.ProviderPreference)
 	}
 }

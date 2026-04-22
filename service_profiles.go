@@ -20,11 +20,12 @@ func (s *service) ListProfiles(_ context.Context) ([]ProfileInfo, error) {
 	seen := make(map[string]struct{}, len(profiles)+len(aliases))
 	for _, profile := range profiles {
 		info := ProfileInfo{
-			Name:            profile.Name,
-			Target:          profile.Target,
-			CatalogVersion:  meta.CatalogVersion,
-			ManifestSource:  meta.ManifestSource,
-			ManifestVersion: meta.ManifestVersion,
+			Name:               profile.Name,
+			Target:             profile.Target,
+			ProviderPreference: profile.ProviderPreference,
+			CatalogVersion:     meta.CatalogVersion,
+			ManifestSource:     meta.ManifestSource,
+			ManifestVersion:    meta.ManifestVersion,
 		}
 		if profile.Name != profile.Target {
 			info.AliasOf = profile.Target

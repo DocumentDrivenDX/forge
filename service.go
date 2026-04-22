@@ -290,14 +290,15 @@ type ModelFilter struct {
 }
 
 type ProfileInfo struct {
-	Name            string
-	Target          string
-	AliasOf         string
-	Deprecated      bool
-	Replacement     string
-	CatalogVersion  string
-	ManifestSource  string
-	ManifestVersion int
+	Name               string
+	Target             string
+	AliasOf            string
+	ProviderPreference string
+	Deprecated         bool
+	Replacement        string
+	CatalogVersion     string
+	ManifestSource     string
+	ManifestVersion    int
 }
 
 type ResolvedProfile struct {

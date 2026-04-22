@@ -192,24 +192,45 @@ models:
       agent.anthropic: claude-3-7-sonnet-20250219
 
 profiles:
+  default:
+    target: code-medium
+    provider_preference: local-first
+  local:
+    target: code-economy
+    provider_preference: local-only
+  offline:
+    target: code-economy
+    provider_preference: local-only
+  air-gapped:
+    target: code-economy
+    provider_preference: local-only
   code-high:
     target: code-high
+    provider_preference: subscription-first
   code-smart:
     target: code-high
+    provider_preference: subscription-first
   smart:
     target: code-high
+    provider_preference: subscription-first
   code-medium:
     target: code-medium
+    provider_preference: local-first
   code-fast:
     target: code-medium
+    provider_preference: local-first
   fast:
     target: code-medium
+    provider_preference: local-first
   standard:
     target: code-medium
+    provider_preference: local-first
   code-economy:
     target: code-economy
+    provider_preference: local-first
   cheap:
     target: code-economy
+    provider_preference: local-first
 
 targets:
   code-high:

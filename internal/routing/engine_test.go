@@ -581,6 +581,170 @@ func TestSmartPrefersCloud(t *testing.T) {
 	}
 }
 
+func TestFirstClassProfileRoutingSemantics(t *testing.T) {
+	tests := []struct {
+		name  string
+		req   Request
+		in    Inputs
+		check func(*testing.T, *Decision, error)
+	}{
+		{
+			name: "local-only success",
+			req:  Request{Profile: "local", ProviderPreference: ProviderPreferenceLocalOnly},
+			in: func() Inputs {
+				in := newTestRoutingEngine()
+				in.CatalogResolver = func(ref, surface string) (string, bool) {
+					if ref == "local" && surface == "embedded-openai" {
+						return "qwen/qwen3.6", true
+					}
+					return "", false
+				}
+				return in
+			}(),
+			check: func(t *testing.T, dec *Decision, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("Resolve local: %v", err)
+				}
+				if dec.Harness != "agent" {
+					t.Fatalf("local profile selected harness=%q provider=%q, want local agent harness", dec.Harness, dec.Provider)
+				}
+			},
+		},
+		{
+			name: "local-only miss returns typed error",
+			req:  Request{Profile: "local", ProviderPreference: ProviderPreferenceLocalOnly},
+			in: func() Inputs {
+				in := newTestRoutingEngine()
+				for i := range in.Harnesses {
+					if in.Harnesses[i].Name == "agent" {
+						in.Harnesses[i].Available = false
+					}
+				}
+				return in
+			}(),
+			check: func(t *testing.T, _ *Decision, err error) {
+				t.Helper()
+				if err == nil {
+					t.Fatal("expected local profile miss")
+				}
+				var typed *ErrNoProfileCandidate
+				if !errors.As(err, &typed) {
+					t.Fatalf("error type=%T, want ErrNoProfileCandidate: %v", err, err)
+				}
+				if typed.Profile != "local" || typed.MissingCapability != "local endpoint" {
+					t.Fatalf("ErrNoProfileCandidate=%#v, want local/local endpoint", typed)
+				}
+			},
+		},
+		{
+			name: "default applies deterministic provider tiebreak",
+			req:  Request{Profile: "default", ProviderPreference: ProviderPreferenceLocalFirst},
+			in: Inputs{
+				Harnesses: []HarnessEntry{{
+					Name:                "agent",
+					Surface:             "embedded-openai",
+					CostClass:           "local",
+					IsLocal:             true,
+					AutoRoutingEligible: true,
+					Available:           true,
+					QuotaOK:             true,
+					SubscriptionOK:      true,
+					ExactPinSupport:     true,
+					SupportsTools:       true,
+					Providers: []ProviderEntry{
+						{Name: "z-local", DefaultModel: "capable-model", SupportsTools: true},
+						{Name: "a-local", DefaultModel: "capable-model", SupportsTools: true},
+					},
+				}},
+				CatalogResolver: func(ref, surface string) (string, bool) {
+					if ref == "default" && surface == "embedded-openai" {
+						return "capable-model", true
+					}
+					return "", false
+				},
+			},
+			check: func(t *testing.T, dec *Decision, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("Resolve default: %v", err)
+				}
+				if dec.Harness != "agent" || dec.Provider != "a-local" {
+					t.Fatalf("default tiebreak selected harness=%q provider=%q, want agent/a-local", dec.Harness, dec.Provider)
+				}
+			},
+		},
+		{
+			name: "standard prefers lower known cost",
+			req:  Request{Profile: "standard", ProviderPreference: ProviderPreferenceLocalFirst},
+			in: Inputs{
+				Harnesses: []HarnessEntry{
+					{
+						Name:                "codex",
+						Surface:             "codex",
+						CostClass:           "medium",
+						IsSubscription:      true,
+						AutoRoutingEligible: true,
+						Available:           true,
+						QuotaOK:             true,
+						SubscriptionOK:      true,
+						ExactPinSupport:     true,
+						SupportsTools:       true,
+						Providers: []ProviderEntry{{
+							Name:               "codex-sub",
+							DefaultModel:       "standard-model",
+							CostUSDPer1kTokens: 0.02,
+							CostSource:         CostSourceUserConfig,
+							SupportsTools:      true,
+						}},
+					},
+					{
+						Name:                "claude",
+						Surface:             "claude",
+						CostClass:           "medium",
+						IsSubscription:      true,
+						AutoRoutingEligible: true,
+						Available:           true,
+						QuotaOK:             true,
+						SubscriptionOK:      true,
+						ExactPinSupport:     true,
+						SupportsTools:       true,
+						Providers: []ProviderEntry{{
+							Name:               "claude-sub",
+							DefaultModel:       "standard-model",
+							CostUSDPer1kTokens: 0.01,
+							CostSource:         CostSourceUserConfig,
+							SupportsTools:      true,
+						}},
+					},
+				},
+				CatalogResolver: func(ref, surface string) (string, bool) {
+					if ref == "standard" && (surface == "codex" || surface == "claude") {
+						return "standard-model", true
+					}
+					return "", false
+				},
+			},
+			check: func(t *testing.T, dec *Decision, err error) {
+				t.Helper()
+				if err != nil {
+					t.Fatalf("Resolve standard: %v", err)
+				}
+				if dec.Harness != "claude" || dec.Provider != "claude-sub" {
+					t.Fatalf("standard selected harness=%q provider=%q, want cheaper claude/claude-sub", dec.Harness, dec.Provider)
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dec, err := Resolve(tt.req, tt.in)
+			tt.check(t, dec, err)
+		})
+	}
+}
+
 func TestProfileRejectsUnsupportedSurfaceWithoutModel(t *testing.T) {
 	in := Inputs{
 		Harnesses: []HarnessEntry{
@@ -1033,6 +1197,48 @@ func TestResolveExplicitProfilePinConflict(t *testing.T) {
 	}
 	if inverse.Profile != "smart" || inverse.ConflictingPin != "Harness=agent" || inverse.ProfileConstraint != "subscription-only" {
 		t.Fatalf("inverse profile conflict=%#v, want smart/Harness=agent/subscription-only", inverse)
+	}
+
+	modelPinInputs := Inputs{
+		Harnesses: []HarnessEntry{
+			{
+				Name:                "agent",
+				Surface:             "embedded-openai",
+				CostClass:           "local",
+				IsLocal:             true,
+				AutoRoutingEligible: true,
+				Available:           true,
+				ExactPinSupport:     true,
+				SupportedModels:     []string{"qwen/qwen3.6"},
+				SupportsTools:       true,
+			},
+			{
+				Name:                "claude",
+				Surface:             "claude",
+				CostClass:           "medium",
+				IsSubscription:      true,
+				AutoRoutingEligible: true,
+				Available:           true,
+				ExactPinSupport:     true,
+				SupportedModels:     []string{"opus-4.7"},
+				SupportsTools:       true,
+			},
+		},
+	}
+	_, err = Resolve(Request{
+		Profile:            "local",
+		Model:              "opus-4.7",
+		ProviderPreference: ProviderPreferenceLocalOnly,
+	}, modelPinInputs)
+	if err == nil {
+		t.Fatal("expected local profile to conflict with non-local-only model")
+	}
+	var modelConflict *ErrProfilePinConflict
+	if !errors.As(err, &modelConflict) {
+		t.Fatalf("errors.As model conflict: %T %v", err, err)
+	}
+	if modelConflict.Profile != "local" || modelConflict.ConflictingPin != "Model=opus-4.7" || modelConflict.ProfileConstraint != "local-only" {
+		t.Fatalf("model profile conflict=%#v, want local/Model=opus-4.7/local-only", modelConflict)
 	}
 
 	wrapped := fmt.Errorf("ddx preflight: %w", err)
