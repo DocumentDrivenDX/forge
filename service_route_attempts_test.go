@@ -223,6 +223,9 @@ func TestBuildRoutingInputs_SecondaryHarnessesAndGeminiPromotion(t *testing.T) {
 	if opencode.AutoRoutingEligible || opencode.DefaultModel != "opencode/gpt-5.4" {
 		t.Fatalf("opencode routing metadata: AutoRoutingEligible=%v DefaultModel=%q", opencode.AutoRoutingEligible, opencode.DefaultModel)
 	}
+	if !containsRouteString(opencode.SupportedModels, "opencode/gpt-5.4") {
+		t.Fatalf("opencode supported models missing default: %v", opencode.SupportedModels)
+	}
 	if !containsRouteString(opencode.SupportedReasoning, "max") {
 		t.Fatalf("opencode reasoning metadata missing max: %v", opencode.SupportedReasoning)
 	}
@@ -238,6 +241,9 @@ func TestBuildRoutingInputs_SecondaryHarnessesAndGeminiPromotion(t *testing.T) {
 	gemini := routingHarnessEntry(t, inputs.Harnesses, "gemini")
 	if !gemini.AutoRoutingEligible || gemini.DefaultModel != "gemini-2.5-flash" {
 		t.Fatalf("gemini routing metadata: AutoRoutingEligible=%v DefaultModel=%q", gemini.AutoRoutingEligible, gemini.DefaultModel)
+	}
+	if !containsRouteString(gemini.SupportedModels, "gemini-2.5-pro") || !containsRouteString(gemini.SupportedModels, "gemini-2.5-flash-lite") {
+		t.Fatalf("gemini supported models not populated from registry: %v", gemini.SupportedModels)
 	}
 	if len(gemini.SupportedReasoning) != 0 {
 		t.Fatalf("gemini should not advertise reasoning controls: %v", gemini.SupportedReasoning)

@@ -151,6 +151,7 @@ func (s *service) buildRoutingInputs(ctx context.Context) routing.Inputs {
 			TestOnly:            cfg.TestOnly,
 			ExactPinSupport:     cfg.ExactPinSupport,
 			DefaultModel:        cfg.DefaultModel,
+			SupportedModels:     append([]string(nil), cfg.Models...),
 			SupportedReasoning:  supportedReasoning(cfg),
 			MaxReasoningTokens:  cfg.MaxReasoningTokens,
 			SupportedPerms:      supportedPermissions(cfg),

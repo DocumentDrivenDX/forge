@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -875,6 +876,107 @@ func TestNoViableCandidate(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no viable") {
 		t.Errorf("error should mention 'no viable': %v", err)
+	}
+}
+
+func TestResolveRoute_GeminiRejectsNonGeminiModel(t *testing.T) {
+	gemini := HarnessEntry{
+		Name:                "gemini",
+		Surface:             "gemini",
+		CostClass:           "medium",
+		IsSubscription:      true,
+		AutoRoutingEligible: true,
+		ExactPinSupport:     true,
+		Available:           true,
+		QuotaOK:             true,
+		SubscriptionOK:      true,
+		DefaultModel:        "gemini-2.5-flash",
+		SupportedModels:     []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"},
+		SupportsTools:       true,
+	}
+	agent := HarnessEntry{
+		Name:                "agent",
+		Surface:             "embedded-openai",
+		CostClass:           "local",
+		IsLocal:             true,
+		AutoRoutingEligible: true,
+		ExactPinSupport:     true,
+		Available:           true,
+		QuotaOK:             true,
+		SubscriptionOK:      true,
+		SupportedModels:     []string{"qwen/qwen3.6"},
+		SupportsTools:       true,
+		Providers: []ProviderEntry{{
+			Name:               "minimax",
+			EndpointName:       "local",
+			DiscoveredIDs:      []string{"minimax/minimax-m2.7"},
+			DiscoveryAttempted: true,
+			SupportsTools:      true,
+		}},
+	}
+
+	in := Inputs{Harnesses: []HarnessEntry{gemini, agent}}
+	dec, err := Resolve(Request{Profile: "default", Model: "minimax/minimax-m2.7"}, in)
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if dec.Harness != "agent" || dec.Model != "minimax/minimax-m2.7" {
+		t.Fatalf("got harness=%q model=%q, want agent/minimax", dec.Harness, dec.Model)
+	}
+	for _, c := range dec.Candidates {
+		if c.Harness == "gemini" && c.Eligible {
+			t.Fatalf("gemini must reject non-gemini exact pin: %#v", c)
+		}
+		if c.Harness == "gemini" && c.Reason != "model not in harness allow-list" {
+			t.Fatalf("gemini rejection reason=%q, want allow-list reason", c.Reason)
+		}
+	}
+
+	dec, err = Resolve(Request{Profile: "default", Model: "minimax/minimax-m2.7"}, Inputs{Harnesses: []HarnessEntry{gemini}})
+	if err == nil {
+		t.Fatal("expected no viable candidate without agent live endpoint")
+	}
+	var noViable *NoViableCandidateError
+	if !errors.As(err, &noViable) {
+		t.Fatalf("error type=%T, want *NoViableCandidateError: %v", err, err)
+	}
+	if dec != nil && dec.Harness == "gemini" {
+		t.Fatalf("must not pick gemini for non-gemini model: %#v", dec)
+	}
+	for _, c := range dec.Candidates {
+		if c.Harness == "gemini" {
+			if c.Eligible {
+				t.Fatalf("gemini candidate must be ineligible: %#v", c)
+			}
+			if c.Reason != "model not in harness allow-list" {
+				t.Fatalf("gemini rejection reason=%q, want allow-list reason", c.Reason)
+			}
+		}
+	}
+}
+
+func TestResolveRoute_GeminiAllowListExactPinSucceeds(t *testing.T) {
+	gemini := HarnessEntry{
+		Name:                "gemini",
+		Surface:             "gemini",
+		CostClass:           "medium",
+		IsSubscription:      true,
+		AutoRoutingEligible: true,
+		ExactPinSupport:     true,
+		Available:           true,
+		QuotaOK:             true,
+		SubscriptionOK:      true,
+		DefaultModel:        "gemini-2.5-flash",
+		SupportedModels:     []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"},
+		SupportsTools:       true,
+	}
+
+	dec, err := Resolve(Request{Profile: "default", Model: "gemini-2.5-flash"}, Inputs{Harnesses: []HarnessEntry{gemini}})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if dec.Harness != "gemini" || dec.Model != "gemini-2.5-flash" {
+		t.Fatalf("got harness=%q model=%q, want gemini/gemini-2.5-flash", dec.Harness, dec.Model)
 	}
 }
 

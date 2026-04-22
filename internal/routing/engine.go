@@ -67,6 +67,7 @@ type HarnessEntry struct {
 	TestOnly            bool
 	ExactPinSupport     bool
 	DefaultModel        string
+	SupportedModels     []string
 	SupportedReasoning  []string
 	MaxReasoningTokens  int
 	SupportedPerms      []string
@@ -133,6 +134,16 @@ type Candidate struct {
 	Score    float64
 	Eligible bool
 	Reason   string
+}
+
+// NoViableCandidateError reports that routing evaluated candidates but every
+// one failed a gate.
+type NoViableCandidateError struct {
+	Rejected int
+}
+
+func (e *NoViableCandidateError) Error() string {
+	return fmt.Sprintf("no viable routing candidate: %d candidates rejected", e.Rejected)
 }
 
 // Inputs bundles the engine's external data sources.
@@ -269,7 +280,7 @@ func Resolve(req Request, in Inputs) (*Decision, error) {
 	if requested := requestedModelIntent(req); requested != "" && hasLiveDiscoveryCandidates(ranked) {
 		return &Decision{Candidates: out}, fmt.Errorf("no live endpoint offers a match for %s", requested)
 	}
-	return &Decision{Candidates: out}, fmt.Errorf("no viable routing candidate: %d candidates rejected", len(out))
+	return &Decision{Candidates: out}, &NoViableCandidateError{Rejected: len(out)}
 }
 
 func requestedModelIntent(req Request) string {
@@ -311,6 +322,7 @@ func buildHarnessCandidates(h HarnessEntry, req Request, in Inputs) []rankedCand
 		MaxReasoningTokens: h.MaxReasoningTokens,
 		SupportedPerms:     h.SupportedPerms,
 		ExactPinSupport:    h.ExactPinSupport,
+		SupportedModels:    h.SupportedModels,
 	}
 
 	if !h.Available {
@@ -345,6 +357,9 @@ func buildHarnessCandidates(h HarnessEntry, req Request, in Inputs) []rankedCand
 		entryCaps := caps
 		entryCaps.ContextWindow = ctxWin
 		entryCaps.SupportsTools = caps.SupportsTools || p.SupportsTools
+		if len(p.DiscoveredIDs) > 0 {
+			entryCaps.SupportedModels = nil
+		}
 
 		key := ProviderModelKey(p.Name, p.EndpointName, model)
 		obs := in.ObservedSpeedTPS[key]

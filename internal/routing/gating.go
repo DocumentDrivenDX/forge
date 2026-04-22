@@ -17,6 +17,7 @@ type Capabilities struct {
 	MaxReasoningTokens int      // 0 means numeric reasoning is unsupported/unknown
 	SupportedPerms     []string // {"safe","supervised","unrestricted"} subset
 	ExactPinSupport    bool     // accepts exact concrete model pins
+	SupportedModels    []string // nil = no static allow-list
 }
 
 // HasReasoning returns true if the candidate supports the requested reasoning
@@ -58,6 +59,21 @@ func (c Capabilities) HasPermissions(perm string) bool {
 	return false
 }
 
+// HasModel returns true when the exact model pin is within the static
+// harness allow-list. A nil allow-list means the harness delegates validation
+// to provider-side model checks.
+func (c Capabilities) HasModel(model string) bool {
+	if c.SupportedModels == nil || model == "" {
+		return true
+	}
+	for _, supported := range c.SupportedModels {
+		if supported == model {
+			return true
+		}
+	}
+	return false
+}
+
 // CheckGating applies all capability gates against a request and returns
 // the first failure reason, or "" if all gates pass.
 //
@@ -83,6 +99,10 @@ func CheckGating(cap Capabilities, req Request) string {
 	// Permissions support gating.
 	if !cap.HasPermissions(req.Permissions) {
 		return fmt.Sprintf("permissions %q not supported", req.Permissions)
+	}
+
+	if req.Model != "" && !cap.HasModel(req.Model) {
+		return "model not in harness allow-list"
 	}
 
 	// Exact-pin gating: an explicit Model field requires ExactPinSupport.
