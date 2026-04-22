@@ -42,6 +42,10 @@ var healthCheckCodexQuotaRefresher = func(timeout time.Duration) ([]harnesses.Qu
 	return codexharness.ReadCodexQuotaViaPTY(timeout)
 }
 
+var healthCheckCodexSessionQuotaReader = func() (*codexharness.CodexQuotaSnapshot, bool) {
+	return codexharness.ReadCodexQuotaFromSessionTokenCounts()
+}
+
 var primaryQuotaRefresh = &quotaRefreshCoordinator{
 	lastAttempt: make(map[string]time.Time),
 	inFlight:    make(map[string]bool),
@@ -558,6 +562,11 @@ func refreshCodexQuotaCache(_ context.Context, debounce, timeout time.Duration) 
 		return
 	}
 
+	if sessionSnap, ok := healthCheckCodexSessionQuotaReader(); ok && codexSessionQuotaUsable(sessionSnap, debounce) {
+		_ = codexharness.WriteCodexQuota(cachePath, *sessionSnap)
+		return
+	}
+
 	windows, probeErr := healthCheckCodexQuotaRefresher(timeout)
 	if probeErr != nil || len(windows) == 0 {
 		return
@@ -568,4 +577,12 @@ func refreshCodexQuotaCache(_ context.Context, debounce, timeout time.Duration) 
 		Windows:    windows,
 		Source:     "pty",
 	})
+}
+
+func codexSessionQuotaUsable(snap *codexharness.CodexQuotaSnapshot, debounce time.Duration) bool {
+	if !codexQuotaCacheComplete(snap) {
+		return false
+	}
+	decision := codexharness.DecideCodexQuotaRouting(snap, time.Now(), debounce)
+	return decision.Fresh && decision.PreferCodex
 }

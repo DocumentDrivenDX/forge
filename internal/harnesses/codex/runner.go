@@ -134,6 +134,7 @@ func (r *Runner) run(ctx context.Context, binary string, req harnesses.ExecuteRe
 	if agg != nil {
 		final.FinalText = agg.FinalText
 		final.Usage, final.Warnings = harnesses.ResolveFinalUsage(agg.UsageSources)
+		agg.writeTokenCountQuotaCache()
 	}
 
 	finalRaw, err := json.Marshal(final)
@@ -151,6 +152,32 @@ func (r *Runner) run(ctx context.Context, binary string, req harnesses.ExecuteRe
 	case out <- ev:
 	case <-time.After(time.Second):
 	}
+}
+
+func (a *streamAggregate) writeTokenCountQuotaCache() {
+	if a == nil || len(a.TokenCountRateLimits) == 0 {
+		return
+	}
+	var newest *CodexQuotaSnapshot
+	for _, evidence := range a.TokenCountRateLimits {
+		fallback := time.Now().UTC()
+		snapshot, ok := CodexQuotaSnapshotFromTokenCountRateLimits(evidence.CapturedAt, fallback, evidence.RateLimits)
+		if !ok {
+			continue
+		}
+		snapshot.Source = "codex_exec_token_count"
+		if newest == nil || snapshot.CapturedAt.After(newest.CapturedAt) {
+			newest = snapshot
+		}
+	}
+	if newest == nil {
+		return
+	}
+	path, err := CodexQuotaCachePath()
+	if err != nil {
+		return
+	}
+	_ = WriteCodexQuota(path, *newest)
 }
 
 func (r *Runner) runStreaming(ctx context.Context, binary string, req harnesses.ExecuteRequest, out chan<- harnesses.Event, seq *int64) (agg *streamAggregate, exitCode int, stderr string, runErr error, status string) {

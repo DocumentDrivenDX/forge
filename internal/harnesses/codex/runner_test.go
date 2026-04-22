@@ -192,6 +192,54 @@ EOF
 	}
 }
 
+func TestRunner_Execute_UpdatesQuotaCacheFromTokenCountRateLimits(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	dir := t.TempDir()
+	t.Setenv(codexQuotaCacheEnv, filepath.Join(dir, "codex-quota.json"))
+	t.Setenv(codexAuthPathEnv, filepath.Join(dir, "missing-auth.json"))
+
+	script := `#!/bin/sh
+cat <<'EOF'
+{"type":"event_msg","timestamp":"2026-04-22T02:00:00Z","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":10,"output_tokens":1,"total_tokens":11},"rate_limits":{"plan_type":"pro","primary":{"used_percent":6,"window_minutes":300,"resets_at":1776840333,"limit_id":"codex","limit_name":"primary credits"}}}}}
+{"type":"output","item":{"type":"agent_message","text":"ok"}}
+{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":1}}
+EOF
+`
+	binary := filepath.Join(dir, "fake-codex")
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Runner{Binary: binary, BaseArgs: []string{}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch, err := r.Execute(ctx, harnesses.ExecuteRequest{Prompt: "test"})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	for range ch {
+	}
+
+	snap, ok := ReadCodexQuota()
+	if !ok {
+		t.Fatal("expected token_count rate_limits to update quota cache")
+	}
+	if snap.Source != "codex_exec_token_count" {
+		t.Fatalf("Source: got %q", snap.Source)
+	}
+	if !snap.CapturedAt.Equal(time.Date(2026, 4, 22, 2, 0, 0, 0, time.UTC)) {
+		t.Fatalf("CapturedAt: got %s", snap.CapturedAt.Format(time.RFC3339Nano))
+	}
+	if snap.Account == nil || snap.Account.PlanType != "ChatGPT Pro" {
+		t.Fatalf("Account: got %#v", snap.Account)
+	}
+	if len(snap.Windows) != 1 || snap.Windows[0].LimitName != "primary credits" || snap.Windows[0].UsedPercent != 6 {
+		t.Fatalf("Windows: got %#v", snap.Windows)
+	}
+}
+
 func TestParseCodexStream_EventTypes(t *testing.T) {
 	input := `{"type":"output","item":{"type":"agent_message","text":"the answer"}}
 {"type":"turn.completed","usage":{"input_tokens":20,"output_tokens":7}}

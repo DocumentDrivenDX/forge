@@ -221,7 +221,18 @@ func parseCodexTokenCountQuotaLine(raw []byte, fileModTime time.Time) (*CodexQuo
 	if len(rateLimits) == 0 {
 		return nil, false
 	}
-	capturedAt := codexTokenCountCapturedAt(ev.Timestamp, fileModTime)
+	snapshot, ok := CodexQuotaSnapshotFromTokenCountRateLimits(ev.Timestamp, fileModTime, rateLimits)
+	if ok {
+		snapshot.Source = "codex_session_token_count"
+	}
+	return snapshot, ok
+}
+
+// CodexQuotaSnapshotFromTokenCountRateLimits builds a quota snapshot from a
+// token_count.rate_limits payload. fallbackCapturedAt must be evidence time:
+// session readers pass file mtime, while live DDx-owned streams may pass now.
+func CodexQuotaSnapshotFromTokenCountRateLimits(timestamp string, fallbackCapturedAt time.Time, rateLimits json.RawMessage) (*CodexQuotaSnapshot, bool) {
+	capturedAt := codexTokenCountCapturedAt(timestamp, fallbackCapturedAt)
 	windows, account, ok := codexQuotaSnapshotFromTokenCountRateLimits(rateLimits)
 	if !ok {
 		return nil, false
@@ -229,7 +240,7 @@ func parseCodexTokenCountQuotaLine(raw []byte, fileModTime time.Time) (*CodexQuo
 	return &CodexQuotaSnapshot{
 		CapturedAt: capturedAt,
 		Windows:    windows,
-		Source:     "codex_session_token_count",
+		Source:     "codex_token_count",
 		Account:    account,
 	}, true
 }
