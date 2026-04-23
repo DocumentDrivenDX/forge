@@ -35,6 +35,11 @@ def main() -> int:
     manifest = load_json(manifest_path)
     tasks = select_by_id(manifest.get("tasks", []), args.task)
     arms = select_arms(manifest.get("arms", []), args.arm)
+    tasks = filter_items(tasks, "project", args.project)
+    tasks = filter_items(tasks, "category", args.category)
+    tasks = filter_items(tasks, "difficulty", args.difficulty)
+    tasks = filter_items(tasks, "tier", args.tier)
+    arms = filter_items(arms, "tier", args.arm_tier)
 
     if args.limit_tasks:
         tasks = tasks[: args.limit_tasks]
@@ -50,7 +55,7 @@ def main() -> int:
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     results_dir = pathlib.Path(args.results_dir).resolve()
-    run_dir = results_dir / f"run-{timestamp}"
+    run_dir = results_dir / f"run-{timestamp}-{os.getpid()}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     report: dict[str, Any] = {
@@ -68,6 +73,13 @@ def main() -> int:
             "verify": not args.no_verify,
             "repetitions": args.repetitions,
             "timeout_seconds": args.timeout_seconds,
+            "filters": {
+                "project": args.project or [],
+                "category": args.category or [],
+                "difficulty": args.difficulty or [],
+                "tier": args.tier or [],
+                "arm_tier": args.arm_tier or [],
+            },
         },
         "arms": arms,
         "results": [],
@@ -111,6 +123,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--arm", action="append", help="Arm id to run; repeatable")
     parser.add_argument("--task", action="append", help="Task id to run; repeatable")
+    parser.add_argument("--project", action="append", help="Task project filter; repeatable")
+    parser.add_argument("--category", action="append", help="Task category filter; repeatable")
+    parser.add_argument("--difficulty", action="append", help="Task difficulty filter; repeatable")
+    parser.add_argument("--tier", action="append", help="Task tier filter; repeatable")
+    parser.add_argument("--arm-tier", action="append", help="Arm tier filter; repeatable")
     parser.add_argument("--limit-tasks", type=int, default=0)
     parser.add_argument("--limit-arms", type=int, default=0)
     parser.add_argument("--repetitions", type=int, default=1)
@@ -152,6 +169,14 @@ def select_arms(arms: list[dict[str, Any]], selected: list[str] | None) -> list[
     if missing:
         raise SystemExit(f"beadbench: unknown arm id(s): {', '.join(sorted(missing))}")
     return found
+
+
+def filter_items(items: list[dict[str, Any]], key: str, selected: list[str] | None) -> list[dict[str, Any]]:
+    if not selected:
+        return items
+    wanted = set(selected)
+    default = "core" if key == "tier" else ""
+    return [item for item in items if str(item.get(key, default)) in wanted]
 
 
 def run_one(
