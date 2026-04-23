@@ -720,12 +720,7 @@ func geminiQuotaState() *QuotaState {
 			Timestamp: snap.CapturedAt,
 		}
 	default:
-		qs.LastError = &StatusError{
-			Type:      "unavailable",
-			Detail:    "Gemini CLI exposes auth/account evidence but no stable non-interactive quota counter; per-run rate-limit failures remain execution errors",
-			Source:    snap.Source,
-			Timestamp: snap.CapturedAt,
-		}
+		qs.Status = "ok"
 	}
 	return qs
 }
@@ -750,6 +745,14 @@ func geminiAccountStatus() *AccountStatus {
 }
 
 func (s *service) codexUsageWindows() []UsageWindow {
+	return s.harnessUsageWindows("codex")
+}
+
+func (s *service) geminiUsageWindows() []UsageWindow {
+	return s.harnessUsageWindows("gemini")
+}
+
+func (s *service) harnessUsageWindows(provider string) []UsageWindow {
 	logDir := s.serviceSessionLogDir()
 	if logDir == "" {
 		return nil
@@ -761,7 +764,7 @@ func (s *service) codexUsageWindows() []UsageWindow {
 	}
 	var total sessionusage.UsageRow
 	for _, row := range report.Rows {
-		if row.Provider != "codex" {
+		if row.Provider != provider {
 			continue
 		}
 		total.Sessions += row.Sessions
@@ -883,6 +886,7 @@ func (s *service) ListHarnesses(ctx context.Context) ([]HarnessInfo, error) {
 		case "gemini":
 			info.Quota = geminiQuotaState()
 			info.Account = geminiAccountStatus()
+			info.UsageWindows = s.geminiUsageWindows()
 		}
 
 		out = append(out, info)

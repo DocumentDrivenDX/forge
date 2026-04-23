@@ -45,8 +45,8 @@ func TestRegistryNamesPreferenceOrder(t *testing.T) {
 	require.Len(t, names, 11)
 	assert.Equal(t, "codex", names[0])
 	assert.Equal(t, "claude", names[1])
-	assert.Equal(t, "opencode", names[2])
-	assert.Equal(t, "gemini", names[8])
+	assert.Equal(t, "gemini", names[2])
+	assert.Equal(t, "opencode", names[3])
 	assert.Contains(t, names, "virtual")
 }
 

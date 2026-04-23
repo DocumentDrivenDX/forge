@@ -456,8 +456,9 @@ func TestHealthCheck_ClaudeSkipsRefreshWhenFresh(t *testing.T) {
 	}
 }
 
-// TestHealthCheck_GeminiDoesNotInvokeQuotaProbe verifies that HealthCheck for a
-// non-subscription harness (gemini) never calls the Claude quota refresher.
+// TestHealthCheck_GeminiDoesNotInvokeQuotaProbe verifies that HealthCheck for
+// Gemini does not call Claude/Codex PTY quota refreshers. Gemini quota status
+// is auth/account-gated until the CLI exposes a stable numeric quota counter.
 func TestHealthCheck_GeminiDoesNotInvokeQuotaProbe(t *testing.T) {
 	// Inject a counter to detect unexpected calls.
 	probeCalled := false

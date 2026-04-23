@@ -719,7 +719,7 @@ test-only harnesses, and current provider-backend rows. It is not the
 authoritative health signal for the primary harnesses. Primary harness health is
 specified separately in
 `docs/helix/02-design/primary-harness-capability-baseline.md` and covers only
-`agent`, `codex`, and `claude`.
+`agent`, `codex`, `claude`, and `gemini`.
 
 Primary-harness baseline capabilities are strict: `Run`, `FinalText`,
 `ProgressEvents`, `Cancel`, `WorkdirContext`, `PermissionModes`, `ListModels`,
@@ -737,7 +737,7 @@ Current builtin matrix:
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | codex | required | unsupported | optional | optional | optional | optional | required | optional | optional | optional | optional | unsupported |
 | claude | required | unsupported | optional | optional | optional | optional | required | optional | optional | optional | optional | unsupported |
-| gemini | required | unsupported | optional | optional | unsupported | unsupported | required | optional | optional | unsupported | unsupported | unsupported |
+| gemini | required | optional | optional | optional | unsupported | optional | required | optional | optional | unsupported | required | optional |
 | opencode | required | unsupported | optional | optional | optional | optional | required | optional | optional | unsupported | unsupported | unsupported |
 | agent | required | optional | optional | optional | optional | optional | required | optional | optional | optional | not_applicable | unsupported |
 | pi | required | unsupported | optional | optional | optional | unsupported | required | optional | optional | unsupported | unsupported | unsupported |

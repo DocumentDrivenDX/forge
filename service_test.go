@@ -251,7 +251,7 @@ func TestListHarnesses_shape(t *testing.T) {
 				UsageCapture:    capStatus(agent.HarnessCapabilityOptional),
 				FinalText:       capStatus(agent.HarnessCapabilityOptional),
 				ToolEvents:      capStatus(agent.HarnessCapabilityUnsupported),
-				QuotaStatus:     capStatus(agent.HarnessCapabilityOptional),
+				QuotaStatus:     capStatus(agent.HarnessCapabilityRequired),
 				RecordReplay:    capStatus(agent.HarnessCapabilityOptional),
 			},
 			"opencode": {

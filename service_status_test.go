@@ -149,6 +149,75 @@ func TestListHarnesses_CodexUsageWindowsFromDDXSessionLogs(t *testing.T) {
 	}
 }
 
+func TestListHarnesses_GeminiQuotaAndUsageWindows(t *testing.T) {
+	dir := t.TempDir()
+	logDir := filepath.Join(dir, ".agent", "sessions")
+	t.Setenv("GOOGLE_GENAI_USE_GCA", "")
+	t.Setenv("GOOGLE_GENAI_USE_VERTEXAI", "")
+	t.Setenv("GOOGLE_API_KEY", "test-key")
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("CLOUD_SHELL", "")
+	t.Setenv("GEMINI_CLI_USE_COMPUTE_ADC", "")
+	t.Setenv("DDX_AGENT_CODEX_QUOTA_CACHE", filepath.Join(dir, "missing-codex-quota.json"))
+	t.Setenv("DDX_AGENT_CLAUDE_QUOTA_CACHE", filepath.Join(dir, "missing-claude-quota.json"))
+
+	start := time.Now().UTC().Add(-time.Hour)
+	writeServiceUsageSession(t, logDir, "gemini-known", start, sessionlog.SessionStartData{
+		Provider: "gemini",
+		Model:    "gemini-2.5-flash",
+		Prompt:   "private prompt must not be read by status aggregation",
+	}, sessionlog.SessionEndData{
+		Status:     agentcore.StatusSuccess,
+		Tokens:     agentcore.TokenUsage{Input: 21, Output: 3, Total: 24, CacheRead: 5},
+		CostUSD:    usageCostPtr(0.02),
+		DurationMs: 1000,
+		Model:      "gemini-2.5-flash",
+	})
+	writeServiceUsageSession(t, logDir, "not-gemini", start.Add(time.Minute), sessionlog.SessionStartData{
+		Provider: "codex",
+		Model:    "gpt-5.4",
+		Prompt:   "not gemini",
+	}, sessionlog.SessionEndData{
+		Status:     agentcore.StatusSuccess,
+		Tokens:     agentcore.TokenUsage{Input: 100, Output: 100, Total: 200},
+		CostUSD:    usageCostPtr(1),
+		DurationMs: 1000,
+		Model:      "gpt-5.4",
+	})
+
+	svc := &service{
+		opts:     ServiceOptions{ServiceConfig: &fakeServiceConfig{workDir: dir}},
+		registry: harnesses.NewRegistry(),
+	}
+	harnesses, err := svc.ListHarnesses(context.Background())
+	if err != nil {
+		t.Fatalf("ListHarnesses: %v", err)
+	}
+	geminiInfo := findHarnessInfo(harnesses, "gemini")
+	if geminiInfo == nil {
+		t.Fatal("missing gemini harness")
+	}
+	if geminiInfo.Quota == nil || geminiInfo.Quota.Status != "ok" || !geminiInfo.Quota.Fresh || geminiInfo.Quota.Source != "environment" {
+		t.Fatalf("gemini quota status: %#v", geminiInfo.Quota)
+	}
+	if geminiInfo.Account == nil || !geminiInfo.Account.Authenticated || geminiInfo.Account.PlanType != "Gemini API key" {
+		t.Fatalf("gemini account: %#v", geminiInfo.Account)
+	}
+	if len(geminiInfo.UsageWindows) != 1 {
+		t.Fatalf("UsageWindows: got %#v", geminiInfo.UsageWindows)
+	}
+	window := geminiInfo.UsageWindows[0]
+	if window.Name != "30d" || window.Source != logDir || !window.Fresh {
+		t.Fatalf("usage window metadata: %#v", window)
+	}
+	if window.InputTokens != 21 || window.OutputTokens != 3 || window.TotalTokens != 24 || window.CacheReadTokens != 5 {
+		t.Fatalf("usage totals should come only from DDx gemini logs, not other providers: %#v", window)
+	}
+	if window.KnownCostUSD == nil || *window.KnownCostUSD != 0.02 || window.CostUSD != 0.02 || window.UnknownCostSessions != 0 {
+		t.Fatalf("known/unknown cost state: %#v", window)
+	}
+}
+
 func TestBuildRoutingInputs_IgnoresCodexUsageWindows(t *testing.T) {
 	dir := t.TempDir()
 	logDir := filepath.Join(dir, ".agent", "sessions")
