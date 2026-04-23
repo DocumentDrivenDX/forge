@@ -24,8 +24,10 @@ type fakeCatalogServer struct {
 }
 
 type recordedChatRequest struct {
-	Model    string         `json:"model"`
-	Thinking map[string]any `json:"thinking,omitempty"`
+	Model          string         `json:"model"`
+	Thinking       map[string]any `json:"thinking,omitempty"`
+	EnableThinking *bool          `json:"enable_thinking,omitempty"`
+	ThinkingBudget *int           `json:"thinking_budget,omitempty"`
 }
 
 type fakeOpenAIServer struct {
@@ -52,10 +54,19 @@ func newFakeOpenAIServer(t *testing.T) *fakeOpenAIServer {
 
 			fake.mu.Lock()
 			fake.modelsSeen = append(fake.modelsSeen, req.Model)
-			if budget, ok := req.Thinking["budget_tokens"].(float64); ok {
-				fake.thinkingBudgets = append(fake.thinkingBudgets, int(budget))
-			} else {
-				fake.thinkingBudgets = append(fake.thinkingBudgets, 0)
+			// Accept either the Anthropic-style `thinking` map or the Qwen
+			// `thinking_budget` scalar: LM Studio's provider uses the Qwen
+			// wire format for Qwen models, so a catalog-driven budget flows
+			// through as `thinking_budget` instead of `thinking.budget_tokens`.
+			switch {
+			case req.ThinkingBudget != nil:
+				fake.thinkingBudgets = append(fake.thinkingBudgets, *req.ThinkingBudget)
+			default:
+				if budget, ok := req.Thinking["budget_tokens"].(float64); ok {
+					fake.thinkingBudgets = append(fake.thinkingBudgets, int(budget))
+				} else {
+					fake.thinkingBudgets = append(fake.thinkingBudgets, 0)
+				}
 			}
 			fake.mu.Unlock()
 
@@ -373,13 +384,17 @@ func TestCLI_ReasoningCatalogDefaultsAndOverrides(t *testing.T) {
 	fake := newFakeOpenAIServer(t)
 	workDir := t.TempDir()
 	manifestPath := filepath.Join(workDir, "models.yaml")
+	// Model ids carry the `qwen-` prefix so the LM Studio provider — which
+	// routes reasoning via the Qwen wire format — still emits reasoning
+	// fields for these synthetic catalog entries. Non-Qwen model names are
+	// correctly treated as reasoning-less and would record a zero budget.
 	writeTempManifest(t, manifestPath, `
 version: 4
 generated_at: 2026-04-19T00:00:00Z
 models:
-  cheap-model:
+  qwen-cheap:
     reasoning_max_tokens: 32768
-  smart-model:
+  qwen-smart:
     reasoning_max_tokens: 32768
 profiles:
   cheap:
@@ -390,14 +405,14 @@ targets:
   cheap-target:
     family: demo
     surfaces:
-      agent.openai: cheap-model
+      agent.openai: qwen-cheap
     surface_policy:
       agent.openai:
         reasoning_default: off
   smart-target:
     family: demo
     surfaces:
-      agent.openai: smart-model
+      agent.openai: qwen-smart
     surface_policy:
       agent.openai:
         reasoning_default: high
@@ -415,12 +430,12 @@ default: local
 
 	out, err := runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "cheap")
 	require.NoError(t, err, string(out))
-	assert.Equal(t, "cheap-model", fake.lastModel())
+	assert.Equal(t, "qwen-cheap", fake.lastModel())
 	assert.Equal(t, 0, fake.lastReasoningBudget())
 
 	out, err = runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart")
 	require.NoError(t, err, string(out))
-	assert.Equal(t, "smart-model", fake.lastModel())
+	assert.Equal(t, "qwen-smart", fake.lastModel())
 	assert.Equal(t, 32768, fake.lastReasoningBudget())
 
 	out, err = runAgentCLI(t, "-p", "say hi", "--work-dir", workDir, "--model-ref", "smart", "--reasoning", "8192")
@@ -442,7 +457,7 @@ func TestCLI_ReasoningOffAliasesOverrideCatalogDefault(t *testing.T) {
 version: 4
 generated_at: 2026-04-19T00:00:00Z
 models:
-  smart-model:
+  qwen-smart:
     reasoning_max_tokens: 32768
 profiles:
   smart:
@@ -451,7 +466,7 @@ targets:
   smart-target:
     family: demo
     surfaces:
-      agent.openai: smart-model
+      agent.openai: qwen-smart
     surface_policy:
       agent.openai:
         reasoning_default: high

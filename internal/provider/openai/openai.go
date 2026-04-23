@@ -286,7 +286,7 @@ func (p *Provider) reasoningRequestOptions(model string, opts agent.Options) ([]
 		switch p.thinkingWireFormat() {
 		case ThinkingWireFormatQwen:
 			if !isQwenModel(model) {
-				if explicitRequest {
+				if explicitRequest && p.strictThinkingModelMatch() {
 					return nil, fmt.Errorf("openai: qwen reasoning control is not supported for model %q on provider type %q", model, p.providerSystem)
 				}
 				return nil, nil
@@ -307,7 +307,7 @@ func (p *Provider) reasoningRequestOptions(model string, opts agent.Options) ([]
 		return openRouterReasoningOptions(policy)
 	}
 	if p.thinkingWireFormat() == ThinkingWireFormatQwen && !isQwenModel(model) {
-		if explicitRequest {
+		if explicitRequest && p.strictThinkingModelMatch() {
 			return nil, fmt.Errorf("openai: qwen reasoning control is not supported for model %q on provider type %q", model, p.providerSystem)
 		}
 		return nil, nil

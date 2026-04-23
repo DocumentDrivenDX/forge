@@ -16,6 +16,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -116,7 +117,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", default="scripts/beadbench/manifest-v1.json")
     parser.add_argument("--results-dir", default="benchmark-results/beadbench")
     parser.add_argument("--arm", action="append", help="Arm id to probe; repeatable")
-    parser.add_argument("--timeout-seconds", type=int, default=45)
+    # Default timeout is 120s because slow local Qwen models (LM Studio /
+    # OMLX) routinely produce their first 16 tokens in 30-50s even when the
+    # server accepts the request shape; a 45s bound prematurely reports
+    # "timeout" for behavior that is really just a slow generation.
+    parser.add_argument("--timeout-seconds", type=int, default=120)
     parser.add_argument("--max-tokens", type=int, default=64)
     parser.add_argument(
         "--prompt",
@@ -192,11 +197,42 @@ def probe_arm(arm: dict[str, Any], providers: dict[str, dict[str, Any]], args: a
     result["provider_type"] = provider.get("type")
     result["base_url"] = base_url
     result["model"] = model
+    if server_meta := collect_server_metadata(str(provider.get("type")), base_url, model):
+        result["server_metadata"] = server_meta
     for probe in probes_for_provider(str(provider.get("type")), model):
         result["probes"].append(send_probe(base_url, model, args.prompt, args.max_tokens, args.timeout_seconds, probe))
 
     result["capability"] = classify(result["probes"])
     return result
+
+
+def collect_server_metadata(provider_type: str, base_url: str, model: str) -> dict[str, Any]:
+    """Capture server/model version evidence alongside each probe run.
+
+    Provides the server/version context AC3 asks for when documenting an
+    operational blocker (e.g. LM Studio accepts every control shape but the
+    model's chat template still emits `reasoning_content`). LM Studio exposes
+    `/api/v0/models/<model>` with arch, quantization, context length, and
+    capabilities. Failures are recorded in the report rather than raised so a
+    single slow or missing endpoint does not abort the probe run.
+    """
+    meta: dict[str, Any] = {}
+    if provider_type != "lmstudio":
+        return meta
+    api_root = base_url.removesuffix("/v1") if base_url.endswith("/v1") else base_url
+    endpoint = f"{api_root}/api/v0/models/{urllib.parse.quote(model, safe='')}"
+    try:
+        with urllib.request.urlopen(endpoint, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as exc:
+        meta["error"] = f"{type(exc).__name__}: {exc}"[:300]
+        return meta
+    for key in ("arch", "publisher", "quantization", "compatibility_type", "state",
+                "max_context_length", "loaded_context_length", "capabilities"):
+        if key in payload:
+            meta[key] = payload[key]
+    meta["source_endpoint"] = endpoint
+    return meta
 
 
 def probes_for_provider(provider_type: str, model: str) -> list[dict[str, Any]]:

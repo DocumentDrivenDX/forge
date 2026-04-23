@@ -76,8 +76,51 @@ filled the response with visible thinking text.
 
 The same probe run found that Vidar OMLX `gpt-oss-20b-MXFP4-Q8` emits
 `reasoning_content` by default but has no known budget/off control in this
-matrix, and Bragi LM Studio `qwen/qwen3.6-35b-a3b` timed out for every tested
-control shape at 60 seconds, including `qwen_off`.
+matrix.
+
+### Bragi LM Studio `qwen/qwen3.6-35b-a3b` reasoning control: operational blocker
+
+A later live investigation (2026-04-23) against Bragi LM Studio on port 1234
+showed the earlier "all timeouts" finding was an artifact of the probe's
+45-second cap, not a server refusal. Raising the probe timeout to 120 seconds
+makes every tested control shape return HTTP 200, including no control,
+`thinking` map (both `budget_tokens=32` and `=0`), Qwen `enable_thinking=false
+thinking_budget=0`, Qwen `enable_thinking=true thinking_budget=32`,
+`chat_template_kwargs.enable_thinking=false`, OpenAI-style
+`reasoning_effort=minimal`, and the `/no_think` prompt convention. In every
+response the assistant message contains empty `content` and a populated
+`reasoning_content`, and `usage.completion_tokens_details.reasoning_tokens`
+equals the emitted completion tokens.
+
+Server/version evidence (from `GET /api/v0/models/qwen/qwen3.6-35b-a3b`):
+
+| field | value |
+| --- | --- |
+| `arch` | `qwen35moe` |
+| `publisher` | `qwen` |
+| `compatibility_type` | `gguf` |
+| `quantization` | `Q4_K_M` |
+| `state` | `loaded` |
+| `max_context_length` | 262144 |
+| `loaded_context_length` | 262144 |
+| `capabilities` | `["tool_use"]` (no `"thinking"` / no reasoning budget capability) |
+
+LM Studio HTTP response header reports `X-Powered-By: Express`; the model is
+a vision-language GGUF served from `qwen35moe` at Q4_K_M.
+
+Conclusion: the LM Studio build accepts every known reasoning-control wire
+shape but does not forward any of them into this GGUF's chat template, so
+reasoning is produced unconditionally and cannot be bounded from the
+request. This is a model/template limitation, not a Qwen-family wire-format
+bug — the Qwen controls are the correct per-family shape and are used for
+LM Studio Qwen models regardless, so that `ReasoningOff` emits the intended
+`enable_thinking=false, thinking_budget=0` disable signal for any LM Studio
+Qwen build that does respect it. Until LM Studio or the GGUF template
+changes, beadbench must treat Bragi `qwen/qwen3.6-35b-a3b` as a no-budget
+arm: reasoning-control probes are expected to be `accepted=true` but
+behaviorally no-op, and the beadbench tracker's `effort` label does not
+change observable runtime reasoning. Use OMLX `Qwen3.6-27B-MLX-8bit` /
+`Qwen3.6-35B-A3B-4bit` when enforced reasoning budgets are needed.
 
 ## Evidence Rules
 

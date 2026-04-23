@@ -488,7 +488,7 @@ func TestThinkingSerializationReasoningPolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name+"/chat", func(t *testing.T) {
-			body, err := captureOpenAIChatBody(t, "lmstudio", tt.configReasoning, tt.opts)
+			body, err := captureOpenAIChatBody(t, "thinking-map", tt.configReasoning, tt.opts)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantNoHTTPRequest {
@@ -500,7 +500,7 @@ func TestThinkingSerializationReasoningPolicy(t *testing.T) {
 			assertReasoningWireBudget(t, body, tt.wantThinking, tt.wantBudget)
 		})
 		t.Run(tt.name+"/stream", func(t *testing.T) {
-			body, err := captureOpenAIStreamBody(t, "lmstudio", tt.configReasoning, tt.opts)
+			body, err := captureOpenAIStreamBody(t, "thinking-map", tt.configReasoning, tt.opts)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantNoHTTPRequest {
@@ -624,42 +624,49 @@ func TestQwenReasoningSerialization(t *testing.T) {
 			wantNoHTTPRequest: true,
 		},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name+"/chat", func(t *testing.T) {
-			body, err := captureOpenAIChatBody(t, "omlx", tt.configReasoning, tt.opts)
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.wantNoHTTPRequest {
-					assert.Nil(t, body)
+	for _, providerType := range []string{"omlx", "lmstudio"} {
+		for _, tt := range tests {
+			t.Run(providerType+"/"+tt.name+"/chat", func(t *testing.T) {
+				body, err := captureOpenAIChatBody(t, providerType, tt.configReasoning, tt.opts)
+				if tt.wantErr {
+					require.Error(t, err)
+					if tt.wantNoHTTPRequest {
+						assert.Nil(t, body)
+					}
+					return
 				}
-				return
-			}
-			require.NoError(t, err)
-			if tt.wantAbsent {
-				assertNoQwenReasoningWire(t, body)
-				return
-			}
-			assertQwenReasoningWireBudget(t, body, tt.wantEnabled, tt.wantBudget)
-		})
-		t.Run(tt.name+"/stream", func(t *testing.T) {
-			body, err := captureOpenAIStreamBody(t, "omlx", tt.configReasoning, tt.opts)
-			if tt.wantErr {
-				require.Error(t, err)
-				if tt.wantNoHTTPRequest {
-					assert.Nil(t, body)
+				require.NoError(t, err)
+				if tt.wantAbsent {
+					assertNoQwenReasoningWire(t, body)
+					return
 				}
-				return
-			}
-			require.NoError(t, err)
-			if tt.wantAbsent {
-				assertNoQwenReasoningWire(t, body)
-				return
-			}
-			assertQwenReasoningWireBudget(t, body, tt.wantEnabled, tt.wantBudget)
-		})
+				assertQwenReasoningWireBudget(t, body, tt.wantEnabled, tt.wantBudget)
+			})
+			t.Run(providerType+"/"+tt.name+"/stream", func(t *testing.T) {
+				body, err := captureOpenAIStreamBody(t, providerType, tt.configReasoning, tt.opts)
+				if tt.wantErr {
+					require.Error(t, err)
+					if tt.wantNoHTTPRequest {
+						assert.Nil(t, body)
+					}
+					return
+				}
+				require.NoError(t, err)
+				if tt.wantAbsent {
+					assertNoQwenReasoningWire(t, body)
+					return
+				}
+				assertQwenReasoningWireBudget(t, body, tt.wantEnabled, tt.wantBudget)
+			})
+		}
 	}
 }
 
+// TestQwenReasoningSerializationRejectsNonQwenModels covers strict providers
+// (OMLX): a Qwen-wire provider that only hosts Qwen models must fail the
+// request when an explicit reasoning policy is sent against a non-Qwen
+// model, so misconfiguration surfaces loudly instead of silently sending a
+// control the template will ignore.
 func TestQwenReasoningSerializationRejectsNonQwenModels(t *testing.T) {
 	for _, opts := range []agent.Options{
 		{Reasoning: agent.ReasoningMedium},
@@ -678,6 +685,30 @@ func TestQwenReasoningSerializationRejectsNonQwenModels(t *testing.T) {
 			assert.Nil(t, body)
 			assert.Contains(t, err.Error(), "qwen reasoning control")
 			assert.Contains(t, err.Error(), "gpt-oss-20b")
+		})
+	}
+}
+
+// TestQwenReasoningSerializationLenientOnNonStrictProviders covers mixed-family
+// providers (LM Studio): a Qwen-wire provider that may host non-Qwen models
+// must silently strip Qwen-specific fields for those models rather than
+// rejecting the request. This preserves pre-existing CLI behavior where a
+// catalog reasoning default can flow through to any LM Studio-hosted model.
+func TestQwenReasoningSerializationLenientOnNonStrictProviders(t *testing.T) {
+	for _, opts := range []agent.Options{
+		{Reasoning: agent.ReasoningMedium},
+		{Reasoning: agent.ReasoningOff},
+		{Reasoning: agent.ReasoningTokens(4321)},
+	} {
+		t.Run(string(opts.Reasoning)+"/chat", func(t *testing.T) {
+			body, err := captureOpenAIChatBodyWithModel(t, "lmstudio", "google/gemma-3-27b", "", opts)
+			require.NoError(t, err)
+			assertNoQwenReasoningWire(t, body)
+		})
+		t.Run(string(opts.Reasoning)+"/stream", func(t *testing.T) {
+			body, err := captureOpenAIStreamBodyWithModel(t, "lmstudio", "google/gemma-3-27b", "", opts)
+			require.NoError(t, err)
+			assertNoQwenReasoningWire(t, body)
 		})
 	}
 }
@@ -768,8 +799,13 @@ func captureOpenAIStreamBodyWithModel(t *testing.T, providerType string, model s
 }
 
 func testModelForProvider(providerType string) string {
-	if providerType == "omlx" {
+	switch providerType {
+	case "omlx":
 		return "Qwen3.6-27B-MLX-8bit"
+	case "lmstudio":
+		return "qwen/qwen3.6-35b-a3b"
+	case "thinking-map":
+		return "anthropic-compat-claude"
 	}
 	return "gpt-4o"
 }
@@ -779,14 +815,19 @@ func capabilitiesForTestProvider(providerType string) *openai.ProtocolCapabiliti
 	switch providerType {
 	case "lmstudio":
 		caps.Thinking = true
+		caps.ThinkingFormat = openai.ThinkingWireFormatQwen
 	case "omlx":
 		caps.Thinking = true
 		caps.ThinkingFormat = openai.ThinkingWireFormatQwen
+		caps.StrictThinkingModelMatch = true
 	case "openrouter":
 		caps.Thinking = true
 		caps.ThinkingFormat = openai.ThinkingWireFormatOpenRouter
 	case "ollama":
 		caps.StructuredOutput = false
+	case "thinking-map":
+		caps.Thinking = true
+		caps.ThinkingFormat = openai.ThinkingWireFormatThinkingMap
 	}
 	return &caps
 }

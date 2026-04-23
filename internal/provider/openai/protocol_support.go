@@ -15,6 +15,15 @@ type ProtocolCapabilities struct {
 	// (openai-go WithJSONSet) used to control model-side reasoning.
 	Thinking       bool
 	ThinkingFormat ThinkingWireFormat
+	// StrictThinkingModelMatch, when true, makes the openai layer return an
+	// error if the request carries an explicit reasoning policy while the
+	// model does not match the provider's wire format family (e.g. a Qwen
+	// wire format with a non-Qwen model). Set true for providers that only
+	// serve a single model family (OMLX → Qwen MLX). Providers that host
+	// mixed model families (LM Studio can load Qwen, Gemma, Llama, etc.)
+	// should leave this false so reasoning controls silently no-op on
+	// non-matching models instead of failing the request.
+	StrictThinkingModelMatch bool
 }
 
 type ThinkingWireFormat string
@@ -78,4 +87,8 @@ func (p *Provider) thinkingWireFormat() ThinkingWireFormat {
 		return caps.ThinkingFormat
 	}
 	return ThinkingWireFormatThinkingMap
+}
+
+func (p *Provider) strictThinkingModelMatch() bool {
+	return p.protocolCapabilities().StrictThinkingModelMatch
 }

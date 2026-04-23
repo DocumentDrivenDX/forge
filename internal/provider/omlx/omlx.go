@@ -22,6 +22,10 @@ var ProtocolCapabilities = openai.ProtocolCapabilities{
 	StructuredOutput: true,
 	Thinking:         true,
 	ThinkingFormat:   openai.ThinkingWireFormatQwen,
+	// OMLX serves Qwen MLX variants exclusively, so an explicit reasoning
+	// request against a non-Qwen model is a configuration bug worth failing
+	// the request for. LM Studio hosts mixed families and keeps this false.
+	StrictThinkingModelMatch: true,
 }
 
 type Config struct {
