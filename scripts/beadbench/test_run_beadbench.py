@@ -146,6 +146,159 @@ def test_missing_sandbox_is_tolerated(tmp: pathlib.Path) -> None:
     assert "sandbox_state" not in info
 
 
+def test_preflight_detects_unreachable_revs(tmp: pathlib.Path) -> None:
+    project = tmp / "proj"
+    _init_sandbox(project)
+    task = {
+        "id": "t-bad",
+        "project_root": str(project),
+        "bead_id": "nope-bead",
+        "base_rev": "0" * 40,
+        "known_good_rev": "1" * 40,
+    }
+    report = rb.check_task_refs(task)
+    assert report["ok"] is False
+    joined = " | ".join(report["errors"])
+    assert "base_rev" in joined
+    assert "known_good_rev" in joined
+
+
+def test_preflight_passes_on_reachable_task(tmp: pathlib.Path) -> None:
+    project = tmp / "proj2"
+    base = _init_sandbox(project)
+    # bead_id check requires ddx CLI; stub it by shimming PATH.
+    shim = tmp / "bin"
+    shim.mkdir()
+    (shim / "ddx").write_text("#!/bin/sh\nexit 0\n")
+    (shim / "ddx").chmod(0o755)
+    import os
+
+    old_path = os.environ.get("PATH", "")
+    os.environ["PATH"] = f"{shim}:{old_path}"
+    try:
+        task = {
+            "id": "t-good",
+            "project_root": str(project),
+            "bead_id": "fake-bead",
+            "base_rev": base,
+            "known_good_rev": base,
+        }
+        report = rb.check_task_refs(task)
+    finally:
+        os.environ["PATH"] = old_path
+    assert report["ok"] is True, report
+    assert report["errors"] == []
+
+
+def test_check_execute_bead_flags_missing(tmp: pathlib.Path) -> None:
+    shim = tmp / "bin"
+    shim.mkdir()
+    (shim / "ddx").write_text(
+        "#!/bin/sh\ncat <<'EOF'\nUsage: ddx agent execute-bead <id>\nFlags:\n  --from\n  --json\nEOF\n"
+    )
+    (shim / "ddx").chmod(0o755)
+    import os
+
+    old_path = os.environ.get("PATH", "")
+    os.environ["PATH"] = f"{shim}:{old_path}"
+    try:
+        flags = rb.check_execute_bead_flags()
+    finally:
+        os.environ["PATH"] = old_path
+    assert flags["ok"] is False
+    assert "--no-merge" in flags["missing_flags"]
+    assert "--harness" in flags["missing_flags"]
+
+
+def test_check_execute_bead_flags_ok(tmp: pathlib.Path) -> None:
+    shim = tmp / "bin"
+    shim.mkdir()
+    help_text = "Flags:\n" + "\n".join(f"  {f}" for f in rb.REQUIRED_EXECUTE_BEAD_FLAGS) + "\n"
+    (shim / "ddx").write_text(f"#!/bin/sh\ncat <<'EOF'\n{help_text}EOF\n")
+    (shim / "ddx").chmod(0o755)
+    import os
+
+    old_path = os.environ.get("PATH", "")
+    os.environ["PATH"] = f"{shim}:{old_path}"
+    try:
+        flags = rb.check_execute_bead_flags()
+    finally:
+        os.environ["PATH"] = old_path
+    assert flags["ok"] is True, flags
+    assert flags["missing_flags"] == []
+
+
+def test_verify_result_records_verifier_timeout(tmp: pathlib.Path) -> None:
+    """Verifier timeout must be recorded as verify.status=timeout and must not
+    propagate to the caller where it would be mislabelled as an execute timeout."""
+    sandbox = tmp / "sbx"
+    base = _init_sandbox(sandbox)
+    artifacts = tmp / "art"
+    artifacts.mkdir()
+    task = {
+        "id": "t-vto",
+        "verifier_command": "sleep 5",
+    }
+    execute_result = {"status": "success", "result_rev": base}
+    verify = rb.verify_result(
+        sandbox=sandbox,
+        artifact_dir=artifacts,
+        task=task,
+        execute_result=execute_result,
+        timeout_seconds=1,
+        keep_worktree=False,
+    )
+    assert verify["status"] == "timeout", verify
+    assert verify["exit_code"] is None
+    assert verify["timeout_seconds"] == 1
+    assert (artifacts / "verify-stdout.txt").exists()
+    assert (artifacts / "verify-stderr.txt").exists()
+
+
+def test_summary_counts_executable_over_non_skipped(tmp: pathlib.Path) -> None:
+    results = [
+        {
+            "status": "success",
+            "arm_id": "a1",
+            "task_id": "t1",
+            "duration_ms": 100,
+            "verify": {"status": "pass"},
+        },
+        {
+            "status": "success",
+            "arm_id": "a1",
+            "task_id": "t1",
+            "duration_ms": 200,
+            "verify": {"status": "fail"},
+        },
+        {
+            "status": "success",
+            "arm_id": "a1",
+            "task_id": "t1",
+            "duration_ms": 300,
+            "verify": {"status": "timeout"},
+        },
+        {
+            "status": "execution_failed",
+            "arm_id": "a1",
+            "task_id": "t1",
+            "duration_ms": 50,
+            "verify": {"status": "skipped"},
+        },
+    ]
+    summary = rb.summarize(results)
+    assert summary["executable"] == 2
+    assert summary["verified_pass"] == 1
+    assert summary["verified_fail"] == 1
+    assert summary["verified_timeout"] == 1
+    assert summary["verified_skipped"] == 1
+    assert summary["verified_pass_rate"] == 0.5
+    arm = summary["by_arm"][0]
+    assert arm["id"] == "a1"
+    assert arm["executable"] == 2
+    assert arm["verified_pass_rate"] == 0.5
+
+
 def main() -> int:
     cases = [
         test_no_output_timeout,
@@ -154,6 +307,12 @@ def main() -> int:
         test_write_progress_via_commit,
         test_write_progress_via_preserve_ref,
         test_missing_sandbox_is_tolerated,
+        test_preflight_detects_unreachable_revs,
+        test_preflight_passes_on_reachable_task,
+        test_check_execute_bead_flags_missing,
+        test_check_execute_bead_flags_ok,
+        test_verify_result_records_verifier_timeout,
+        test_summary_counts_executable_over_non_skipped,
     ]
     failures: list[str] = []
     for case in cases:

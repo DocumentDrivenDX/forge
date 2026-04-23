@@ -58,6 +58,19 @@ def main() -> int:
     run_dir = results_dir / f"run-{timestamp}-{os.getpid()}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    if not args.skip_preflight:
+        preflight = run_preflight(tasks, arms)
+        (run_dir / "preflight.json").write_text(json.dumps(preflight, indent=2) + "\n")
+        print_preflight(preflight)
+        if args.preflight:
+            return 0 if preflight["ok"] else 3
+        if not preflight["ok"]:
+            print("beadbench: preflight failed; refusing to dispatch", file=sys.stderr)
+            return 3
+    elif args.preflight:
+        print("beadbench: --preflight and --skip-preflight are mutually exclusive", file=sys.stderr)
+        return 2
+
     report: dict[str, Any] = {
         "schema_version": "1",
         "captured": timestamp,
@@ -134,6 +147,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     parser.add_argument("--dry-run", action="store_true", help="Emit planned commands only")
     parser.add_argument("--no-verify", action="store_true", help="Skip verifier commands")
+    parser.add_argument(
+        "--preflight",
+        action="store_true",
+        help="Run preflight checks only and exit (no dispatch)",
+    )
+    parser.add_argument(
+        "--skip-preflight",
+        action="store_true",
+        help="Do not run preflight checks before dispatch",
+    )
     parser.add_argument("--keep-sandboxes", action="store_true")
     parser.add_argument(
         "--sandbox-root",
@@ -179,6 +202,141 @@ def filter_items(items: list[dict[str, Any]], key: str, selected: list[str] | No
     return [item for item in items if str(item.get(key, default)) in wanted]
 
 
+REQUIRED_EXECUTE_BEAD_FLAGS = (
+    "--from",
+    "--no-merge",
+    "--json",
+    "--project",
+    "--harness",
+    "--provider",
+    "--model",
+    "--model-ref",
+    "--effort",
+    "--context-budget",
+)
+
+
+def check_execute_bead_flags() -> dict[str, Any]:
+    """Verify `ddx agent execute-bead --help` advertises every flag beadbench sends."""
+    result: dict[str, Any] = {
+        "ok": False,
+        "missing_flags": [],
+        "error": "",
+    }
+    try:
+        proc = subprocess.run(
+            ["ddx", "agent", "execute-bead", "--help"],
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        result["error"] = f"ddx agent execute-bead --help unavailable: {exc!r}"
+        return result
+    if proc.returncode != 0:
+        result["error"] = (
+            f"ddx agent execute-bead --help exited {proc.returncode}: {proc.stderr.strip()}"
+        )
+        return result
+    help_text = proc.stdout + proc.stderr
+    missing = [flag for flag in REQUIRED_EXECUTE_BEAD_FLAGS if flag not in help_text]
+    result["missing_flags"] = missing
+    result["ok"] = not missing
+    return result
+
+
+def check_task_refs(task: dict[str, Any]) -> dict[str, Any]:
+    """Verify project_root is a git repo and base_rev / known_good_rev / bead_id resolve."""
+    out: dict[str, Any] = {
+        "task_id": task.get("id"),
+        "ok": False,
+        "errors": [],
+    }
+    project_root_raw = task.get("project_root")
+    if not isinstance(project_root_raw, str) or not project_root_raw:
+        out["errors"].append("missing project_root")
+        return out
+    project_root = pathlib.Path(project_root_raw).expanduser()
+    if not project_root.exists():
+        out["errors"].append(f"project_root does not exist: {project_root}")
+        return out
+    if not (project_root / ".git").exists():
+        out["errors"].append(f"project_root is not a git repository: {project_root}")
+        return out
+
+    for key in ("base_rev", "known_good_rev"):
+        rev = task.get(key)
+        if not isinstance(rev, str) or not rev:
+            out["errors"].append(f"missing {key}")
+            continue
+        probe = subprocess.run(
+            ["git", "-C", str(project_root), "rev-parse", "--verify", f"{rev}^{{commit}}"],
+            text=True,
+            capture_output=True,
+        )
+        if probe.returncode != 0:
+            out["errors"].append(
+                f"{key} {rev} not reachable in {project_root}: {probe.stderr.strip()}"
+            )
+
+    bead_id = task.get("bead_id")
+    if not isinstance(bead_id, str) or not bead_id:
+        out["errors"].append("missing bead_id")
+    else:
+        probe = subprocess.run(
+            ["ddx", "bead", "show", bead_id, "--json"],
+            cwd=str(project_root),
+            text=True,
+            capture_output=True,
+            timeout=30,
+        )
+        if probe.returncode != 0:
+            out["errors"].append(
+                f"bead {bead_id} not found in {project_root}: {probe.stderr.strip() or probe.stdout.strip()}"
+            )
+
+    out["ok"] = not out["errors"]
+    return out
+
+
+def run_preflight(
+    tasks: list[dict[str, Any]], arms: list[dict[str, Any]]
+) -> dict[str, Any]:
+    flags = check_execute_bead_flags()
+    task_reports = [check_task_refs(task) for task in tasks]
+    ok = flags["ok"] and all(t["ok"] for t in task_reports)
+    return {
+        "ok": ok,
+        "execute_bead_flags": flags,
+        "tasks": task_reports,
+        "arm_count": len(arms),
+        "task_count": len(tasks),
+    }
+
+
+def print_preflight(preflight: dict[str, Any]) -> None:
+    flags = preflight["execute_bead_flags"]
+    print("beadbench: preflight")
+    if flags["ok"]:
+        print("  execute-bead flags: ok")
+    else:
+        if flags.get("error"):
+            print(f"  execute-bead flags: ERROR — {flags['error']}")
+        if flags.get("missing_flags"):
+            print(
+                f"  execute-bead flags: missing {', '.join(flags['missing_flags'])}"
+            )
+    for task in preflight["tasks"]:
+        if task["ok"]:
+            print(f"  task {task['task_id']}: ok")
+        else:
+            print(f"  task {task['task_id']}: FAIL")
+            for err in task["errors"]:
+                print(f"    - {err}")
+    status = "ok" if preflight["ok"] else "FAIL"
+    print(f"  status: {status}")
+
+
 def run_one(
     args: argparse.Namespace,
     run_dir: pathlib.Path,
@@ -213,6 +371,10 @@ def run_one(
         "exit_code": None,
         "duration_ms": 0,
         "verify": {"status": "skipped"},
+        "phases": {
+            "execute": {"status": "not_run"},
+            "verify": {"status": "skipped"},
+        },
     }
 
     command = execute_command(bead_id, base_rev, arm, project_root=None)
@@ -222,6 +384,7 @@ def run_one(
         result["status"] = "dry_run"
         result["exit_code"] = 0
         result["duration_ms"] = 0
+        result["phases"]["execute"] = {"status": "dry_run"}
         (artifact_dir / "planned-command.json").write_text(json.dumps(command, indent=2) + "\n")
         return result
 
@@ -253,10 +416,15 @@ def run_one(
         if parsed:
             (artifact_dir / "execute-result.json").write_text(json.dumps(parsed, indent=2) + "\n")
         result["status"] = extract_status(proc.returncode, parsed)
+        result["phases"]["execute"] = {
+            "status": result["status"],
+            "exit_code": proc.returncode,
+            "duration_ms": duration_ms,
+        }
         capture_result_artifacts(sandbox, artifact_dir, base_rev, parsed)
 
         if not args.no_verify:
-            result["verify"] = verify_result(
+            verify = verify_result(
                 sandbox,
                 artifact_dir,
                 task,
@@ -264,11 +432,22 @@ def run_one(
                 args.timeout_seconds,
                 keep_worktree=args.keep_sandboxes,
             )
+            result["verify"] = verify
+            result["phases"]["verify"] = {
+                "status": verify.get("status"),
+                "exit_code": verify.get("exit_code"),
+                "duration_ms": verify.get("duration_ms"),
+            }
     except subprocess.TimeoutExpired as exc:
         result["status"] = "timeout"
         result["exit_code"] = None
         result["duration_ms"] = int((time.monotonic() - started) * 1000)
         result["timeout"] = record_timeout_evidence(exc, sandbox, base_rev, artifact_dir)
+        result["phases"]["execute"] = {
+            "status": "timeout",
+            "timeout_seconds": exc.timeout,
+            "progress_class": result["timeout"].get("progress_class"),
+        }
     except Exception as exc:
         result["status"] = "runner_error"
         result["duration_ms"] = int((time.monotonic() - started) * 1000)
@@ -379,26 +558,50 @@ def verify_result(
             "stderr": add.stderr,
         }
 
-    proc = subprocess.run(
-        command,
-        cwd=verify_dir,
-        shell=True,
-        text=True,
-        capture_output=True,
-        timeout=timeout_seconds,
-    )
-    (artifact_dir / "verify-stdout.txt").write_text(proc.stdout)
-    (artifact_dir / "verify-stderr.txt").write_text(proc.stderr)
+    started = time.monotonic()
+    timed_out = False
+    try:
+        proc = subprocess.run(
+            command,
+            cwd=verify_dir,
+            shell=True,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+        stdout_text = proc.stdout
+        stderr_text = proc.stderr
+        returncode: int | None = proc.returncode
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        stdout_text = _as_text(exc.stdout)
+        stderr_text = _as_text(exc.stderr)
+        returncode = None
+
+    duration_ms = int((time.monotonic() - started) * 1000)
+    (artifact_dir / "verify-stdout.txt").write_text(stdout_text)
+    (artifact_dir / "verify-stderr.txt").write_text(stderr_text)
     if not keep_worktree:
         run_cmd(
             ["git", "-C", str(sandbox), "worktree", "remove", "--force", str(verify_dir)],
             cwd=None,
             check=False,
         )
+    if timed_out:
+        return {
+            "status": "timeout",
+            "command": command,
+            "exit_code": None,
+            "timeout_seconds": timeout_seconds,
+            "duration_ms": duration_ms,
+            "stdout_path": str(artifact_dir / "verify-stdout.txt"),
+            "stderr_path": str(artifact_dir / "verify-stderr.txt"),
+        }
     return {
-        "status": "pass" if proc.returncode == 0 else "fail",
+        "status": "pass" if returncode == 0 else "fail",
         "command": command,
-        "exit_code": proc.returncode,
+        "exit_code": returncode,
+        "duration_ms": duration_ms,
         "stdout_path": str(artifact_dir / "verify-stdout.txt"),
         "stderr_path": str(artifact_dir / "verify-stderr.txt"),
     }
@@ -653,6 +856,7 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     status_counts: dict[str, int] = {}
     verified_pass = 0
     verified_fail = 0
+    verified_timeout = 0
     verified_skipped = 0
     execute_success = 0
     dry_runs = 0
@@ -676,12 +880,15 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             verified_pass += 1
         elif verify_status == "fail":
             verified_fail += 1
+        elif verify_status == "timeout":
+            verified_timeout += 1
         else:
             verified_skipped += 1
 
         add_group(by_arm, result.get("arm_id", "unknown"), result, verify_status)
         add_group(by_task, result.get("task_id", "unknown"), result, verify_status)
 
+    executable = verified_pass + verified_fail
     return {
         "total_runs": total,
         "status_counts": status_counts,
@@ -689,8 +896,10 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
         "execute_success_rate": ratio(execute_success, total),
         "verified_pass": verified_pass,
         "verified_fail": verified_fail,
+        "verified_timeout": verified_timeout,
         "verified_skipped": verified_skipped,
-        "verified_pass_rate": ratio(verified_pass, total - verified_skipped),
+        "executable": executable,
+        "verified_pass_rate": ratio(verified_pass, executable),
         "dry_runs": dry_runs,
         "avg_duration_ms": int(sum(durations) / len(durations)) if durations else 0,
         "by_arm": sorted(by_arm.values(), key=lambda item: item["id"]),
@@ -712,7 +921,10 @@ def add_group(
             "execute_success": 0,
             "verified_pass": 0,
             "verified_fail": 0,
+            "verified_timeout": 0,
             "verified_skipped": 0,
+            "executable": 0,
+            "verified_pass_rate": 0.0,
         },
     )
     group["runs"] += 1
@@ -722,8 +934,12 @@ def add_group(
         group["verified_pass"] += 1
     elif verify_status == "fail":
         group["verified_fail"] += 1
+    elif verify_status == "timeout":
+        group["verified_timeout"] += 1
     else:
         group["verified_skipped"] += 1
+    group["executable"] = group["verified_pass"] + group["verified_fail"]
+    group["verified_pass_rate"] = ratio(group["verified_pass"], group["executable"])
 
 
 def ratio(num: int, den: int) -> float:
@@ -744,9 +960,16 @@ def print_summary(summary: dict[str, Any]) -> None:
     print("beadbench: summary")
     print(f"  total_runs: {summary['total_runs']}")
     print(f"  execute_success: {summary['execute_success']} ({summary['execute_success_rate']:.1%})")
-    executable = summary["total_runs"] - summary["verified_skipped"]
+    executable = summary["executable"]
     print(f"  verified_pass: {summary['verified_pass']}/{executable} ({summary['verified_pass_rate']:.1%})")
+    print(f"  verified_timeout: {summary['verified_timeout']}")
     print(f"  status_counts: {json.dumps(summary['status_counts'], sort_keys=True)}")
+    for arm in summary.get("by_arm", []):
+        print(
+            f"  arm {arm['id']}: executable={arm['executable']}/{arm['runs']} "
+            f"pass={arm['verified_pass']}/{arm['executable']} "
+            f"({arm['verified_pass_rate']:.1%})"
+        )
 
 
 if __name__ == "__main__":

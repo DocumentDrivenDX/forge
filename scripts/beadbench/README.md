@@ -23,6 +23,30 @@ ddx agent execute-bead <bead-id> --from <base-rev> --no-merge --json ...
 
 The source repository and source tracker are never mutated.
 
+## Preflight
+
+Before any real dispatch the runner validates the environment and the
+selected tasks. Run preflight in isolation with:
+
+```bash
+python3 scripts/beadbench/run_beadbench.py --preflight
+```
+
+Preflight checks:
+
+- `ddx agent execute-bead --help` advertises every flag beadbench sends
+  (`--from`, `--no-merge`, `--json`, `--project`, `--harness`,
+  `--provider`, `--model`, `--model-ref`, `--effort`, `--context-budget`).
+- Each selected task's `project_root` is an existing git repository.
+- Each task's `base_rev` and `known_good_rev` resolve to commits in that
+  repository.
+- Each task's `bead_id` is known to `ddx bead show` from within
+  `project_root`.
+
+A full run performs preflight automatically and refuses to dispatch when
+any check fails. Use `--skip-preflight` to bypass (for offline debugging
+only). Preflight output is written to `<run-dir>/preflight.json`.
+
 ## Smoke
 
 Validate command generation without invoking any agents:
@@ -71,6 +95,24 @@ records what it has:
 - `result.timeout.progress_class` buckets the run as `no_output`,
   `read_only_progress`, or `write_progress` so slow-but-healthy local-model
   runs can be told apart from stuck reasoning loops.
+
+Execute-phase and verifier-phase timeouts are recorded separately and do
+not overwrite each other:
+
+- An execute-phase timeout sets `result.status=timeout`,
+  `result.phases.execute.status=timeout`, and leaves
+  `result.phases.verify.status=skipped`.
+- A verifier-phase timeout keeps the execute status intact
+  (`result.phases.execute.status=success`) and records
+  `result.verify.status=timeout` /
+  `result.phases.verify.status=timeout` with its own `duration_ms` and
+  `timeout_seconds`. Verifier timeouts appear in the summary under
+  `verified_timeout` rather than being counted as executable pass/fail.
+
+Reports include per-arm `executable` counts (runs where the verifier
+actually produced pass/fail) and `verified_pass_rate` computed over those
+executable runs only, so dry-runs and unreachable verifiers do not dilute
+the signal.
 
 Fixture coverage lives in `scripts/beadbench/test_run_beadbench.py`
 (`python3 scripts/beadbench/test_run_beadbench.py`).
