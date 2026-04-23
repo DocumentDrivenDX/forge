@@ -100,6 +100,30 @@ PROBES: list[dict[str, Any]] = [
         "model_family": "gpt-oss",
         "body": {"reasoning": {"effort": "low"}},
     },
+    # LM Studio's native REST API exposes a first-class `reasoning` scalar on
+    # `/api/v1/chat` ("off"|"low"|"medium"|"high"|"on"). This surface is
+    # intentionally probed separately from OpenAI-compatible
+    # `/v1/chat/completions`: native chat has the documented reasoning knob and
+    # reports `stats.reasoning_output_tokens`, while OpenAI-compatible chat is
+    # the tool-compatible execute-bead surface.
+    {
+        "id": "lmstudio_native_reasoning_off",
+        "providers": ["lmstudio"],
+        "endpoint": "lmstudio_native_chat",
+        "body": {"reasoning": "off"},
+    },
+    {
+        "id": "lmstudio_native_reasoning_low",
+        "providers": ["lmstudio"],
+        "endpoint": "lmstudio_native_chat",
+        "body": {"reasoning": "low"},
+    },
+    {
+        "id": "lmstudio_native_reasoning_high",
+        "providers": ["lmstudio"],
+        "endpoint": "lmstudio_native_chat",
+        "body": {"reasoning": "high"},
+    },
 ]
 
 
@@ -327,6 +351,9 @@ def send_probe(
     timeout_seconds: int,
     probe: dict[str, Any],
 ) -> dict[str, Any]:
+    if probe.get("endpoint") == "lmstudio_native_chat":
+        return send_lmstudio_native_probe(base_url, model, prompt, max_tokens, timeout_seconds, probe)
+
     body = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -344,7 +371,7 @@ def send_probe(
         with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
             raw = resp.read().decode("utf-8", "replace")
             elapsed = round(time.monotonic() - started, 3)
-            return parse_response(probe["id"], resp.status, raw, elapsed)
+            return parse_openai_response(probe["id"], resp.status, raw, elapsed)
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", "replace")
         return {
@@ -364,7 +391,56 @@ def send_probe(
         }
 
 
-def parse_response(probe_id: str, status: int, raw: str, elapsed: float) -> dict[str, Any]:
+def send_lmstudio_native_probe(
+    base_url: str,
+    model: str,
+    prompt: str,
+    max_tokens: int,
+    timeout_seconds: int,
+    probe: dict[str, Any],
+) -> dict[str, Any]:
+    api_root = base_url.removesuffix("/v1") if base_url.endswith("/v1") else base_url
+    body = {
+        "model": model,
+        "input": prompt,
+        "max_output_tokens": max_tokens,
+        "temperature": 0,
+        "store": False,
+    }
+    body.update(probe["body"])
+    started = time.monotonic()
+    req = urllib.request.Request(
+        api_root + "/api/v1/chat",
+        data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
+            raw = resp.read().decode("utf-8", "replace")
+            elapsed = round(time.monotonic() - started, 3)
+            return parse_lmstudio_native_response(probe["id"], resp.status, raw, elapsed)
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode("utf-8", "replace")
+        return {
+            "id": probe["id"],
+            "surface": "lmstudio_native_chat",
+            "accepted": False,
+            "status": exc.code,
+            "seconds": round(time.monotonic() - started, 3),
+            "error": raw[:500],
+        }
+    except Exception as exc:
+        return {
+            "id": probe["id"],
+            "surface": "lmstudio_native_chat",
+            "accepted": False,
+            "seconds": round(time.monotonic() - started, 3),
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:500],
+        }
+
+
+def parse_openai_response(probe_id: str, status: int, raw: str, elapsed: float) -> dict[str, Any]:
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
@@ -375,8 +451,10 @@ def parse_response(probe_id: str, status: int, raw: str, elapsed: float) -> dict
     reasoning = message.get("reasoning_content") or ""
     usage = data.get("usage") or {}
     completion_tokens = usage.get("completion_tokens", usage.get("output_tokens"))
+    details = usage.get("completion_tokens_details") or usage.get("output_tokens_details") or {}
     return {
         "id": probe_id,
+        "surface": "openai_chat_completions",
         "accepted": True,
         "status": status,
         "seconds": elapsed,
@@ -386,6 +464,48 @@ def parse_response(probe_id: str, status: int, raw: str, elapsed: float) -> dict
         "reasoning_chars": len(reasoning),
         "reasoning_preview": reasoning[:160],
         "completion_tokens": completion_tokens,
+        "reasoning_tokens": details.get("reasoning_tokens"),
+        "looks_like_visible_thinking": looks_like_visible_thinking(content),
+    }
+
+
+def parse_lmstudio_native_response(probe_id: str, status: int, raw: str, elapsed: float) -> dict[str, Any]:
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {
+            "id": probe_id,
+            "surface": "lmstudio_native_chat",
+            "accepted": True,
+            "status": status,
+            "seconds": elapsed,
+            "raw": raw[:500],
+        }
+    messages: list[str] = []
+    reasoning_items: list[str] = []
+    for item in data.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content") or ""
+        if item.get("type") == "message":
+            messages.append(str(content))
+        elif item.get("type") == "reasoning":
+            reasoning_items.append(str(content))
+    content = "".join(messages)
+    reasoning = "".join(reasoning_items)
+    stats = data.get("stats") or {}
+    return {
+        "id": probe_id,
+        "surface": "lmstudio_native_chat",
+        "accepted": True,
+        "status": status,
+        "seconds": elapsed,
+        "content_preview": content[:160],
+        "content_chars": len(content),
+        "reasoning_chars": len(reasoning),
+        "reasoning_preview": reasoning[:160],
+        "completion_tokens": stats.get("total_output_tokens"),
+        "reasoning_tokens": stats.get("reasoning_output_tokens"),
         "looks_like_visible_thinking": looks_like_visible_thinking(content),
     }
 
@@ -405,6 +525,9 @@ def classify(probes: list[dict[str, Any]]) -> dict[str, Any]:
     none = by_id.get("none") or {}
     gptoss_low = by_id.get("gptoss_effort_low") or {}
     gptoss_high = by_id.get("gptoss_effort_high") or {}
+    native_off = by_id.get("lmstudio_native_reasoning_off") or {}
+    native_low = by_id.get("lmstudio_native_reasoning_low") or {}
+    native_high = by_id.get("lmstudio_native_reasoning_high") or {}
 
     # For gpt-oss, behavioral evidence that `reasoning_effort` is honored is a
     # measurable change in reasoning_chars or completion_tokens between low and
@@ -420,7 +543,9 @@ def classify(probes: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
     recommended = "unknown"
-    if qwen_budget.get("accepted") and (qwen_budget.get("reasoning_chars") or 0) > 0:
+    if native_off.get("accepted") and native_off.get("reasoning_tokens") == 0:
+        recommended = "lmstudio_native"
+    elif qwen_budget.get("accepted") and (qwen_budget.get("reasoning_chars") or 0) > 0:
         recommended = "qwen"
     elif thinking_map.get("accepted") and (thinking_map.get("reasoning_chars") or 0) > 0:
         recommended = "thinking_map"
@@ -446,6 +571,17 @@ def classify(probes: list[dict[str, Any]]) -> dict[str, Any]:
         "gptoss_effort_accepted": bool(gptoss_low.get("accepted") or gptoss_high.get("accepted")),
         "gptoss_effort_changes_reasoning": gptoss_effort_changes_reasoning,
         "baseline_emits_reasoning_content": bool((none.get("reasoning_chars") or 0) > 0),
+        "lmstudio_native_reasoning_accepted": bool(
+            native_off.get("accepted") or native_low.get("accepted") or native_high.get("accepted")
+        ),
+        "lmstudio_native_off_zero_reasoning_tokens": bool(
+            native_off.get("accepted") and native_off.get("reasoning_tokens") == 0
+        ),
+        "lmstudio_native_reasoning_changes_tokens": bool(
+            native_low.get("accepted")
+            and native_high.get("accepted")
+            and abs((native_low.get("reasoning_tokens") or 0) - (native_high.get("reasoning_tokens") or 0)) > 4
+        ),
     }
 
 

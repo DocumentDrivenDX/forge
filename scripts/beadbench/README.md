@@ -144,6 +144,24 @@ python3 scripts/beadbench/probe_reasoning_controls.py \
 The selected probe ids are recorded under `probe_filter` in the generated
 report JSON.
 
+For LM Studio specifically, the probe now tests two distinct API surfaces:
+
+- OpenAI-compatible `/v1/chat/completions`, which is the execute-bead surface
+  because it supports custom tools, but where Qwen/GPT-OSS reasoning controls
+  may be accepted without being honored by the loaded template.
+- Native `/api/v1/chat`, which exposes LM Studio's documented
+  `reasoning: off|low|medium|high|on` control and returns
+  `stats.reasoning_output_tokens`, but is not currently the execute-bead
+  surface because LM Studio documents custom tools on `/v1/chat/completions`
+  and `/v1/responses`, not native chat.
+
+The LM Studio native probes are
+`lmstudio_native_reasoning_off`, `lmstudio_native_reasoning_low`, and
+`lmstudio_native_reasoning_high`. Treat a `recommended_wire_format` of
+`lmstudio_native` as evidence that LM Studio can control reasoning on the
+native endpoint, not as proof that the current agent tool loop can switch to
+that endpoint without a separate tools-compatible design.
+
 Current local evidence: on 2026-04-23, Vidar OMLX
 `Qwen3.6-27B-MLX-8bit` and `Qwen3.6-35B-A3B-4bit` accepted both the legacy
 `thinking` map and Qwen controls, but only Qwen
