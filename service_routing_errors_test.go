@@ -61,15 +61,31 @@ func TestValidateExplicitHarnessModelAcceptsClaudeDiscoveredFamilyVersion(t *tes
 	}
 }
 
-func TestResolveExecuteRouteResolvesGenericSubprocessAliases(t *testing.T) {
+func TestResolveExecuteRouteNormalizesSubprocessAliases(t *testing.T) {
 	svc := testRoutingErrorService()
 
 	claudeDecision, err := svc.resolveExecuteRoute(ServiceExecuteRequest{Harness: "claude", Model: "sonnet"})
 	if err != nil {
 		t.Fatalf("resolve claude sonnet alias: %v", err)
 	}
-	if claudeDecision.Model != "sonnet-4.6" {
-		t.Fatalf("claude sonnet alias resolved to %q, want sonnet-4.6", claudeDecision.Model)
+	if claudeDecision.Model != "sonnet" {
+		t.Fatalf("claude sonnet alias resolved to %q, want sonnet", claudeDecision.Model)
+	}
+
+	claudeOpusDecision, err := svc.resolveExecuteRoute(ServiceExecuteRequest{Harness: "claude", Model: "opus-4.7"})
+	if err != nil {
+		t.Fatalf("resolve claude opus version: %v", err)
+	}
+	if claudeOpusDecision.Model != "opus" {
+		t.Fatalf("claude opus version normalized to %q, want opus", claudeOpusDecision.Model)
+	}
+
+	claudeFullOpusDecision, err := svc.resolveExecuteRoute(ServiceExecuteRequest{Harness: "claude", Model: "claude-opus-4-6"})
+	if err != nil {
+		t.Fatalf("resolve claude full opus version: %v", err)
+	}
+	if claudeFullOpusDecision.Model != "opus" {
+		t.Fatalf("claude full opus version normalized to %q, want opus", claudeFullOpusDecision.Model)
 	}
 
 	codexDecision, err := svc.resolveExecuteRoute(ServiceExecuteRequest{Harness: "codex", Model: "gpt"})

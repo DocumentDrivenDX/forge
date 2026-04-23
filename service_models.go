@@ -162,11 +162,25 @@ func subprocessHarnessModelIDs(name string, cfg harnesses.HarnessConfig) []strin
 func resolveSubprocessModelAlias(harness, model string) string {
 	switch harness {
 	case "claude":
-		return claudeharness.ResolveClaudeFamilyAlias(model, claudeharness.DefaultClaudeModelDiscovery())
+		return claudeCLIExecutableModel(model)
 	case "codex":
 		return codexharness.ResolveCodexModelAlias(model, codexharness.DefaultCodexModelDiscovery())
 	case "gemini":
 		return geminiharness.ResolveGeminiModelAlias(model, geminiharness.DefaultGeminiModelDiscovery())
+	default:
+		return model
+	}
+}
+
+func claudeCLIExecutableModel(model string) string {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case normalized == "sonnet" || strings.HasPrefix(normalized, "sonnet-") || strings.HasPrefix(normalized, "claude-sonnet-"):
+		return "sonnet"
+	case normalized == "opus" || strings.HasPrefix(normalized, "opus-") || strings.HasPrefix(normalized, "claude-opus-"):
+		return "opus"
+	case normalized == "haiku" || strings.HasPrefix(normalized, "haiku-") || strings.HasPrefix(normalized, "claude-haiku-"):
+		return "haiku"
 	default:
 		return model
 	}
