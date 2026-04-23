@@ -114,6 +114,9 @@ def main() -> int:
     results_dir = pathlib.Path(args.results_dir).resolve()
     results_dir.mkdir(parents=True, exist_ok=True)
 
+    probe_filter = list(args.probe) if args.probe else None
+    validate_probe_filter(probe_filter)
+
     report: dict[str, Any] = {
         "schema_version": "1",
         "captured": timestamp,
@@ -121,11 +124,12 @@ def main() -> int:
         "prompt": args.prompt,
         "max_tokens": args.max_tokens,
         "timeout_seconds": args.timeout_seconds,
+        "probe_filter": probe_filter,
         "results": [],
     }
 
     for arm in arms:
-        result = probe_arm(arm, providers, args)
+        result = probe_arm(arm, providers, args, probe_filter)
         report["results"].append(result)
         print_result(result)
 
@@ -149,6 +153,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", default="scripts/beadbench/manifest-v1.json")
     parser.add_argument("--results-dir", default="benchmark-results/beadbench")
     parser.add_argument("--arm", action="append", help="Arm id to probe; repeatable")
+    parser.add_argument(
+        "--probe",
+        action="append",
+        help="Probe id to run; repeatable. Defaults to all probes eligible for the provider/model.",
+    )
     # Default timeout is 120s because slow local Qwen models (LM Studio /
     # OMLX) routinely produce their first 16 tokens in 30-50s even when the
     # server accepts the request shape; a 45s bound prematurely reports
@@ -196,7 +205,24 @@ def select_arms(arms: list[dict[str, Any]], selected: list[str] | None) -> list[
     return found
 
 
-def probe_arm(arm: dict[str, Any], providers: dict[str, dict[str, Any]], args: argparse.Namespace) -> dict[str, Any]:
+def validate_probe_filter(probe_filter: list[str] | None) -> None:
+    if not probe_filter:
+        return
+    known = {probe["id"] for probe in PROBES}
+    unknown = [pid for pid in probe_filter if pid not in known]
+    if unknown:
+        raise SystemExit(
+            f"reasoning-probe: unknown probe id(s): {', '.join(sorted(unknown))}. "
+            f"Known ids: {', '.join(sorted(known))}"
+        )
+
+
+def probe_arm(
+    arm: dict[str, Any],
+    providers: dict[str, dict[str, Any]],
+    args: argparse.Namespace,
+    probe_filter: list[str] | None,
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "arm_id": arm.get("id"),
         "harness": arm.get("harness"),
@@ -231,8 +257,11 @@ def probe_arm(arm: dict[str, Any], providers: dict[str, dict[str, Any]], args: a
     result["model"] = model
     if server_meta := collect_server_metadata(str(provider.get("type")), base_url, model):
         result["server_metadata"] = server_meta
-    for probe in probes_for_provider(str(provider.get("type")), model):
-        result["probes"].append(send_probe(base_url, model, args.prompt, args.max_tokens, args.timeout_seconds, probe))
+    arm_id = str(arm.get("id") or "")
+    for probe in probes_for_provider(str(provider.get("type")), model, probe_filter):
+        probe_result = send_probe(base_url, model, args.prompt, args.max_tokens, args.timeout_seconds, probe)
+        print_probe_progress(arm_id, probe_result)
+        result["probes"].append(probe_result)
 
     result["capability"] = classify(result["probes"])
     return result
@@ -267,10 +296,17 @@ def collect_server_metadata(provider_type: str, base_url: str, model: str) -> di
     return meta
 
 
-def probes_for_provider(provider_type: str, model: str) -> list[dict[str, Any]]:
+def probes_for_provider(
+    provider_type: str,
+    model: str,
+    probe_filter: list[str] | None = None,
+) -> list[dict[str, Any]]:
     selected = []
     model_lower = model.lower()
+    wanted = set(probe_filter) if probe_filter else None
     for probe in PROBES:
+        if wanted is not None and probe["id"] not in wanted:
+            continue
         providers = probe.get("providers")
         if providers is not None and provider_type not in providers:
             continue
@@ -432,15 +468,40 @@ def count_by(values: Any) -> dict[str, int]:
     return counts
 
 
+def print_probe_progress(arm_id: str, probe_result: dict[str, Any]) -> None:
+    """Emit one progress line per probe, flushing so slow runs are visible."""
+    accepted = probe_result.get("accepted")
+    if accepted:
+        status_word = f"accepted (HTTP {probe_result.get('status')})"
+    else:
+        err_type = probe_result.get("error_type")
+        err = probe_result.get("error") or ""
+        status_code = probe_result.get("status")
+        if status_code:
+            status_word = f"error (HTTP {status_code})"
+        elif err_type:
+            status_word = f"error ({err_type})"
+        else:
+            status_word = "error"
+        if err:
+            status_word = f"{status_word}: {err.splitlines()[0][:120]}"
+    seconds = probe_result.get("seconds")
+    print(
+        f"  {arm_id} / {probe_result.get('id')}: {status_word} in {seconds}s",
+        flush=True,
+    )
+
+
 def print_result(result: dict[str, Any]) -> None:
     if result.get("status") != "probed":
-        print(f"{result.get('arm_id')}: skipped ({result.get('reason')})")
+        print(f"{result.get('arm_id')}: skipped ({result.get('reason')})", flush=True)
         return
     capability = result.get("capability") or {}
     print(
         f"{result.get('arm_id')}: wire={capability.get('recommended_wire_format')} "
         f"qwen_reasoning={capability.get('qwen_budget_separates_reasoning')} "
-        f"off_suppresses={capability.get('qwen_off_suppresses_visible_thinking')}"
+        f"off_suppresses={capability.get('qwen_off_suppresses_visible_thinking')}",
+        flush=True,
     )
 
 

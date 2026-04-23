@@ -129,6 +129,21 @@ The probe records whether each provider accepts the control field, separates
 off. Results are written to
 `benchmark-results/beadbench/reasoning-probe-*.json`.
 
+Each probe emits one progress line as soon as it returns, flushed
+immediately, so a slow local arm can be distinguished from a stuck run
+without waiting for the full arm to finish. For a quick local diagnostic
+that only exercises the two Qwen controls most likely to drive reasoning
+loops, pass `--probe` once per probe id:
+
+```bash
+python3 scripts/beadbench/probe_reasoning_controls.py \
+  --arm agent-vidar-omlx-qwen36-27b \
+  --probe qwen_off --probe qwen_budget_32
+```
+
+The selected probe ids are recorded under `probe_filter` in the generated
+report JSON.
+
 Current local evidence: on 2026-04-23, Vidar OMLX
 `Qwen3.6-27B-MLX-8bit` and `Qwen3.6-35B-A3B-4bit` accepted both the legacy
 `thinking` map and Qwen controls, but only Qwen
