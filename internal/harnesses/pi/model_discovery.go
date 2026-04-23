@@ -73,6 +73,42 @@ func ReadPiModelDiscoveryFromListModels(ctx context.Context, binary string, args
 	return snapshot, nil
 }
 
+// PiListModel is one row of the `pi --list-models` provider/model table.
+type PiListModel struct {
+	Provider string
+	Model    string
+}
+
+// ReadPiModelDiscoveryFromListModelsForProviders parses `pi --list-models` and
+// returns a snapshot whose Models list is restricted to the supplied provider
+// names (case-insensitive). This is the surface used when a caller has
+// configured local providers (e.g. lmstudio, omlx) and only wants Pi's
+// concrete model table for those providers.
+//
+// If providers is empty the snapshot carries all discovered models.
+func ReadPiModelDiscoveryFromListModelsForProviders(ctx context.Context, binary string, providers []string, args ...string) (harnesses.ModelDiscoverySnapshot, error) {
+	if binary == "" {
+		binary = "pi"
+	}
+	if len(args) == 0 {
+		args = []string{"--list-models"}
+	}
+	out, err := harnesses.HarnessCommand(ctx, binary, args...).CombinedOutput()
+	if err != nil {
+		return harnesses.ModelDiscoverySnapshot{}, fmt.Errorf("pi list models: %w", err)
+	}
+	rows := parsePiListModelsWithProvider(string(out))
+	models := filterPiModelsByProviders(rows, providers)
+	if len(models) == 0 {
+		return harnesses.ModelDiscoverySnapshot{}, fmt.Errorf("pi list models did not expose any models for providers %v", providers)
+	}
+	snapshot := DefaultPiModelDiscovery()
+	snapshot.Models = models
+	snapshot.Source = "cli:list-models:providers"
+	snapshot.Detail = "pi --list-models filtered to configured providers; thinking levels come from the documented --thinking CLI surface"
+	return snapshot, nil
+}
+
 func piDiscoveryFromHelp(text, source string) harnesses.ModelDiscoverySnapshot {
 	snapshot := DefaultPiModelDiscovery()
 	if source != "" {
@@ -110,7 +146,16 @@ func parsePiThinkingLevels(text string) []string {
 }
 
 func parsePiListModels(text string) []string {
-	var models []string
+	rows := parsePiListModelsWithProvider(text)
+	models := make([]string, 0, len(rows))
+	for _, row := range rows {
+		models = append(models, row.Model)
+	}
+	return uniquePiStrings(models)
+}
+
+func parsePiListModelsWithProvider(text string) []PiListModel {
+	var rows []PiListModel
 	var sawHeader bool
 	for _, line := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
 		fields := strings.Fields(line)
@@ -124,7 +169,30 @@ func parsePiListModels(text string) []string {
 		if fields[4] != "yes" && fields[4] != "no" {
 			continue
 		}
-		models = append(models, fields[1])
+		rows = append(rows, PiListModel{Provider: fields[0], Model: fields[1]})
+	}
+	return rows
+}
+
+func filterPiModelsByProviders(rows []PiListModel, providers []string) []string {
+	var models []string
+	if len(providers) == 0 {
+		for _, row := range rows {
+			models = append(models, row.Model)
+		}
+		return uniquePiStrings(models)
+	}
+	allowed := make(map[string]bool, len(providers))
+	for _, p := range providers {
+		p = strings.TrimSpace(strings.ToLower(p))
+		if p != "" {
+			allowed[p] = true
+		}
+	}
+	for _, row := range rows {
+		if allowed[strings.ToLower(row.Provider)] {
+			models = append(models, row.Model)
+		}
 	}
 	return uniquePiStrings(models)
 }

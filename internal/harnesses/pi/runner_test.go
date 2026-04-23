@@ -117,6 +117,65 @@ EOF
 	}
 }
 
+func TestRunner_Execute_AppliesProviderFlag(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+
+	dir := t.TempDir()
+	capture := filepath.Join(dir, "capture.txt")
+	script := fmt.Sprintf(`#!/bin/sh
+{
+  i=0
+  for arg in "$@"; do
+    printf 'ARG[%%s]=%%s\n' "$i" "$arg"
+    i=$((i + 1))
+  done
+} > %q
+cat <<'EOF'
+{"type":"text_end","message":{"usage":{"input":1,"output":1}},"response":"ok"}
+EOF
+`, capture)
+	binary := filepath.Join(dir, "fake-pi")
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Runner{Binary: binary}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	ch, err := r.Execute(ctx, harnesses.ExecuteRequest{
+		Prompt:    "hello",
+		Provider:  "lmstudio",
+		Model:     "qwen3.6-27b",
+		Reasoning: "medium",
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	for range ch {
+	}
+
+	raw, err := os.ReadFile(capture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	for _, want := range []string{
+		"ARG[3]=--provider",
+		"ARG[4]=lmstudio",
+		"ARG[5]=--model",
+		"ARG[6]=qwen3.6-27b",
+		"ARG[7]=--thinking",
+		"ARG[8]=medium",
+		"ARG[9]=hello",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("capture missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRunner_Execute_AppliesRequestControlsStdinPrompt(t *testing.T) {
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("sh not available")

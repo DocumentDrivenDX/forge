@@ -151,7 +151,7 @@ func (s *service) resolveExecuteRoute(req ServiceExecuteRequest) (*RouteDecision
 	if err := validateExplicitHarnessProfile(canonical, cfg, req.Profile); err != nil {
 		return nil, err
 	}
-	if err := validateExplicitHarnessModel(canonical, cfg, req.Model); err != nil {
+	if err := validateExplicitHarnessModel(canonical, cfg, req.Model, req.Provider); err != nil {
 		return nil, err
 	}
 	if err := validateExplicitHarnessReasoning(canonical, cfg, req.Reasoning); err != nil {
@@ -211,11 +211,11 @@ func isExplicitPinError(err error) bool {
 	return errors.As(err, &profileErr)
 }
 
-func validateExplicitHarnessModel(name string, cfg harnesses.HarnessConfig, model string) error {
+func validateExplicitHarnessModel(name string, cfg harnesses.HarnessConfig, model, provider string) error {
 	if model == "" || cfg.TestOnly || cfg.IsHTTPProvider || name == "agent" {
 		return nil
 	}
-	if modelSupportedForHarness(name, cfg, model) {
+	if modelSupportedForHarness(name, cfg, model, provider) {
 		return nil
 	}
 	supportedModels := subprocessHarnessModelIDs(name, cfg)
@@ -226,7 +226,7 @@ func validateExplicitHarnessModel(name string, cfg harnesses.HarnessConfig, mode
 	}
 }
 
-func modelSupportedForHarness(name string, cfg harnesses.HarnessConfig, model string) bool {
+func modelSupportedForHarness(name string, cfg harnesses.HarnessConfig, model, provider string) bool {
 	for _, known := range subprocessHarnessModelIDs(name, cfg) {
 		if model == known {
 			return true
@@ -237,6 +237,12 @@ func modelSupportedForHarness(name string, cfg harnesses.HarnessConfig, model st
 		return strings.HasPrefix(model, "gpt-")
 	case "claude":
 		return strings.HasPrefix(model, "claude-")
+	case "pi":
+		// Pi can route to non-Gemini backends (lmstudio, omlx, etc.) when a
+		// provider is pinned. The pi CLI owns per-provider model validation
+		// in that case, so the agent-side gate trusts the provider pin and
+		// defers concrete model-ID checks to pi --list-models / pi itself.
+		return provider != ""
 	default:
 		return len(cfg.Models) == 0
 	}

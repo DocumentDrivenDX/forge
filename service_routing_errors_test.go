@@ -45,10 +45,10 @@ func TestValidateExplicitHarnessModelAcceptsClaudeDiscoveredFamilyVersion(t *tes
 		t.Fatal("missing claude registry entry")
 	}
 
-	if err := validateExplicitHarnessModel("claude", cfg, "opus-4.7"); err != nil {
+	if err := validateExplicitHarnessModel("claude", cfg, "opus-4.7", ""); err != nil {
 		t.Fatalf("opus-4.7 should be accepted as a discovered Claude family version: %v", err)
 	}
-	err := validateExplicitHarnessModel("claude", cfg, "opus-9.9")
+	err := validateExplicitHarnessModel("claude", cfg, "opus-9.9", "")
 	if err == nil {
 		t.Fatal("expected unknown claude family version to be rejected")
 	}
@@ -58,6 +58,41 @@ func TestValidateExplicitHarnessModelAcceptsClaudeDiscoveredFamilyVersion(t *tes
 	}
 	if !slices.Contains(typed.SupportedModels, "opus-4.7") {
 		t.Fatalf("supported models should include discovered opus version, got %v", typed.SupportedModels)
+	}
+}
+
+func TestValidateExplicitHarnessModelPiAcceptsLocalProviderPin(t *testing.T) {
+	registry := harnesses.NewRegistry()
+	cfg, ok := registry.Get("pi")
+	if !ok {
+		t.Fatal("missing pi registry entry")
+	}
+
+	// With an explicit provider pin, a non-Gemini model ID must be accepted:
+	// pi itself owns per-provider model validation.
+	if err := validateExplicitHarnessModel("pi", cfg, "qwen3.6-27b", "lmstudio"); err != nil {
+		t.Fatalf("pi+lmstudio+qwen should be accepted: %v", err)
+	}
+	if err := validateExplicitHarnessModel("pi", cfg, "qwen3.6-27b", "omlx"); err != nil {
+		t.Fatalf("pi+omlx+qwen should be accepted: %v", err)
+	}
+
+	// Without a provider pin, the strict Gemini-only gate still applies.
+	err := validateExplicitHarnessModel("pi", cfg, "qwen3.6-27b", "")
+	if err == nil {
+		t.Fatal("expected pi to reject non-Gemini model without provider pin")
+	}
+	var typed *ErrHarnessModelIncompatible
+	if !errors.As(err, &typed) {
+		t.Fatalf("expected ErrHarnessModelIncompatible, got %T %v", err, err)
+	}
+
+	// Regression: Gemini defaults still validate cleanly.
+	if err := validateExplicitHarnessModel("pi", cfg, "gemini-2.5-flash", ""); err != nil {
+		t.Fatalf("gemini-2.5-flash must remain valid for pi: %v", err)
+	}
+	if err := validateExplicitHarnessModel("pi", cfg, "gemini-2.5-pro", ""); err != nil {
+		t.Fatalf("gemini-2.5-pro must remain valid for pi: %v", err)
 	}
 }
 

@@ -175,6 +175,13 @@ func (r *Runner) runStreaming(ctx context.Context, binary string, req harnesses.
 	}
 	args := append([]string{}, base...)
 
+	// Provider flag: --provider <provider>. Pi uses this to route to a
+	// concrete backend (e.g. lmstudio, omlx) so the --model ID does not
+	// need to be in Pi's Gemini defaults.
+	if req.Provider != "" {
+		args = append(args, "--provider", req.Provider)
+	}
+
 	// Model flag: --model <model>
 	if req.Model != "" {
 		args = append(args, "--model", req.Model)
