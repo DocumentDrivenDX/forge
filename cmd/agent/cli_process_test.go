@@ -238,7 +238,7 @@ default: local
 	assert.GreaterOrEqual(t, parsed.Tokens.Output, 0)
 }
 
-func TestCLI_ServiceContractSmoke(t *testing.T) {
+func TestCLI_ExecuteUsesServiceContract(t *testing.T) {
 	exe := buildAgentCLI(t)
 	workDir := t.TempDir()
 	home := t.TempDir()
@@ -254,9 +254,7 @@ providers:
 default: local
 `)
 
-	res := runBuiltCLI(t, exe, workDir, testEnvWithHome(home, map[string]string{
-		"DDX_AGENT_USE_SERVICE_CONTRACT": "1",
-	}), "--json", "--work-dir", workDir, "-p", "hello")
+	res := runBuiltCLI(t, exe, workDir, testEnvWithHome(home, nil), "--json", "--work-dir", workDir, "-p", "hello")
 	require.Equal(t, 0, res.exitCode, "stderr=%s", res.stderr)
 	assert.Contains(t, res.stderr, "[success] tokens:")
 

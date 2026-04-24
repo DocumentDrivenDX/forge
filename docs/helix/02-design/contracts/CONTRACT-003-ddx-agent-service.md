@@ -189,9 +189,11 @@ type ExecuteRequest struct {
     Tools        []Tool  // optional native-agent override; nil = built-in tools
     ToolPreset   string  // optional native built-in selector; "benchmark" excludes task
     // PreResolved bypasses ResolveRoute when the caller already has a decision
-    // (e.g., from a prior ResolveRoute call). When non-nil, agent uses these
-    // values verbatim and does not re-route. Provider/Model/Harness fields
-    // above are ignored in this mode.
+    // from this service (for example a prior ResolveRoute dry-run). When
+    // non-nil, agent uses these values verbatim and does not re-route.
+    // Provider/Model/Harness fields above are ignored in this mode. Consumers
+    // must not reconstruct equivalent RouteDecision values from raw config or
+    // private candidate tables; config-backed routing remains service-owned.
     PreResolved *RouteDecision
 
     // Three independent timeout knobs:
@@ -656,26 +658,34 @@ directly.
 
 ## CLI Projection Boundary
 
-The standalone `cmd/ddx-agent` binary is both a consumer of this service
-contract and a transitional first-party adapter. User-visible CLI output should
-prefer public service APIs:
+The standalone `cmd/ddx-agent` binary is a first-party consumer of this service
+contract. Its job is to translate user input into public service requests and
+render public service results. The CLI boundary is strict:
 
-- service execution output is decoded with `DecodeServiceEvent` or
-  `DrainExecute`, not local copies of event payload structs;
+- execution goes through `DdxAgent.Execute`;
+- session replay/follow goes through `TailSessionLog`;
+- output decoding uses `DecodeServiceEvent` or `DrainExecute`, not local copies
+  of private payload structs;
 - harness capabilities, profile projection, route feedback, quota/status, and
-  test-only harness dispatch are public service surfaces;
-- direct imports of internal packages from `cmd/ddx-agent` are an explicit
-  allowlist for legacy provider setup, prompt construction, session-log
-  compatibility, and catalog/routing migration code.
+  test-only harness dispatch are consumed through public service methods.
 
-The allowlist is enforced by `cmd/ddx-agent` boundary tests. Remaining internal
-reads in the CLI are transitional implementation adapters, not public API:
-`internal/config`, `internal/core`, `internal/modelcatalog`,
-`internal/observations`, `internal/provider/openai`, `internal/prompt`,
-`internal/reasoning`, `internal/safefs`, `internal/session`, and
-`internal/tool`. Follow-up work that adds CLI-visible profile/model/status
-behavior must either source it from `DdxAgent` methods or extend this contract
-first.
+The CLI must not:
+
+- construct native providers or provider failover wrappers;
+- call `internal/core` loop entry points directly;
+- synthesize service session lifecycle records into the internal session-log
+  schema;
+- rebuild `RouteDecision` candidate lists from config as a substitute for
+  calling `ResolveRoute` or passing routing intent to `Execute`.
+
+In practice this means `cmd/ddx-agent` must not depend on
+`internal/core`, `internal/provider/*`, `internal/tool`, `internal/session`,
+`internal/compaction`, `internal/harnesses`, or `internal/routing`.
+
+If a CLI-visible behavior cannot be expressed through `DdxAgent` methods or the
+public request/event/result types, the contract must grow first. Internal
+package reach-through from `cmd/ddx-agent` is architecture debt and must not be
+normalized as a permanent compatibility layer.
 
 ## Catalog Profile Projection
 
@@ -1083,6 +1093,13 @@ The agent owns these execution-time behaviors. Callers do not opt in or out.
   transport/auth/upstream are eligible for failover within the route's
   candidate list; prompt/tool-schema errors are not.
 
+- **Service-owned native routing and provider construction.** For the embedded
+  `agent` harness, `Execute` resolves configured provider candidates,
+  constructs the concrete provider adapter, and performs failover internally.
+  Callers express intent with `Harness`, `Provider`, `Model`, `ModelRef`,
+  `Profile`, or a `PreResolved` value previously returned by `ResolveRoute`;
+  they do not pass provider instances or private candidate tables.
+
 - **Route-reason attribution.** The start-event `routing_decision` and
   final-event `routing_actual` together capture why each candidate was
   tried/picked.
@@ -1095,6 +1112,12 @@ The agent owns these execution-time behaviors. Callers do not opt in or out.
 
 - **OS-level subprocess cleanup.** On `ctx.Done()`, agent reaps PTY and
   orphan processes for subprocess harnesses. Tested and guaranteed.
+
+- **Session-log persistence ownership.** When session logging is enabled,
+  service-owned execution writes the lifecycle and terminal records for that
+  session. Consumers may choose where logs are stored via `SessionLogDir`, but
+  they do not recreate internal session start/end records from the event
+  stream.
 
 - **No-op compaction telemetry suppression.** Compaction events fire ONLY
   when actual work was performed. The compactor's pre-/post-turn checkpoint

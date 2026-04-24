@@ -19,7 +19,6 @@ import (
 	"github.com/DocumentDrivenDX/agent"
 	"github.com/DocumentDrivenDX/agent/internal/compaction"
 	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
-	agentcore "github.com/DocumentDrivenDX/agent/internal/core"
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	"github.com/DocumentDrivenDX/agent/internal/productinfo"
 	"github.com/DocumentDrivenDX/agent/internal/prompt"
@@ -166,7 +165,7 @@ func run() int {
 		ModelRef:        *modelRef,
 		AllowDeprecated: *allowDeprecatedModel,
 	}
-	selection, p, pc, err := resolveProviderForRun(cfg, wd, *backendFlag, *providerFlag, overrides)
+	selection, _, pc, err := resolveProviderForRun(cfg, wd, *backendFlag, *providerFlag, overrides)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 2
@@ -195,11 +194,6 @@ func run() int {
 	if *sysPromptFlag != "" {
 		sysPrompt.WithAppend(*sysPromptFlag)
 	}
-
-	// Session logger
-	sessionID := fmt.Sprintf("s-%d", os.Getpid())
-	logger := session.NewLogger(sessionLogDir(wd, cfg), sessionID)
-	defer logger.Close()
 
 	// Parse reasoning stall timeout
 	reasoningStallTimeout, err := cfg.ParseReasoningStallTimeout()
@@ -245,39 +239,31 @@ func run() int {
 	if cfg.CompactionPercent > 0 {
 		compactionCfg.EffectivePercent = cfg.CompactionPercent
 	}
-	compactor := compaction.NewCompactor(compactionCfg)
+	req := buildServiceExecuteRequest(serviceExecuteRequestParams{
+		Prompt:                  promptText,
+		SystemPrompt:            sysPrompt.Build(),
+		WorkDir:                 wd,
+		Metadata:                promptMetadata,
+		Tools:                   tools,
+		ToolPreset:              preset,
+		SelectedProvider:        selection.Provider,
+		SelectedRoute:           selection.Route,
+		RequestedModel:          selection.RequestedModel,
+		RequestedModelRef:       selection.RequestedModelRef,
+		ResolvedModelRef:        selection.ResolvedModelRef,
+		ResolvedModel:           selection.ResolvedModel,
+		RouteCandidates:         selection.RouteCandidates,
+		Reasoning:               resolvedReasoning,
+		NoStream:                selection.NoStream || (selection.Route != "" && selection.Route != selection.Provider && len(selection.RouteCandidates) == 0),
+		MaxIterations:           iterations,
+		MaxTokens:               resolvedMaxTokens,
+		ReasoningByteLimit:      cfg.ReasoningByteLimit,
+		ReasoningStallTimeout:   reasoningStallTimeout,
+		CompactionContextWindow: resolvedContextWindow,
+		CompactionReserveTokens: compactionCfg.ReserveTokens,
+	})
 
-	// Build request
-	req := agentcore.Request{
-		Prompt:                promptText,
-		SystemPrompt:          sysPrompt.Build(),
-		Provider:              p,
-		Tools:                 tools,
-		MaxIterations:         iterations,
-		WorkDir:               wd,
-		Metadata:              promptMetadata,
-		SelectedProvider:      selection.Provider,
-		SelectedRoute:         selection.Route,
-		RequestedModel:        selection.RequestedModel,
-		RequestedModelRef:     selection.RequestedModelRef,
-		ResolvedModelRef:      selection.ResolvedModelRef,
-		ResolvedModel:         selection.ResolvedModel,
-		NoStream:              selection.NoStream,
-		Callback:              logger.Callback(),
-		Telemetry:             cfg.BuildTelemetry(),
-		ReasoningByteLimit:    cfg.ReasoningByteLimit,
-		ReasoningStallTimeout: reasoningStallTimeout,
-		MaxTokens:             resolvedMaxTokens,
-		Reasoning:             resolvedReasoning,
-		Compactor:             compactor,
-	}
-
-	var result agentcore.Result
-	if os.Getenv("DDX_AGENT_USE_SERVICE_CONTRACT") == "1" {
-		result, err = executeViaServiceContract(ctx, req, agentConfig.NewServiceConfig(cfg, wd), preset)
-	} else {
-		result, err = agentcore.Run(ctx, req)
-	}
+	result, err := executeViaService(ctx, req, selection, sessionLogDir(wd, cfg), agentConfig.NewServiceConfig(cfg, wd))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
@@ -294,6 +280,10 @@ func run() int {
 		}
 	}
 
+	if result.Error != "" && !*jsonOutput {
+		fmt.Fprintf(os.Stderr, "error: %s\n", result.Error)
+	}
+
 	// Status to stderr
 	fmt.Fprintf(os.Stderr, "[%s] tokens: %d in / %d out", result.Status, result.Tokens.Input, result.Tokens.Output)
 	if result.CostUSD > 0 {
@@ -302,122 +292,200 @@ func run() int {
 	fmt.Fprintln(os.Stderr)
 
 	switch result.Status {
-	case agentcore.StatusSuccess, agentcore.StatusIterationLimit:
+	case "success", "iteration_limit":
 		return 0
 	default:
 		return 1
 	}
 }
 
-func executeViaServiceContract(ctx context.Context, req agentcore.Request, serviceConfig agent.ServiceConfig, toolPreset string) (agentcore.Result, error) {
+func executeViaService(ctx context.Context, req agent.ServiceExecuteRequest, selection providerSelection, logDir string, serviceConfig agent.ServiceConfig) (cliExecutionResult, error) {
 	svc, err := agent.New(agent.ServiceOptions{ServiceConfig: serviceConfig})
 	if err != nil {
-		return agentcore.Result{}, err
+		return cliExecutionResult{}, err
 	}
 
-	serviceReq := serviceExecuteRequestFromCoreRequest(req, toolPreset)
-	ch, err := svc.Execute(ctx, serviceReq)
+	ch, err := svc.Execute(ctx, req)
 	if err != nil {
-		return agentcore.Result{}, err
+		return cliExecutionResult{}, err
 	}
+	recorder := newCLIServiceSessionRecorder(logDir, serviceConfig)
+	defer recorder.Close()
 
-	result := agentcore.Result{
-		SelectedProvider:  req.SelectedProvider,
-		SelectedRoute:     req.SelectedRoute,
-		RequestedModel:    req.RequestedModel,
-		RequestedModelRef: req.RequestedModelRef,
-		ResolvedModelRef:  req.ResolvedModelRef,
-		ResolvedModel:     req.ResolvedModel,
+	result := cliExecutionResult{
+		Status:            "failed",
+		SelectedProvider:  selection.Provider,
+		SelectedRoute:     selection.Route,
+		RequestedModel:    selection.RequestedModel,
+		RequestedModelRef: selection.RequestedModelRef,
+		ResolvedModelRef:  selection.ResolvedModelRef,
+		ResolvedModel:     selection.ResolvedModel,
+		Model:             selection.ResolvedModel,
 		Reasoning:         req.Reasoning,
-		Model:             req.ResolvedModel,
 	}
-	var output strings.Builder
 	var sawFinal bool
 	for ev := range ch {
 		decoded, err := agent.DecodeServiceEvent(ev)
 		if err != nil {
 			return result, fmt.Errorf("decode service event: %w", err)
 		}
+		recorder.Record(req, selection, decoded)
 		switch decoded.Type {
 		case agent.ServiceEventTypeRoutingDecision:
-			if decoded.RoutingDecision != nil && decoded.RoutingDecision.SessionID != "" {
+			if decoded.RoutingDecision != nil {
 				result.SessionID = decoded.RoutingDecision.SessionID
 			}
 		case agent.ServiceEventTypeTextDelta:
 			if decoded.TextDelta != nil {
-				output.WriteString(decoded.TextDelta.Text)
+				result.Output += decoded.TextDelta.Text
 			}
 		case agent.ServiceEventTypeFinal:
-			sawFinal = true
 			if decoded.Final == nil {
 				return result, fmt.Errorf("decode service final event: missing final payload")
 			}
-			result.Status = serviceStatusToLegacyStatus(decoded.Final.Status)
-			if decoded.Final.Error != "" {
-				result.Error = errors.New(decoded.Final.Error)
-			}
-			if decoded.Final.Usage != nil {
-				result.Tokens.Input = serviceUsageInt(decoded.Final.Usage.InputTokens)
-				result.Tokens.Output = serviceUsageInt(decoded.Final.Usage.OutputTokens)
-				result.Tokens.Total = serviceUsageInt(decoded.Final.Usage.TotalTokens)
-			}
+			sawFinal = true
+			result.Status = decoded.Final.Status
+			result.Output = decoded.Final.FinalText
+			result.Duration = time.Duration(decoded.Final.DurationMS) * time.Millisecond
 			result.CostUSD = decoded.Final.CostUSD
+			result.Error = decoded.Final.Error
+			if decoded.Final.Usage != nil {
+				result.Tokens = cliTokenUsage{
+					Input:      derefInt(decoded.Final.Usage.InputTokens),
+					Output:     derefInt(decoded.Final.Usage.OutputTokens),
+					CacheRead:  derefInt(decoded.Final.Usage.CacheReadTokens),
+					CacheWrite: derefInt(decoded.Final.Usage.CacheWriteTokens),
+					Total:      derefInt(decoded.Final.Usage.TotalTokens),
+				}
+			}
 			if decoded.Final.RoutingActual != nil {
 				result.SelectedProvider = decoded.Final.RoutingActual.Provider
 				result.ResolvedModel = decoded.Final.RoutingActual.Model
 				result.Model = decoded.Final.RoutingActual.Model
 				result.AttemptedProviders = append([]string(nil), decoded.Final.RoutingActual.FallbackChainFired...)
+				if len(result.AttemptedProviders) > 1 {
+					result.FailoverCount = len(result.AttemptedProviders) - 1
+				} else {
+					result.FailoverCount = 0
+				}
 			}
 		}
 	}
 	if !sawFinal {
-		return result, fmt.Errorf("service contract execution ended without final event")
+		if ctx.Err() != nil {
+			result.Status = "cancelled"
+			result.Error = ctx.Err().Error()
+			recorder.RecordSyntheticCancel(req, selection, result)
+			return result, nil
+		}
+		return result, fmt.Errorf("service execution ended without final event")
 	}
-	result.Output = output.String()
 	return result, nil
 }
 
-func serviceExecuteRequestFromCoreRequest(req agentcore.Request, toolPreset string) agent.ServiceExecuteRequest {
-	temperature := float32(0)
-	if req.Temperature != nil {
-		temperature = float32(*req.Temperature)
-	}
-	return agent.ServiceExecuteRequest{
-		Prompt:       req.Prompt,
-		SystemPrompt: req.SystemPrompt,
-		Model:        req.ResolvedModel,
-		Provider:     req.SelectedProvider,
-		Harness:      "agent",
-		WorkDir:      req.WorkDir,
-		Temperature:  temperature,
-		Seed:         req.Seed,
-		Reasoning:    req.Reasoning,
-		Metadata:     req.Metadata,
-		Tools:        req.Tools,
-		ToolPreset:   toolPreset,
-		PreResolved: &agent.RouteDecision{
-			Harness:  "agent",
-			Provider: req.SelectedProvider,
-			Model:    req.ResolvedModel,
-			Reason:   "cli pre-resolved provider",
-		},
-	}
+type serviceExecuteRequestParams struct {
+	Prompt                  string
+	SystemPrompt            string
+	WorkDir                 string
+	Metadata                map[string]string
+	Tools                   []agent.Tool
+	ToolPreset              string
+	SelectedProvider        string
+	SelectedRoute           string
+	RequestedModel          string
+	RequestedModelRef       string
+	ResolvedModelRef        string
+	ResolvedModel           string
+	RouteCandidates         []agent.RouteCandidate
+	Reasoning               agent.Reasoning
+	NoStream                bool
+	MaxIterations           int
+	MaxTokens               int
+	ReasoningByteLimit      int
+	ReasoningStallTimeout   time.Duration
+	CompactionContextWindow int
+	CompactionReserveTokens int
 }
 
-func serviceStatusToLegacyStatus(status string) agentcore.Status {
-	switch status {
-	case "success":
-		return agentcore.StatusSuccess
-	case string(agentcore.StatusIterationLimit):
-		return agentcore.StatusIterationLimit
-	case "cancelled":
-		return agentcore.StatusCancelled
-	default:
-		return agentcore.StatusError
-	}
+type cliExecutionResult struct {
+	Status             string          `json:"status"`
+	Output             string          `json:"output"`
+	Tokens             cliTokenUsage   `json:"tokens"`
+	Duration           time.Duration   `json:"duration_ms"`
+	CostUSD            float64         `json:"cost_usd,omitempty"`
+	Model              string          `json:"model,omitempty"`
+	SelectedProvider   string          `json:"selected_provider,omitempty"`
+	SelectedRoute      string          `json:"selected_route,omitempty"`
+	RequestedModel     string          `json:"requested_model,omitempty"`
+	RequestedModelRef  string          `json:"requested_model_ref,omitempty"`
+	ResolvedModelRef   string          `json:"resolved_model_ref,omitempty"`
+	ResolvedModel      string          `json:"resolved_model,omitempty"`
+	Reasoning          agent.Reasoning `json:"reasoning,omitempty"`
+	AttemptedProviders []string        `json:"attempted_providers,omitempty"`
+	FailoverCount      int             `json:"failover_count,omitempty"`
+	Error              string          `json:"error,omitempty"`
+	SessionID          string          `json:"session_id"`
 }
 
-func serviceUsageInt(v *int) int {
+type cliTokenUsage struct {
+	Input      int `json:"input"`
+	Output     int `json:"output"`
+	CacheRead  int `json:"cache_read,omitempty"`
+	CacheWrite int `json:"cache_write,omitempty"`
+	Total      int `json:"total"`
+}
+
+func buildServiceExecuteRequest(params serviceExecuteRequestParams) agent.ServiceExecuteRequest {
+	model := params.ResolvedModel
+	if params.RequestedModel != "" {
+		model = params.RequestedModel
+	}
+	provider := params.SelectedProvider
+	harness := ""
+	if len(params.RouteCandidates) == 0 && params.SelectedProvider != "" {
+		harness = "agent"
+	}
+	if len(params.RouteCandidates) > 0 && params.SelectedRoute != "" && params.SelectedRoute != params.SelectedProvider {
+		provider = ""
+	}
+	req := agent.ServiceExecuteRequest{
+		Prompt:                  params.Prompt,
+		SystemPrompt:            params.SystemPrompt,
+		Harness:                 harness,
+		Model:                   model,
+		ModelRef:                params.RequestedModelRef,
+		Provider:                provider,
+		WorkDir:                 params.WorkDir,
+		Reasoning:               params.Reasoning,
+		NoStream:                params.NoStream,
+		Metadata:                params.Metadata,
+		Tools:                   params.Tools,
+		ToolPreset:              params.ToolPreset,
+		MaxIterations:           params.MaxIterations,
+		MaxTokens:               params.MaxTokens,
+		ReasoningByteLimit:      params.ReasoningByteLimit,
+		ReasoningStallTimeout:   params.ReasoningStallTimeout,
+		CompactionContextWindow: params.CompactionContextWindow,
+		CompactionReserveTokens: params.CompactionReserveTokens,
+	}
+	if len(params.RouteCandidates) > 0 {
+		first := params.RouteCandidates[0]
+		req.PreResolved = &agent.RouteDecision{
+			Harness:    "agent",
+			Provider:   first.Provider,
+			Endpoint:   first.Endpoint,
+			Model:      first.Model,
+			Reason:     "cli configured route",
+			Candidates: append([]agent.RouteCandidate(nil), params.RouteCandidates...),
+		}
+		req.Provider = first.Provider
+		req.Model = first.Model
+		req.Harness = "agent"
+	}
+	return req
+}
+
+func derefInt(v *int) int {
 	if v == nil {
 		return 0
 	}
@@ -483,6 +551,7 @@ type providerSelection struct {
 	RequestedModelRef string
 	ResolvedModelRef  string
 	ResolvedModel     string
+	RouteCandidates   []agent.RouteCandidate
 	ReasoningDefault  agent.Reasoning
 	NoStream          bool
 }
@@ -530,7 +599,7 @@ func lookupReasoningMaxTokens(cfg *agentConfig.Config, model string) int {
 	return 0
 }
 
-func resolveProviderForRun(cfg *agentConfig.Config, workDir, backendName, providerName string, overrides agentConfig.ProviderOverrides) (providerSelection, agentcore.Provider, agentConfig.ProviderConfig, error) {
+func resolveProviderForRun(cfg *agentConfig.Config, workDir, backendName, providerName string, overrides agentConfig.ProviderOverrides) (providerSelection, any, agentConfig.ProviderConfig, error) {
 	routeKey, routeModelRef, useLegacyBackend, err := resolveRouteTarget(cfg, backendName, providerName, overrides)
 	if err != nil {
 		return providerSelection{}, nil, agentConfig.ProviderConfig{}, err
@@ -640,7 +709,7 @@ func resolveRouteTarget(cfg *agentConfig.Config, backendName, providerName strin
 	return "", "", "", nil
 }
 
-func buildRouteSelection(cfg *agentConfig.Config, workDir, routeKey, routeModelRef string, allowDeprecated bool) (providerSelection, agentcore.Provider, agentConfig.ProviderConfig, error) {
+func buildRouteSelection(cfg *agentConfig.Config, workDir, routeKey, routeModelRef string, allowDeprecated bool) (providerSelection, any, agentConfig.ProviderConfig, error) {
 	var explicitRoute *agentConfig.ModelRouteConfig
 	if route, ok := cfg.GetModelRoute(routeKey); ok {
 		explicitRoute = &route
@@ -714,6 +783,16 @@ func buildRouteSelection(cfg *agentConfig.Config, workDir, routeKey, routeModelR
 			}
 		}
 	}
+	selection.RouteCandidates = make([]agent.RouteCandidate, 0, len(plan.Order))
+	for _, idx := range plan.Order {
+		candidate := routeCandidates[idx]
+		selection.RouteCandidates = append(selection.RouteCandidates, agent.RouteCandidate{
+			Harness:  "agent",
+			Provider: candidate.Provider,
+			Model:    candidate.Model,
+			Eligible: true,
+		})
+	}
 	return selection, p, pc, nil
 }
 
@@ -766,7 +845,7 @@ func resolvePreset(flagValue string, cfg *agentConfig.Config) (string, error) {
 	return prompt.ResolvePresetName(preset)
 }
 
-func buildToolsForPreset(workDir, preset string, bashFilter ...tool.BashOutputFilterConfig) []agentcore.Tool {
+func buildToolsForPreset(workDir, preset string, bashFilter ...tool.BashOutputFilterConfig) []agent.Tool {
 	filter := tool.BashOutputFilterConfig{}
 	if len(bashFilter) > 0 {
 		filter = bashFilter[0]
@@ -781,13 +860,6 @@ func bashOutputFilterConfig(cfg agentConfig.BashOutputFilterConfig) tool.BashOut
 		MaxBytes:     cfg.MaxBytes,
 		RawOutputDir: cfg.RawOutputDir,
 	}
-}
-
-func buildProviderFromResolvedConfig(name string, pc agentConfig.ProviderConfig) (agentcore.Provider, error) {
-	cfg := &agentConfig.Config{
-		Providers: map[string]agentConfig.ProviderConfig{name: pc},
-	}
-	return cfg.BuildProvider(name)
 }
 
 func legacyRouteCounterName(backendName string) string {

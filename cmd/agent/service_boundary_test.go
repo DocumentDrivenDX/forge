@@ -16,16 +16,31 @@ func TestCLIServiceContractUsesTypedEventDecoder(t *testing.T) {
 	}
 	src := string(data)
 	if !strings.Contains(src, "agent.DecodeServiceEvent(ev)") {
-		t.Fatal("CLI service-contract path must use agent.DecodeServiceEvent")
+		t.Fatal("CLI execute path must consume typed service events via agent.DecodeServiceEvent")
 	}
 	if strings.Contains(src, "json.Unmarshal(ev.Data") {
 		t.Fatal("CLI must not redefine private ServiceEvent payload shapes by unmarshalling ev.Data directly")
 	}
 }
 
+func TestCLIMainDoesNotImportOrCallInternalCoreRun(t *testing.T) {
+	root := repoRootForBoundaryTest(t)
+	data, err := os.ReadFile(filepath.Join(root, "cmd", "agent", "main.go"))
+	if err != nil {
+		t.Fatalf("read main.go: %v", err)
+	}
+	src := string(data)
+	if strings.Contains(src, "internal/core") {
+		t.Fatal("cmd/agent/main.go must not import internal/core; execution belongs behind the service boundary")
+	}
+	if strings.Contains(src, "agentcore.Run(") {
+		t.Fatal("cmd/agent/main.go must not call agentcore.Run directly")
+	}
+}
+
 func TestCLIInternalImportBoundaryAllowlist(t *testing.T) {
 	root := repoRootForBoundaryTest(t)
-	entries, err := filepath.Glob(filepath.Join(root, "cmd", "ddx-agent", "*.go"))
+	entries, err := filepath.Glob(filepath.Join(root, "cmd", "agent", "*.go"))
 	if err != nil {
 		t.Fatalf("glob cmd files: %v", err)
 	}
@@ -35,6 +50,7 @@ func TestCLIInternalImportBoundaryAllowlist(t *testing.T) {
 		"github.com/DocumentDrivenDX/agent/internal/core",
 		"github.com/DocumentDrivenDX/agent/internal/modelcatalog",
 		"github.com/DocumentDrivenDX/agent/internal/observations",
+		"github.com/DocumentDrivenDX/agent/internal/productinfo",
 		"github.com/DocumentDrivenDX/agent/internal/prompt",
 		"github.com/DocumentDrivenDX/agent/internal/provider/openai",
 		"github.com/DocumentDrivenDX/agent/internal/reasoning",

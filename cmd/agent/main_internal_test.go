@@ -4,10 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/DocumentDrivenDX/agent"
 	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
-	agentcore "github.com/DocumentDrivenDX/agent/internal/core"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -102,28 +102,44 @@ func TestBuildToolsForPreset_DefaultIncludesTaskTool(t *testing.T) {
 	assert.Contains(t, names, "task")
 }
 
-func TestServiceContractRequestPreservesCoreTools(t *testing.T) {
+func TestBuildServiceExecuteRequestPreservesNativeLoopSettings(t *testing.T) {
 	workDir := t.TempDir()
 	tools := buildToolsForPreset(workDir, "benchmark")
-	req := agentcore.Request{
-		Prompt:           "hi",
-		SystemPrompt:     "system",
-		Tools:            tools,
-		WorkDir:          workDir,
-		SelectedProvider: "local",
-		ResolvedModel:    "test-model",
-		Reasoning:        agent.ReasoningLow,
-	}
-
-	serviceReq := serviceExecuteRequestFromCoreRequest(req, "benchmark")
+	serviceReq := buildServiceExecuteRequest(serviceExecuteRequestParams{
+		Prompt:                  "hi",
+		SystemPrompt:            "system",
+		Tools:                   tools,
+		WorkDir:                 workDir,
+		SelectedProvider:        "local",
+		SelectedRoute:           "local",
+		RequestedModel:          "test-model",
+		ResolvedModel:           "test-model",
+		ResolvedModelRef:        "code-smart",
+		Reasoning:               agent.ReasoningLow,
+		MaxIterations:           7,
+		MaxTokens:               2048,
+		ReasoningByteLimit:      4096,
+		ReasoningStallTimeout:   3 * time.Second,
+		CompactionContextWindow: 128000,
+		CompactionReserveTokens: 4096,
+		ToolPreset:              "benchmark",
+	})
 
 	require.Len(t, serviceReq.Tools, len(tools))
 	assert.Equal(t, "benchmark", serviceReq.ToolPreset)
 	assert.Equal(t, toolNames(tools), toolNames(serviceReq.Tools))
 	assert.Equal(t, workDir, serviceReq.WorkDir)
 	assert.Equal(t, "agent", serviceReq.Harness)
-	require.NotNil(t, serviceReq.PreResolved)
-	assert.Equal(t, "agent", serviceReq.PreResolved.Harness)
+	assert.Equal(t, "local", serviceReq.Provider)
+	assert.Equal(t, "test-model", serviceReq.Model)
+	assert.True(t, serviceReq.NoStream == false)
+	assert.Equal(t, 7, serviceReq.MaxIterations)
+	assert.Equal(t, 2048, serviceReq.MaxTokens)
+	assert.Equal(t, 4096, serviceReq.ReasoningByteLimit)
+	assert.Equal(t, 3*time.Second, serviceReq.ReasoningStallTimeout)
+	assert.Equal(t, 128000, serviceReq.CompactionContextWindow)
+	assert.Equal(t, 4096, serviceReq.CompactionReserveTokens)
+	assert.Nil(t, serviceReq.PreResolved)
 }
 
 func toolNames(tools []agent.Tool) []string {

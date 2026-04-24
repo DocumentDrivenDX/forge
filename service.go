@@ -444,6 +444,7 @@ type ServiceExecuteRequest struct {
 	Temperature  float32
 	Seed         int64
 	Reasoning    Reasoning
+	NoStream     bool
 	Permissions  string
 	// Tools overrides the built-in native agent tool set when Harness is
 	// "agent". Nil uses the native built-ins for ToolPreset and WorkDir.
@@ -464,6 +465,16 @@ type ServiceExecuteRequest struct {
 	Timeout         time.Duration
 	IdleTimeout     time.Duration
 	ProviderTimeout time.Duration
+
+	// Optional native-loop overrides used when Harness == "agent". These let
+	// the CLI and other callers route fully-resolved execution settings through
+	// the service path instead of maintaining a divergent direct loop path.
+	MaxIterations           int
+	MaxTokens               int
+	ReasoningByteLimit      int
+	ReasoningStallTimeout   time.Duration
+	CompactionContextWindow int
+	CompactionReserveTokens int
 
 	// Optional stall policy. When non-nil agent enforces and ends with
 	// Status="stalled" if any limit hits. Default policy applies when nil.

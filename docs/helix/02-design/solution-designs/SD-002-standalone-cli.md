@@ -33,7 +33,7 @@ subcommands.
 
 | NFR | Requirement | Design Decision |
 |-----|-------------|-----------------|
-| Startup time | <50ms to first LLM request | No heavy init; parse config + construct provider only |
+| Startup time | <50ms to first LLM request | No heavy init; parse config, build one service request, dispatch |
 | Binary size | <20MB static binary | Minimal deps, no TUI libraries |
 | Zero config | Works with LM Studio defaults | Sensible defaults for localhost:1234 |
 
@@ -43,6 +43,12 @@ The CLI is a single `cmd/ddx-agent/main.go` entry point using Go's `flag` stdlib
 package (per project concern override — no Cobra). Subcommands are dispatched
 by the first positional argument. `run` is the preferred explicit execution
 verb; the existing bare `-p` path remains as a compatibility shim.
+
+The CLI is porcelain over the `DdxAgent` service contract from
+CONTRACT-003. It parses flags, resolves prompt input, constructs a public
+`ServiceExecuteRequest`, calls `DdxAgent.Execute`, and renders the typed event
+stream. It does not construct providers, call `agent.Run()`, own failover, or
+write session lifecycle records itself.
 
 ### Command Structure
 
@@ -97,8 +103,9 @@ session_log_dir: .agent/sessions
 
 - Parse flags and subcommand
 - Load config (file → env → flags)
-- Construct provider and tools
-- Call `agent.Run()` or session subcommand
+- Resolve prompt input and CLI defaults into a public `ServiceExecuteRequest`
+- Call `DdxAgent.Execute` / `TailSessionLog` / `List*` methods
+- Decode events with `DecodeServiceEvent` or `DrainExecute`
 - Print result, set exit code
 
 ### Config loader (internal to cmd)
@@ -106,13 +113,24 @@ session_log_dir: .agent/sessions
 - YAML parsing with `gopkg.in/yaml.v3`
 - Env var overlay
 - Flag overlay
-- Validate and return `agent.Request`-compatible config
+- Produce service-owned routing/config inputs; provider construction stays in the service
 
 ### Session subcommands (internal to cmd)
 
 - `log`: List session files from log directory, show summary
-- `replay`: Use `agent/session.Replay()` to render a session
-- `usage`: Aggregate session logs with time filtering
+- `replay`: Render stored service session logs
+- `usage`: Aggregate stored session logs with time filtering
+
+### Boundary Rules
+
+- `cmd/ddx-agent` is a consumer of `DdxAgent`, not a peer of the core loop.
+- Routing intent belongs in public request fields (`Provider`, `Model`,
+  `ModelRef`, `Profile`, `Harness`) or an explicit `ResolveRoute` ->
+  `PreResolved` flow.
+- Native provider construction, route failover, and session-log persistence are
+  service responsibilities.
+- Boundary tests must prevent `cmd/ddx-agent` from importing or invoking core
+  execution internals directly.
 
 ## Technology Rationale
 
@@ -132,6 +150,7 @@ session_log_dir: .agent/sessions
 | FEAT-006 FR-7..10 | config loader | Unit: config merging from file/env/flags |
 | FEAT-006 FR-11..14 | session subcommands | Functional: run against test session logs |
 | FEAT-006 FR-15..16 | main.go harness mode | Integration: harness invocation via CONTRACT-003 |
+| CONTRACT-003 CLI boundary | boundary tests | Static/import tests proving CLI stays behind the service layer |
 
 ## Concern Alignment
 

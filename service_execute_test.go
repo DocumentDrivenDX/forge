@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -662,6 +663,73 @@ func TestExecute_StallPolicy_ReadOnlyTrigger(t *testing.T) {
 	// timing). All three indicate termination short of natural success.
 	if got == "success" {
 		t.Errorf("expected non-success final, got %q", got)
+	}
+}
+
+func TestExecute_StallPolicy_NonMutatingBashCountsAsNoProgress(t *testing.T) {
+	callCount := 0
+	fp := &agent.FakeProvider{
+		Dynamic: func(req agent.FakeRequest) (agent.FakeResponse, error) {
+			callCount++
+			return agent.FakeResponse{
+				ToolCalls: []agent.ToolCall{{
+					ID:   "bash-loop",
+					Name: "bash",
+					Arguments: json.RawMessage([]byte(
+						fmt.Sprintf(`{"command":"printf 'turn %d\\n'"}`, callCount),
+					)),
+				}},
+			}, nil
+		},
+	}
+	opts := agent.ServiceOptions{}
+	opts.FakeProvider = fp
+	svc, err := agent.New(opts)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ch, err := svc.Execute(context.Background(), agent.ServiceExecuteRequest{
+		Prompt:      "stall on bash",
+		Harness:     "agent",
+		Provider:    "fake",
+		Model:       "fake-model",
+		WorkDir:     t.TempDir(),
+		Permissions: "unrestricted",
+		StallPolicy: &agent.StallPolicy{
+			MaxReadOnlyToolIterations: 3,
+		},
+		Timeout: 5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	events := drainEvents(t, ch, 10*time.Second)
+	final := findFinal(events)
+	if final == nil {
+		t.Fatal("expected final event")
+	}
+	if got := finalStatus(t, final); got != "stalled" && got != "cancelled" && got != "failed" {
+		t.Fatalf("expected stalled/cancelled/failed final, got %q", got)
+	}
+	foundStall := false
+	for _, ev := range events {
+		if ev.Type != "stall" {
+			continue
+		}
+		stall := eventPayload[struct {
+			Reason string `json:"reason"`
+			Count  int64  `json:"count"`
+		}](t, ev)
+		if stall.Reason == "no_progress_tools_exceeded" {
+			foundStall = true
+			if stall.Count < 3 {
+				t.Fatalf("stall count = %d, want at least 3", stall.Count)
+			}
+		}
+	}
+	if !foundStall {
+		t.Fatalf("expected no_progress_tools_exceeded stall event, got types=%v", eventTypes(events))
 	}
 }
 

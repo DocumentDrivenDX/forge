@@ -38,15 +38,19 @@ DDX Agent keeps three layers above the runtime boundary:
 - **Model routes** — routing entries keyed by requested model or canonical
   target that pick one provider candidate before a run
 
-After resolution, agent still builds exactly one concrete `Provider` and passes
-it to `agent.Run()`.
+After resolution, the service builds exactly one concrete native provider
+adapter (or one ordered candidate set for service-owned failover) and executes
+it internally. Consumers do not receive provider instances.
 
 Caller boundary (see CONTRACT-003):
 
-- Callers choose the harness and pass model intent to the embedded harness.
-- Embedded `ddx-agent` chooses the concrete provider candidate.
-- Callers receive attribution facts from the embedded run, but do not own or
-  inspect provider candidate tables.
+- Callers choose the harness and pass routing intent through public request
+  fields (`Provider`, `Model`, `ModelRef`, `Profile`, or a `PreResolved`
+  decision returned by `ResolveRoute`).
+- Embedded `ddx-agent` chooses the concrete provider candidate, constructs the
+  provider adapter, and owns passive failover.
+- Callers receive attribution facts from the embedded run, but do not build
+  providers or inspect private provider candidate tables.
 
 ### Config Format
 

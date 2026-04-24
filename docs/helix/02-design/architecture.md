@@ -4,179 +4,164 @@ ddx:
   depends_on:
     - SD-001
     - SD-002
+    - CONTRACT-003
 ---
 # Architecture — DDX Agent
 
 ## System Context
 
-DDX Agent is an embeddable Go agent runtime. It sits between a caller (an
-orchestrator, CI system, or standalone CLI) and one or more LLM backends (LM Studio, Ollama,
-Anthropic, OpenAI).
+DDX Agent is a library-first execution service. Callers submit intent
+(`prompt`, `model`, `model_ref`, `profile`, `provider`, `harness`,
+permissions, reasoning) through the public `DdxAgent` contract. The service
+owns routing, provider construction, execution, event normalization, and
+session-log persistence.
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Orchestrator│     │  CI Pipeline │     │  agent CLI   │
-│  (in-process)│     │  (in-process)│     │  (binary)    │
+│ Orchestrator │     │ CI / Worker  │     │ agent CLI    │
+│ (in-process) │     │ (in-process) │     │ (binary)     │
 └──────┬───────┘     └──────┬───────┘     └──────┬───────┘
        │                    │                    │
-       └────────────┬───────┘────────────────────┘
+       └────────────┬───────┴────────────────────┘
                     │
-            ┌───────▼───────┐
-            │  agent library │
-            │  agent.Run()   │
-            └───────┬───────┘
+            ┌───────▼────────┐
+            │ DdxAgent       │
+            │ service API    │
+            │ Execute/List/* │
+            └───────┬────────┘
                     │
-       ┌────────────▼────────────┐
-       │ agent model catalog     │
-       │ + external manifest     │
-       └────────────┬────────────┘
-                    │
-       ┌────────────┼────────────┐
-       │            │            │
-┌──────▼──────┐ ┌───▼────┐ ┌────▼─────┐
-│  LM Studio  │ │ Ollama │ │Anthropic │
-│ localhost:   │ │ :11434 │ │  API     │
-│ 1234        │ │        │ │          │
-└─────────────┘ └────────┘ └──────────┘
+        ┌───────────┴────────────┐
+        │                        │
+┌───────▼────────┐      ┌────────▼────────┐
+│ Native path     │      │ Subprocess path │
+│ route/provider  │      │ harness runners │
+│ + core loop     │      │ (claude/codex/  │
+│ + tools         │      │ gemini/pi/...)  │
+└───────┬─────────┘      └────────┬────────┘
+        │                         │
+ ┌──────▼──────────┐      ┌───────▼─────────┐
+ │ provider        │      │ PTY / subprocess │
+ │ adapters        │      │ integration      │
+ │ openai/omlx/... │      └──────────────────┘
+ └─────────────────┘
 ```
 
-## Container Diagram
+## Module Boundaries
 
-DDX Agent is a Go module with the following package structure:
+### 1. CLI module: `cmd/agent`
+
+Responsibilities:
+
+- parse flags, stdin, env, and project working directory
+- build public service requests
+- call `agent.New`, `Execute`, `TailSessionLog`, `List*`, `ResolveProfile`,
+  `ResolveRoute`, `RouteStatus`
+- decode events with `DecodeServiceEvent` or `DrainExecute`
+- render stdout/stderr/JSON and map status to process exit codes
+
+Must not own:
+
+- native provider construction
+- route candidate ordering or failover
+- direct `internal/core` loop invocation
+- session lifecycle persistence by replaying service events into internal
+  session-log types
+
+### 2. Service module: root `agent` package and `service*.go`
+
+Responsibilities:
+
+- public contract for execution, route resolution, model/provider listing, and
+  health/status
+- request validation and route resolution
+- native provider selection and construction from configured providers/endpoints
+- subprocess harness dispatch
+- event emission and typed event decoding
+- session-log persistence and routing attribution
+- failover policy for native-route execution
+
+This is the only public execution boundary. `internal/core` is an implementation
+detail used by the service for the native harness.
+
+### 3. Provider adapter and routing modules: `internal/provider/*`,
+`internal/routing`, model catalog, and service-owned native wrappers
+
+Responsibilities:
+
+- translate service/provider config into concrete provider implementations
+- map public reasoning/model controls to provider-specific wire formats
+- discover models and endpoint health
+- rank and filter candidates
+- execute native failover and report `routing_actual`
+
+These modules are not consumer APIs. They exist to keep provider-specific and
+routing-specific behavior behind the service boundary.
+
+## Package View
 
 ```
-agent/                          # root module: github.com/your-org/agent
-├── agent.go                    # Run(), Request, Result, Provider, Tool interfaces
-├── loop.go                     # agent loop implementation
-├── modelcatalog/               # shared model catalog loader/resolver
-│   ├── catalog.go              # catalog API and resolution helpers
-│   ├── manifest.go             # manifest loading/validation
-│   └── catalog/models.yaml     # embedded manifest snapshot and default catalog data
-├── provider/
-│   ├── openai/
-│   │   └── openai.go           # OpenAI API provider (api.openai.com)
-│   ├── openrouter/
-│   │   └── openrouter.go       # OpenRouter provider
-│   ├── lmstudio/
-│   │   └── lmstudio.go         # LM Studio provider (local inference)
-│   ├── omlx/
-│   │   └── omlx.go             # oMLX provider (local inference)
-│   ├── ollama/
-│   │   └── ollama.go           # Ollama provider (local inference)
-│   ├── anthropic/
-│   │   └── anthropic.go        # Anthropic Claude provider
-│   └── virtual/
-│       └── virtual.go          # Virtual provider for deterministic replay
-├── tool/
-│   ├── read.go                 # file read tool
-│   ├── write.go                # file write tool
-│   ├── edit.go                 # find-replace edit tool
-│   ├── bash.go                 # shell command tool
-│   ├── find.go                 # file pattern discovery tool
-│   ├── grep.go                 # read-only content search tool
-│   ├── ls.go                   # directory listing tool
-│   ├── patch.go                # structured patch editing tool
-│   └── task.go                 # task-tracking tool
-├── session/
-│   ├── logger.go               # JSONL session event logger
-│   ├── event.go                # event type definitions
-│   ├── replay.go               # session replay renderer
-│   ├── pricing.go              # cost attribution policy and runtime pricing
-│   └── usage.go                # usage aggregation (P1)
+agent/
+├── *.go                        # public types and DdxAgent service methods
+├── loop.go                     # native core loop implementation
+├── stream_consume.go           # streaming helper for native providers
+├── compaction/                 # conversation compaction
+├── telemetry/                  # runtime telemetry scaffolding
+├── tool/                       # built-in native tools
+├── session/                    # log/replay/usage support
+├── internal/
+│   ├── provider/               # backend adapters
+│   ├── routing/                # candidate ranking and routing policy
+│   ├── harnesses/              # subprocess harness registry and runners
+│   ├── modelcatalog/           # profile/model catalog
+│   └── ...                     # config, safefs, prompt helpers, etc.
 └── cmd/
-    └── ddx-agent/
-        └── main.go             # standalone CLI binary
+    └── agent/                  # first-party CLI consumer of the service
 ```
 
-## Component Diagram
+## Execution Flow
+
+### Native (`agent`) harness
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                       agent (root package)                   │
-│                                                             │
-│  ┌────────────┐    ┌──────────────┐    ┌────────────────┐  │
-│  │   Run()    │───▶│  Loop Engine │───▶│ EventCallback  │  │
-│  │  Request   │    │              │    │  (optional)    │  │
-│  │  Result    │    │  - iterate   │    └────────┬───────┘  │
-│  └────────────┘    │  - dispatch  │             │          │
-│                    │    tools     │    ┌────────▼───────┐  │
-│  Interfaces:       │  - accumulate│    │ session.Logger │  │
-│  - Provider        │    tokens   │    │  (JSONL writer) │  │
-│  - Tool            └──────┬──────┘    └────────────────┘  │
-│  - Model Catalog          │                                │
-│                           │                                │
-└───────────────────────────┼────────────────────────────────┘
-                            │
-              ┌─────────────┼─────────────┬──────────────┐
-              │             │             │              │
-      ┌───────▼──────┐ ┌───▼────┐ ┌──────▼──────┐ ┌─────▼────────┐
-      │  Provider     │ │  Tool  │ │  Session    │ │ Model Catalog │
-      │  Impls        │ │  Impls │ │  Services   │ │  Services     │
-      │              │ │        │ │             │ │               │
-      │ openai/      │ │ read   │ │ logger      │ │ modelcatalog/ │
-      │ anthropic/   │ │ write  │ │ replay      │ │ catalog.go    │
-      │ virtual/     │ │ edit   │ │ pricing     │ │ manifest.go   │
-      │              │ │ bash   │ │ usage       │ │ catalog/models.yaml |
-      │              │ │ find   │ │             │ │               │
-      │              │ │ grep   │ │             │ │               │
-      │              │ │ ls     │ │             │ │               │
-      │              │ │ patch  │ │             │ │               │
-      │              │ │ task   │ │             │ │               │
-      └──────────────┘ └────────┘ └─────────────┘ └───────────────┘
+CLI / caller
+  -> DdxAgent.Execute(req)
+  -> service route resolution
+  -> service-native provider construction
+  -> core loop
+  -> tools / compaction / telemetry
+  -> service final event + session log
 ```
 
-## Data Flow
-
-### Agent Loop Sequence
+### Subprocess harnesses
 
 ```
-Caller                  Loop Engine          Provider         Tools          Logger
-  │                         │                   │               │              │
-  │──Run(ctx, Request)─────▶│                   │               │              │
-  │                         │──session.start────▶               │              │
-  │                         │                   │               │           ◀──│
-  │                         │──Chat(messages)──▶│               │              │
-  │                         │◀─Response─────────│               │              │
-  │                         │──llm.response─────▶               │              │
-  │                         │                   │               │           ◀──│
-  │                         │   [if tool calls]                 │              │
-  │                         │──Execute(params)──────────────────▶              │
-  │                         │◀─result───────────────────────────│              │
-  │                         │──tool.call────────▶               │              │
-  │                         │                   │               │           ◀──│
-  │                         │   [loop until text-only or limit]              │
-  │                         │──session.end──────▶               │              │
-  │◀─Result────────────────│                   │               │           ◀──│
+CLI / caller
+  -> DdxAgent.Execute(req)
+  -> service route resolution
+  -> harness runner selection
+  -> PTY / subprocess execution
+  -> normalized service events
+  -> service final event + session log
 ```
 
-## Deployment
+## Architectural Rules
 
-DDX Agent has two deployment modes:
-
-1. **Library** (primary): Imported as a Go module. No deployment — compiled
-   into the host binary.
-2. **CLI** (showcase): Single static binary built with `go build ./cmd/ddx-agent`.
-   Distributed as a download or installed via `go install`.
-
-No containers, no services, no infrastructure. DDX Agent is a library.
-
-The shared model catalog follows the same deployment shape: agent releases ship
-an embedded manifest snapshot, while consumers may point at a separately
-maintained external manifest file when they need newer model policy without a
-full binary refresh.
+1. The CLI is the first consumer of the service, not a parallel execution path.
+2. `internal/core` is never called from `cmd/agent`.
+3. Provider construction happens inside the service/provider-adapter layer.
+4. Config-backed route planning and failover are service concerns.
+5. Session logs are written by service-owned execution, not synthesized in the
+   CLI from decoded events.
+6. Any new CLI-visible execution/status behavior must be added to
+   `CONTRACT-003` before the CLI reaches into internals to fetch it.
 
 ## Key Design Decisions
 
-See SD-001 for full decision log. Summary:
-
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| Package layout | Layered with internal | Idiomatic Go, testable |
-| Session logging | JSONL | Simple, appendable, jq-compatible |
-| Observability | JSONL replay + OTel analytics | Preserve replay while standardizing cross-tool analytics |
-| Provider interface | In consuming package | Go idiom |
-| Retry ownership | Runtime loop | Attempt-scoped telemetry and one-attempt provider calls |
-| Model policy | Shared catalog + external manifest | Separate volatile policy/data from runtime code and preserve one owner |
-| Tool interface | JSON Schema based | Model-agnostic |
-| CLI framework | `flag` stdlib | Minimal, no dependency |
-| Config format | YAML | Project convention |
+| Public boundary | `DdxAgent` service contract | One execution API for CLI and embedders |
+| Native execution | service-owned wrapper around `internal/core` | Preserve one core loop while hiding internals |
+| Provider ownership | service/provider adapters | Keep backend-specific behavior out of consumers |
+| Routing ownership | service + `internal/routing` | One place for candidate ranking and failover |
+| Session logging | service-owned persistence | Avoid dual schemas and lifecycle drift |
+| CLI framework | `flag` stdlib | Minimal binary surface |

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/DocumentDrivenDX/agent/internal/compaction"
 	agentcore "github.com/DocumentDrivenDX/agent/internal/core"
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
 	claudeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/claude"
@@ -17,6 +18,7 @@ import (
 	geminiharness "github.com/DocumentDrivenDX/agent/internal/harnesses/gemini"
 	opencodeharness "github.com/DocumentDrivenDX/agent/internal/harnesses/opencode"
 	piharness "github.com/DocumentDrivenDX/agent/internal/harnesses/pi"
+	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	virtualprovider "github.com/DocumentDrivenDX/agent/internal/provider/virtual"
 	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/internal/routing"
@@ -541,12 +543,12 @@ func toolNames(tools []agentcore.Tool) []string {
 // is wrapped with WrapProviderWithDeadlinesTimeouts so per-HTTP timeouts
 // fire independently of the request wall-clock cap.
 func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, decision RouteDecision, meta map[string]string, out chan<- ServiceEvent, seq *atomic.Int64, start time.Time) {
-	resolvedProvider := s.resolveNativeProvider(nativeProviderRequest(req, decision))
-	provider := resolvedProvider.Provider
+	provider := s.nativeExecutionProvider(req, decision)
 	actualHarness := decision.Harness
 	if actualHarness == "" {
 		actualHarness = "agent"
 	}
+	resolvedProvider := s.resolveNativeProvider(nativeProviderRequest(req, decision))
 	actualProvider := resolvedProvider.Name
 	if actualProvider == "" {
 		actualProvider = decision.Provider
@@ -593,7 +595,8 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 	}
 
 	// Stall policy: derive an implicit MaxIterations ceiling (~2× read-only
-	// limit) so callers don't have to configure it directly.
+	// limit) so callers don't have to configure it directly, but honor an
+	// explicit native-loop limit when the caller provides one.
 	policy := req.StallPolicy
 	if policy == nil {
 		policy = &StallPolicy{
@@ -601,7 +604,10 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 			MaxNoopCompactions:        defaultStallNoopCompactions,
 		}
 	}
-	maxIter := policy.MaxReadOnlyToolIterations * 2
+	maxIter := req.MaxIterations
+	if maxIter <= 0 {
+		maxIter = policy.MaxReadOnlyToolIterations * 2
+	}
 	if maxIter == 0 {
 		maxIter = 100 // safety net when policy disables read-only tracking
 	}
@@ -651,12 +657,12 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 				Error:      errStr,
 				DurationMS: int64(durMS),
 			})
-			// Stall accounting: read-only tool runs increment the streak;
-			// any side-effecting tool resets it.
-			if readOnlyTools[toolName] {
+			// Stall accounting: no-progress tool runs increment the streak;
+			// tool calls that plausibly mutate durable workspace state reset it.
+			if !toolLikelyMakesProgress(toolName, payload) {
 				if v := readOnlyStreak.Add(1); policy.MaxReadOnlyToolIterations > 0 && int(v) >= policy.MaxReadOnlyToolIterations {
 					if stalled.CompareAndSwap(false, true) {
-						stallReason.Store("read_only_tools_exceeded")
+						stallReason.Store("no_progress_tools_exceeded")
 						stallCount.Store(v)
 						cancel()
 					}
@@ -697,6 +703,7 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 	if hook := s.promptAssertionHook(); hook != nil {
 		hook(req.SystemPrompt, req.Prompt, nil)
 	}
+	compactor := newServiceCompactor(req, actualModel)
 
 	// Drive the agent loop. Run is synchronous; stall enforcement uses the
 	// cancelCtx — when read-only-tool-streak limit fires the callback
@@ -704,31 +711,48 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 	// StatusCancelled, and we override the final to "stalled".
 	temperature := float64(req.Temperature)
 	loopReq := agentcore.Request{
-		Prompt:           req.Prompt,
-		SystemPrompt:     req.SystemPrompt,
-		Provider:         provider,
-		Tools:            tools,
-		WorkDir:          req.WorkDir,
-		Callback:         cb,
-		Metadata:         meta,
-		MaxIterations:    maxIter,
-		ResolvedModel:    actualModel,
-		SelectedProvider: actualProvider,
-		Temperature:      &temperature,
-		Seed:             req.Seed,
-		Reasoning:        effectiveReasoning(req.Reasoning),
-		NoStream:         true,
+		Prompt:                req.Prompt,
+		SystemPrompt:          req.SystemPrompt,
+		Provider:              provider,
+		Tools:                 tools,
+		WorkDir:               req.WorkDir,
+		Callback:              cb,
+		Metadata:              meta,
+		MaxIterations:         maxIter,
+		ResolvedModel:         actualModel,
+		SelectedProvider:      actualProvider,
+		Temperature:           &temperature,
+		Seed:                  req.Seed,
+		Reasoning:             effectiveReasoning(req.Reasoning),
+		NoStream:              req.NoStream,
+		MaxTokens:             req.MaxTokens,
+		ReasoningByteLimit:    req.ReasoningByteLimit,
+		ReasoningStallTimeout: req.ReasoningStallTimeout,
+		Compactor:             compactor,
 	}
 	result, runErr := agentcore.Run(cancelCtx, loopReq)
+	if shouldRetryNativeNoStream(req.NoStream, result, runErr) {
+		loopReq.NoStream = true
+		result, runErr = agentcore.Run(cancelCtx, loopReq)
+	}
 
 	// Map agent.Result → harness FinalData.
+	finalProvider := actualProvider
+	if result.SelectedProvider != "" {
+		finalProvider = result.SelectedProvider
+	}
+	finalModel := actualModel
+	if result.ResolvedModel != "" {
+		finalModel = result.ResolvedModel
+	}
 	final := harnesses.FinalData{
 		DurationMS: time.Since(start).Milliseconds(),
 		FinalText:  result.Output,
 		RoutingActual: &harnesses.RoutingActual{
-			Harness:  actualHarness,
-			Provider: actualProvider,
-			Model:    actualModel,
+			Harness:            actualHarness,
+			Provider:           finalProvider,
+			Model:              finalModel,
+			FallbackChainFired: append([]string(nil), result.AttemptedProviders...),
 		},
 	}
 	if result.Tokens.Total > 0 || result.Tokens.Input > 0 || result.Tokens.Output > 0 {
@@ -797,6 +821,220 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 	emitFinal(out, seq, meta, final)
 }
 
+func (s *service) nativeExecutionProvider(req ServiceExecuteRequest, decision RouteDecision) agentcore.Provider {
+	if len(decision.Candidates) > 0 {
+		return &serviceRouteProvider{
+			service:          s,
+			baseRequest:      req,
+			routeKey:         req.Model,
+			candidates:       append([]RouteCandidate(nil), decision.Candidates...),
+			selectedProvider: decision.Provider,
+		}
+	}
+	resolvedProvider := s.resolveNativeProvider(nativeProviderRequest(req, decision))
+	return resolvedProvider.Provider
+}
+
+type serviceRouteProvider struct {
+	service          *service
+	baseRequest      ServiceExecuteRequest
+	routeKey         string
+	candidates       []RouteCandidate
+	selectedProvider string
+	attempted        []string
+	failoverCount    int
+}
+
+func (p *serviceRouteProvider) Chat(ctx context.Context, messages []agentcore.Message, tools []agentcore.ToolDef, opts agentcore.Options) (agentcore.Response, error) {
+	var failures []string
+	for i, candidate := range p.candidates {
+		if candidate.Provider == "" {
+			continue
+		}
+		p.attempted = append(p.attempted, candidate.Provider)
+		req := p.baseRequest
+		req.Provider = candidate.Provider
+		req.Model = candidate.Model
+		if candidate.Endpoint != "" {
+			req.Provider = endpointProviderRef(candidate.Provider, candidate.Endpoint)
+		}
+		resolved := p.service.resolveNativeProvider(req)
+		if resolved.Provider == nil {
+			err := fmt.Errorf("agent: provider error: no provider configured for %q", req.Provider)
+			failures = append(failures, fmt.Sprintf("%s: %v", candidate.Provider, err))
+			if i == len(p.candidates)-1 || !shouldServiceFailover(err) {
+				return agentcore.Response{}, err
+			}
+			continue
+		}
+		opts.Model = candidate.Model
+		resp, err := resolved.Provider.Chat(ctx, messages, tools, opts)
+		if err == nil {
+			p.selectedProvider = candidate.Provider
+			p.failoverCount = i
+			if resp.Attempt == nil {
+				resp.Attempt = &agentcore.AttemptMetadata{}
+			}
+			resp.Attempt.ProviderName = candidate.Provider
+			resp.Attempt.Route = p.routeKey
+			if resp.Attempt.RequestedModel == "" {
+				resp.Attempt.RequestedModel = p.routeKey
+			}
+			return resp, nil
+		}
+		failures = append(failures, fmt.Sprintf("%s: %v", candidate.Provider, err))
+		if i == len(p.candidates)-1 || !shouldServiceFailover(err) {
+			return agentcore.Response{}, err
+		}
+	}
+	return agentcore.Response{}, fmt.Errorf("agent: route %q failed after attempts: %s", p.routeKey, strings.Join(failures, " | "))
+}
+
+func (p *serviceRouteProvider) RoutingReport() agentcore.RoutingReport {
+	return agentcore.RoutingReport{
+		SelectedProvider:   p.selectedProvider,
+		SelectedRoute:      p.routeKey,
+		AttemptedProviders: append([]string(nil), p.attempted...),
+		FailoverCount:      p.failoverCount,
+	}
+}
+
+func toolLikelyMakesProgress(toolName string, payload map[string]any) bool {
+	if errText, _ := payload["error"].(string); strings.TrimSpace(errText) != "" {
+		return false
+	}
+	if readOnlyTools[toolName] {
+		return false
+	}
+	if toolName == "bash" {
+		return bashCommandLikelyMutates(extractBashCommand(payload["input"]))
+	}
+	return true
+}
+
+func shouldRetryNativeNoStream(requestedStream bool, result agentcore.Result, runErr error) bool {
+	if requestedStream || runErr != nil {
+		return false
+	}
+	if result.Status != agentcore.StatusSuccess {
+		return false
+	}
+	if result.Output != "" || len(result.ToolCalls) > 0 {
+		return false
+	}
+	return result.Tokens.Input == 0 && result.Tokens.Output == 0 && result.Tokens.Total == 0
+}
+
+func shouldServiceFailover(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "status code: 401"),
+		strings.Contains(msg, "status code: 403"),
+		strings.Contains(msg, "status code: 408"),
+		strings.Contains(msg, "status code: 409"),
+		strings.Contains(msg, "status code: 429"),
+		strings.Contains(msg, "status code: 500"),
+		strings.Contains(msg, "status code: 502"),
+		strings.Contains(msg, "status code: 503"),
+		strings.Contains(msg, "status code: 504"),
+		strings.Contains(msg, "401 unauthorized"),
+		strings.Contains(msg, "403 forbidden"),
+		strings.Contains(msg, "408 request timeout"),
+		strings.Contains(msg, "409 conflict"),
+		strings.Contains(msg, "429 too many requests"),
+		strings.Contains(msg, "500 internal server error"),
+		strings.Contains(msg, "502 bad gateway"),
+		strings.Contains(msg, "503 service unavailable"),
+		strings.Contains(msg, "504 gateway timeout"),
+		strings.Contains(msg, "connection refused"),
+		strings.Contains(msg, "dial tcp"),
+		strings.Contains(msg, "no such host"),
+		strings.Contains(msg, "timeout"),
+		strings.Contains(msg, "temporarily unavailable"),
+		strings.Contains(msg, "service unavailable"),
+		strings.Contains(msg, "unreachable"),
+		strings.Contains(msg, "connection reset"):
+		return true
+	default:
+		return false
+	}
+}
+
+func extractBashCommand(raw any) string {
+	input, ok := raw.(map[string]any)
+	if !ok {
+		return ""
+	}
+	command, _ := input["command"].(string)
+	return strings.TrimSpace(command)
+}
+
+func bashCommandLikelyMutates(command string) bool {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return false
+	}
+	readOnlyPrefixes := []string{
+		"pwd",
+		"env",
+		"printenv",
+		"which ",
+		"type ",
+		"command -v ",
+		"git status",
+		"git diff",
+		"git show",
+		"git log",
+		"go test",
+		"cargo test",
+		"cargo clippy",
+		"npm test",
+		"pnpm test",
+		"yarn test",
+		"pytest",
+		"ls",
+		"find ",
+		"cat ",
+		"grep ",
+		"rg ",
+		"head ",
+		"tail ",
+		"sed -n",
+	}
+	for _, prefix := range readOnlyPrefixes {
+		if strings.HasPrefix(command, prefix) {
+			return false
+		}
+	}
+	mutatingFragments := []string{
+		"git add",
+		"git commit",
+		"git apply",
+		"git checkout -b",
+		"git switch -c",
+		"mkdir ",
+		"touch ",
+		"mv ",
+		"cp ",
+		"rm ",
+		"sed -i",
+		"tee ",
+		">",
+		">>",
+		"apply_patch",
+		"patch ",
+	}
+	for _, fragment := range mutatingFragments {
+		if strings.Contains(command, fragment) {
+			return true
+		}
+	}
+	return false
+}
+
 func nativeProviderRequest(req ServiceExecuteRequest, decision RouteDecision) ServiceExecuteRequest {
 	out := req
 	if decision.Provider != "" {
@@ -809,6 +1047,22 @@ func nativeProviderRequest(req ServiceExecuteRequest, decision RouteDecision) Se
 		out.Harness = decision.Harness
 	}
 	return out
+}
+
+func newServiceCompactor(req ServiceExecuteRequest, model string) agentcore.Compactor {
+	cfg := compaction.DefaultConfig()
+	if req.CompactionContextWindow > 0 {
+		cfg.ContextWindow = req.CompactionContextWindow
+	}
+	if req.CompactionReserveTokens > 0 {
+		cfg.ReserveTokens = req.CompactionReserveTokens
+	}
+	if catalog, err := modelcatalog.Default(); err == nil && catalog != nil && model != "" && req.CompactionContextWindow <= 0 {
+		if contextWindow := catalog.ContextWindowForModel(model); contextWindow > 0 {
+			cfg.ContextWindow = contextWindow
+		}
+	}
+	return compaction.NewCompactor(cfg)
 }
 
 // runSubprocess delegates to a Runner under internal/harnesses/<name>. It
