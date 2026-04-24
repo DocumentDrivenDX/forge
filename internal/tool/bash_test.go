@@ -187,3 +187,41 @@ func TestBashTool_OutputFilterMaxBytes(t *testing.T) {
 	assert.Contains(t, result, "output filter truncated")
 	assert.NotContains(t, result, "6789")
 }
+
+func TestBashTool_BenchmarkPolicyRejectsShellFind(t *testing.T) {
+	dir := t.TempDir()
+	tool := &BashTool{WorkDir: dir, Mode: "benchmark"}
+
+	result, err := tool.Execute(context.Background(), mustJSON(t, BashParams{
+		Command: `find / -name "*.go" -type f 2>/dev/null | head -20`,
+	}))
+	require.NoError(t, err)
+	assert.Contains(t, result, "Exit code: 2")
+	assert.Contains(t, result, "policy blocked")
+	assert.Contains(t, result, "use the find tool instead")
+}
+
+func TestBashTool_BenchmarkPolicyRejectsRecursiveLs(t *testing.T) {
+	dir := t.TempDir()
+	tool := &BashTool{WorkDir: dir, Mode: "benchmark"}
+
+	result, err := tool.Execute(context.Background(), mustJSON(t, BashParams{
+		Command: "ls -R",
+	}))
+	require.NoError(t, err)
+	assert.Contains(t, result, "Exit code: 2")
+	assert.Contains(t, result, "use the ls or find tool instead")
+}
+
+func TestBashTool_BenchmarkPolicyAllowsRepoVerification(t *testing.T) {
+	dir := t.TempDir()
+	tool := &BashTool{WorkDir: dir, Mode: "benchmark"}
+
+	result, err := tool.Execute(context.Background(), mustJSON(t, BashParams{
+		Command: "printf ok",
+	}))
+	require.NoError(t, err)
+	assert.Contains(t, result, "Exit code: 0")
+	assert.Contains(t, result, "ok")
+	assert.NotContains(t, result, "policy blocked")
+}

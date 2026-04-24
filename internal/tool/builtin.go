@@ -9,7 +9,7 @@ func BuiltinToolsForPreset(workDir, preset string, bashFilter BashOutputFilterCo
 		&ReadTool{WorkDir: workDir},
 		&WriteTool{WorkDir: workDir},
 		&EditTool{WorkDir: workDir},
-		&BashTool{WorkDir: workDir, OutputFilter: bashFilter},
+		&BashTool{WorkDir: workDir, OutputFilter: bashFilter, Mode: preset},
 		&FindTool{WorkDir: workDir},
 		&GrepTool{WorkDir: workDir},
 		&LsTool{WorkDir: workDir},

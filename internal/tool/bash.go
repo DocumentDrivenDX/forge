@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ type BashParams struct {
 type BashTool struct {
 	WorkDir      string
 	OutputFilter BashOutputFilterConfig
+	Mode         string
 }
 
 type BashOutputFilterConfig struct {
@@ -38,7 +40,7 @@ type BashOutputFilterConfig struct {
 
 func (t *BashTool) Name() string { return "bash" }
 func (t *BashTool) Description() string {
-	return "Execute a shell command. Returns stdout, stderr, and exit code."
+	return "Execute a shell command for targeted repo operations such as builds, tests, or git. Do not use this for file discovery or file reading; use the find, grep, ls, and read tools instead. Returns stdout, stderr, and exit code."
 }
 func (t *BashTool) Schema() json.RawMessage {
 	return json.RawMessage(`{
@@ -55,6 +57,10 @@ func (t *BashTool) Execute(ctx context.Context, params json.RawMessage) (string,
 	var p BashParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return "", fmt.Errorf("bash: invalid params: %w", err)
+	}
+
+	if violation := t.policyViolation(p.Command); violation != "" {
+		return fmt.Sprintf("Exit code: 2\nWall time: 0.00s\nOutput:\n(policy blocked)\nStderr:\n%s", violation), nil
 	}
 
 	timeout := defaultBashTimeout
@@ -195,4 +201,31 @@ func applyFilterMaxBytes(s string, maxBytes int) string {
 		return s
 	}
 	return s[:maxBytes] + fmt.Sprintf("\n[output filter truncated: %d bytes omitted]", len(s)-maxBytes)
+}
+
+var benchmarkNavigationPatterns = []struct {
+	re      *regexp.Regexp
+	message string
+}{
+	{
+		re:      regexp.MustCompile(`(^|[;&|]\s*)(?:command\s+)?find(?:\s|$)`),
+		message: "benchmark policy: shell find is disabled for filesystem exploration; use the find tool instead.",
+	},
+	{
+		re:      regexp.MustCompile(`(^|[;&|]\s*)ls\s+-R(?:\s|$)`),
+		message: "benchmark policy: recursive ls is disabled for filesystem exploration; use the ls or find tool instead.",
+	},
+}
+
+func (t *BashTool) policyViolation(command string) string {
+	if !strings.EqualFold(strings.TrimSpace(t.Mode), "benchmark") {
+		return ""
+	}
+	trimmed := strings.TrimSpace(command)
+	for _, pattern := range benchmarkNavigationPatterns {
+		if pattern.re.MatchString(trimmed) {
+			return pattern.message
+		}
+	}
+	return ""
 }
