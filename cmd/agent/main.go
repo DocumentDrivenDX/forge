@@ -17,15 +17,12 @@ import (
 	"time"
 
 	"github.com/DocumentDrivenDX/agent"
-	"github.com/DocumentDrivenDX/agent/internal/compaction"
 	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	"github.com/DocumentDrivenDX/agent/internal/productinfo"
 	"github.com/DocumentDrivenDX/agent/internal/prompt"
-	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
 	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
-	"github.com/DocumentDrivenDX/agent/internal/tool"
 	"github.com/DocumentDrivenDX/agent/occompat"
 	"github.com/DocumentDrivenDX/agent/picompat"
 )
@@ -228,7 +225,7 @@ func run() int {
 	}
 
 	// Build compaction config from resolved context window.
-	compactionCfg := compaction.DefaultConfig()
+	compactionCfg := agent.DefaultCompactionConfig()
 	if resolvedContextWindow > 0 {
 		compactionCfg.ContextWindow = resolvedContextWindow
 		if resolvedMaxTokens > 0 {
@@ -804,16 +801,16 @@ func resolvePreset(flagValue string, cfg *agentConfig.Config) (string, error) {
 	return prompt.ResolvePresetName(preset)
 }
 
-func buildToolsForPreset(workDir, preset string, bashFilter ...tool.BashOutputFilterConfig) []agent.Tool {
-	filter := tool.BashOutputFilterConfig{}
+func buildToolsForPreset(workDir, preset string, bashFilter ...agent.BashOutputFilterConfig) []agent.Tool {
+	filter := agent.BashOutputFilterConfig{}
 	if len(bashFilter) > 0 {
 		filter = bashFilter[0]
 	}
-	return tool.BuiltinToolsForPreset(workDir, preset, filter)
+	return agent.BuiltinToolsForPreset(workDir, preset, filter)
 }
 
-func bashOutputFilterConfig(cfg agentConfig.BashOutputFilterConfig) tool.BashOutputFilterConfig {
-	return tool.BashOutputFilterConfig{
+func bashOutputFilterConfig(cfg agentConfig.BashOutputFilterConfig) agent.BashOutputFilterConfig {
+	return agent.BashOutputFilterConfig{
 		Mode:         cfg.Mode,
 		RTKBinary:    cfg.RTKBinary,
 		MaxBytes:     cfg.MaxBytes,
@@ -1143,7 +1140,7 @@ func printProviderModels(pc agentConfig.ProviderConfig, cat *modelcatalog.Catalo
 		return
 	}
 
-	ranked, err := oaiProvider.RankModels(ids, knownModels, pc.ModelPattern)
+	ranked, err := agent.RankModels(ids, knownModels, pc.ModelPattern)
 	if err != nil {
 		// Pattern compile error — fall back to plain list.
 		for _, id := range ids {

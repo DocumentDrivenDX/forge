@@ -13,8 +13,7 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/DocumentDrivenDX/agent/internal/core"
-	"github.com/DocumentDrivenDX/agent/internal/session"
+	agent "github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -439,7 +438,7 @@ session_log_dir: .agent/sessions
 	require.NoError(t, globErr)
 	require.Len(t, logs, 1, "expected one session log")
 
-	events, readErr := session.ReadEvents(logs[0])
+	events, readErr := agent.ReadSessionEvents(logs[0])
 	require.NoError(t, readErr)
 	require.NotEmpty(t, events)
 	last := events[len(events)-1]

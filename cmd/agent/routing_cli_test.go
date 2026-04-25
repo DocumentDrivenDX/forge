@@ -10,8 +10,7 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/DocumentDrivenDX/agent/internal/core"
-	"github.com/DocumentDrivenDX/agent/internal/session"
+	agent "github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -145,7 +144,7 @@ func (s *countedOpenAIServer) setModelsStatus(status int) {
 	s.modelsStatus = status
 }
 
-func eventDataByType(t *testing.T, events []agent.Event, eventType agent.EventType) map[string]any {
+func eventDataByType(t *testing.T, events []agent.SessionEvent, eventType agent.SessionEventType) map[string]any {
 	t.Helper()
 	for _, e := range events {
 		if e.Type != eventType {
@@ -179,11 +178,11 @@ func latestSessionLogPath(t *testing.T, workDir string) string {
 	return latest
 }
 
-func writeRoutingHistorySession(t *testing.T, workDir, sessionID string, ts time.Time, data session.SessionEndData) {
+func writeRoutingHistorySession(t *testing.T, workDir, sessionID string, ts time.Time, data agent.SessionEndData) {
 	t.Helper()
 	logDir := filepath.Join(workDir, ".agent", "sessions")
 	require.NoError(t, os.MkdirAll(logDir, 0o755))
-	event := agent.Event{
+	event := agent.SessionEvent{
 		SessionID: sessionID,
 		Seq:       0,
 		Type:      agent.EventSessionEnd,
@@ -255,7 +254,7 @@ default: bragi
 	assert.Equal(t, "qwen3.5-27b", bragi.requestedModel())
 
 	firstSessionPath := latestSessionLogPath(t, workDir)
-	firstEvents, err := session.ReadEvents(firstSessionPath)
+	firstEvents, err := agent.ReadSessionEvents(firstSessionPath)
 	require.NoError(t, err)
 	firstStart := eventDataByType(t, firstEvents, agent.EventSessionStart)
 	assert.Equal(t, "qwen3.5-27b", firstStart["requested_model"])
@@ -275,7 +274,7 @@ default: bragi
 	assert.Equal(t, "qwen3.5-27b", grendel.requestedModel())
 
 	secondSessionPath := latestSessionLogPath(t, workDir)
-	secondEvents, err := session.ReadEvents(secondSessionPath)
+	secondEvents, err := agent.ReadSessionEvents(secondSessionPath)
 	require.NoError(t, err)
 	secondEnd := eventDataByType(t, secondEvents, agent.EventSessionEnd)
 	assert.Equal(t, "qwen3.5-27b", secondEnd["requested_model"])
@@ -339,7 +338,7 @@ model_routes:
 	assert.Equal(t, 1, parsed.FailoverCount)
 
 	sessionPath := latestSessionLogPath(t, workDir)
-	events, err := session.ReadEvents(sessionPath)
+	events, err := agent.ReadSessionEvents(sessionPath)
 	require.NoError(t, err)
 	end := eventDataByType(t, events, agent.EventSessionEnd)
 	assert.Equal(t, "openrouter", end["selected_provider"])
@@ -402,7 +401,7 @@ func TestCLI_ModelIntentAutoRoutingSkipsUnhealthyDefaultAndChoosesBestHealthyPro
 	openrouter.setModels("qwen/qwen3.5-27b-20260224")
 
 	knownCost := 0.09
-	writeRoutingHistorySession(t, workDir, "vidar-win", time.Now().Add(-5*time.Minute), session.SessionEndData{
+	writeRoutingHistorySession(t, workDir, "vidar-win", time.Now().Add(-5*time.Minute), agent.SessionEndData{
 		Status:           agent.StatusSuccess,
 		Tokens:           agent.TokenUsage{Input: 100, Output: 50, Total: 150},
 		CostUSD:          nil,
@@ -411,7 +410,7 @@ func TestCLI_ModelIntentAutoRoutingSkipsUnhealthyDefaultAndChoosesBestHealthyPro
 		RequestedModel:   "qwen3.5-27b",
 		ResolvedModel:    "qwen3.5-27b",
 	})
-	writeRoutingHistorySession(t, workDir, "bragi-slow", time.Now().Add(-4*time.Minute), session.SessionEndData{
+	writeRoutingHistorySession(t, workDir, "bragi-slow", time.Now().Add(-4*time.Minute), agent.SessionEndData{
 		Status:           agent.StatusSuccess,
 		Tokens:           agent.TokenUsage{Input: 100, Output: 50, Total: 150},
 		CostUSD:          nil,
@@ -420,7 +419,7 @@ func TestCLI_ModelIntentAutoRoutingSkipsUnhealthyDefaultAndChoosesBestHealthyPro
 		RequestedModel:   "qwen3.5-27b",
 		ResolvedModel:    "qwen3.5-27b",
 	})
-	writeRoutingHistorySession(t, workDir, "openrouter-costly", time.Now().Add(-3*time.Minute), session.SessionEndData{
+	writeRoutingHistorySession(t, workDir, "openrouter-costly", time.Now().Add(-3*time.Minute), agent.SessionEndData{
 		Status:           agent.StatusSuccess,
 		Tokens:           agent.TokenUsage{Input: 100, Output: 50, Total: 150},
 		CostUSD:          &knownCost,
@@ -712,7 +711,7 @@ default_backend: code-pool
 	assert.Equal(t, "gpt-5.4-mini", vidar.requestedModel())
 
 	firstSessionPath := latestSessionLogPath(t, workDir)
-	firstEvents, err := session.ReadEvents(firstSessionPath)
+	firstEvents, err := agent.ReadSessionEvents(firstSessionPath)
 	require.NoError(t, err)
 	firstStart := eventDataByType(t, firstEvents, agent.EventSessionStart)
 	assert.Equal(t, "vidar", firstStart["selected_provider"])
@@ -738,7 +737,7 @@ default_backend: code-pool
 	assert.Equal(t, "gpt-5.4-mini", bragi.requestedModel())
 
 	secondSessionPath := latestSessionLogPath(t, workDir)
-	secondEvents, err := session.ReadEvents(secondSessionPath)
+	secondEvents, err := agent.ReadSessionEvents(secondSessionPath)
 	require.NoError(t, err)
 	secondStart := eventDataByType(t, secondEvents, agent.EventSessionStart)
 	assert.Equal(t, "bragi", secondStart["selected_provider"])

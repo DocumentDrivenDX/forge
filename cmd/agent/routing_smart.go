@@ -28,11 +28,8 @@ import (
 
 	rootagent "github.com/DocumentDrivenDX/agent"
 	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
-	agent "github.com/DocumentDrivenDX/agent/internal/core"
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	"github.com/DocumentDrivenDX/agent/internal/observations"
-	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
-	"github.com/DocumentDrivenDX/agent/internal/session"
 )
 
 const (
@@ -535,7 +532,7 @@ func evaluateProviderCandidate(pc agentConfig.ProviderConfig, requestedModel, co
 		// This handles e.g. "qwen3-coder-next" → "qwen/qwen3-coder-next"
 		// which is required for LM Studio JIT model loading.
 		if match != "" {
-			normalized, err := oaiProvider.NormalizeModelID(match, probe.models)
+			normalized, err := rootagent.NormalizeModelID(match, probe.models)
 			if err != nil {
 				return false, "", err.Error()
 			}
@@ -622,7 +619,7 @@ func probeProviderModels(pc agentConfig.ProviderConfig, timeout time.Duration) p
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	models, err := oaiProvider.DiscoverModels(ctx, pc.BaseURL, pc.APIKey)
+	models, err := rootagent.DiscoverModels(ctx, pc.BaseURL, pc.APIKey)
 	if err != nil {
 		return providerModelProbe{err: err}
 	}
@@ -654,15 +651,15 @@ func readSmartRoutingHistory(logDir, routeKey string, now time.Time, historyWind
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
 			continue
 		}
-		events, err := session.ReadEvents(filepath.Join(logDir, entry.Name()))
+		events, err := rootagent.ReadSessionEvents(filepath.Join(logDir, entry.Name()))
 		if err != nil {
 			continue
 		}
 		for _, event := range events {
-			if event.Type != agent.EventSessionEnd {
+			if event.Type != rootagent.EventSessionEnd {
 				continue
 			}
-			var end session.SessionEndData
+			var end rootagent.SessionEndData
 			if err := json.Unmarshal(event.Data, &end); err != nil {
 				continue
 			}
@@ -693,7 +690,7 @@ func readSmartRoutingHistory(logDir, routeKey string, now time.Time, historyWind
 			if event.Timestamp.After(loadCutoff) {
 				acc.recentSelections++
 			}
-			if end.Status == agent.StatusSuccess {
+			if end.Status == rootagent.StatusSuccess {
 				acc.successes++
 				acc.durationMs += end.DurationMs
 				if end.DurationMs > 0 && end.Tokens.Output > 0 {

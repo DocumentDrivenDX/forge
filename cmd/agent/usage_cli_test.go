@@ -12,8 +12,7 @@ import (
 	"testing"
 	"time"
 
-	agent "github.com/DocumentDrivenDX/agent/internal/core"
-	"github.com/DocumentDrivenDX/agent/internal/session"
+	agent "github.com/DocumentDrivenDX/agent"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -27,15 +26,15 @@ var (
 func seedMixedUsageLogs(t *testing.T, logDir string) {
 	t.Helper()
 
-	writeUsageLog := func(t *testing.T, sessionID string, startAt, endAt time.Time, start session.SessionStartData, end session.SessionEndData) {
+	writeUsageLog := func(t *testing.T, sessionID string, startAt, endAt time.Time, start agent.SessionStartData, end agent.SessionEndData) {
 		t.Helper()
 
-		logger := session.NewLogger(logDir, sessionID)
-		startEvent := session.NewEvent(sessionID, 0, agent.EventSessionStart, start)
+		logger := agent.NewSessionLogger(logDir, sessionID)
+		startEvent := agent.NewSessionEvent(sessionID, 0, agent.EventSessionStart, start)
 		startEvent.Timestamp = startAt
 		logger.Write(startEvent)
 
-		endEvent := session.NewEvent(sessionID, 1, agent.EventSessionEnd, end)
+		endEvent := agent.NewSessionEvent(sessionID, 1, agent.EventSessionEnd, end)
 		endEvent.Timestamp = endAt
 		logger.Write(endEvent)
 
@@ -46,11 +45,11 @@ func seedMixedUsageLogs(t *testing.T, logDir string) {
 	recentDay := now.AddDate(0, 0, -2).Truncate(24 * time.Hour)
 	oldDay := now.AddDate(0, 0, -30).Truncate(24 * time.Hour)
 
-	writeUsageLog(t, "recent-known", recentDay.Add(10*time.Hour), recentDay.Add(10*time.Hour+time.Second), session.SessionStartData{
+	writeUsageLog(t, "recent-known", recentDay.Add(10*time.Hour), recentDay.Add(10*time.Hour+time.Second), agent.SessionStartData{
 		Provider: "lmstudio",
 		Model:    "qwen3.5-7b",
 		Prompt:   "recent known",
-	}, session.SessionEndData{
+	}, agent.SessionEndData{
 		Status:     agent.StatusSuccess,
 		Output:     "ok",
 		Tokens:     agent.TokenUsage{Input: 10, Output: 5, Total: 15},
@@ -59,11 +58,11 @@ func seedMixedUsageLogs(t *testing.T, logDir string) {
 		Model:      "qwen3.5-7b",
 	})
 
-	writeUsageLog(t, "recent-unknown", recentDay.Add(11*time.Hour), recentDay.Add(11*time.Hour+2*time.Second), session.SessionStartData{
+	writeUsageLog(t, "recent-unknown", recentDay.Add(11*time.Hour), recentDay.Add(11*time.Hour+2*time.Second), agent.SessionStartData{
 		Provider: "lmstudio",
 		Model:    "qwen3.5-7b",
 		Prompt:   "recent unknown",
-	}, session.SessionEndData{
+	}, agent.SessionEndData{
 		Status:     agent.StatusSuccess,
 		Output:     "ok",
 		Tokens:     agent.TokenUsage{Input: 20, Output: 10, Total: 30},
@@ -72,11 +71,11 @@ func seedMixedUsageLogs(t *testing.T, logDir string) {
 		Model:      "qwen3.5-7b",
 	})
 
-	writeUsageLog(t, "old-session", oldDay.Add(9*time.Hour), oldDay.Add(9*time.Hour+3*time.Second), session.SessionStartData{
+	writeUsageLog(t, "old-session", oldDay.Add(9*time.Hour), oldDay.Add(9*time.Hour+3*time.Second), agent.SessionStartData{
 		Provider: "anthropic",
 		Model:    "claude-sonnet-4-20250514",
 		Prompt:   "old",
-	}, session.SessionEndData{
+	}, agent.SessionEndData{
 		Status:     agent.StatusSuccess,
 		Output:     "ok",
 		Tokens:     agent.TokenUsage{Input: 100, Output: 50, Total: 150},
