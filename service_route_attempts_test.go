@@ -153,6 +153,56 @@ func TestRouteStatus_RouteAttemptCooldownSurfaces(t *testing.T) {
 	}
 }
 
+func TestRouteAttempts_ProviderModelKeying(t *testing.T) {
+	svc := &service{opts: ServiceOptions{}, registry: harnesses.NewRegistry()}
+	ctx := context.Background()
+
+	keyX := routing.ProviderModelKey("providerA", "", "modelX")
+	keyY := routing.ProviderModelKey("providerA", "", "modelY")
+
+	for i := 0; i < 3; i++ {
+		if err := svc.RecordRouteAttempt(ctx, RouteAttempt{
+			Harness:  "agent",
+			Provider: "providerA",
+			Model:    "modelX",
+			Status:   "failed",
+			Error:    "boom",
+			Duration: 100 * time.Millisecond,
+		}); err != nil {
+			t.Fatalf("RecordRouteAttempt failure %d on modelX: %v", i, err)
+		}
+	}
+
+	successRate, latencyMS := svc.routeMetricSignals(time.Now(), 30*time.Second)
+	if got, want := successRate[keyX], 0.0; got != want {
+		t.Fatalf("after 3 failures on modelX: successRate[%s]=%v, want %v", keyX, got, want)
+	}
+	if _, ok := successRate[keyY]; ok {
+		t.Fatalf("modelY signal should be untouched by modelX failures, got successRate[%s]=%v", keyY, successRate[keyY])
+	}
+	if _, ok := latencyMS[keyY]; ok {
+		t.Fatalf("modelY latency should be untouched by modelX failures, got latencyMS[%s]=%v", keyY, latencyMS[keyY])
+	}
+
+	if err := svc.RecordRouteAttempt(ctx, RouteAttempt{
+		Harness:  "agent",
+		Provider: "providerA",
+		Model:    "modelY",
+		Status:   "success",
+		Duration: 50 * time.Millisecond,
+	}); err != nil {
+		t.Fatalf("RecordRouteAttempt success on modelY: %v", err)
+	}
+
+	successRate, _ = svc.routeMetricSignals(time.Now(), 30*time.Second)
+	if got, want := successRate[keyX], 0.0; got != want {
+		t.Fatalf("after success on modelY: successRate[%s]=%v, want %v (cross-pollution)", keyX, got, want)
+	}
+	if got, want := successRate[keyY], 1.0; got != want {
+		t.Fatalf("after success on modelY: successRate[%s]=%v, want %v", keyY, got, want)
+	}
+}
+
 func TestResolveRoute_CodexUsesDurableQuotaCache(t *testing.T) {
 	dir := t.TempDir()
 	codexQuotaPath := filepath.Join(dir, "codex-quota.json")
