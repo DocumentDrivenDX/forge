@@ -121,6 +121,42 @@ covers the same intent automatically: the catalog defines tier membership,
 provider config lists endpoints, and the routing engine picks the best
 candidate per request without per-tier candidate lists in YAML.
 
+#### `routing.health_cooldown`
+
+`health_cooldown` is the TTL used by **two** routing signals with different
+keying — they share the duration but not the key:
+
+- **Provider cooldowns** (eligibility gate) are keyed by **provider name only**
+  (`service_routing.go::buildRoutingInputsWithCatalog` populates
+  `routing.Inputs.ProviderCooldowns` from
+  `service_route_attempts.go::activeRouteAttempts`). A failed
+  `RecordRouteAttempt` for any `(harness, provider, model, endpoint)` tuple
+  under that provider name starts a provider-level cooldown that drops the
+  entire provider from the candidate set until TTL elapses or any subsequent
+  matching success clears it.
+- **Per-`(harness, provider, model, endpoint)` success/latency metrics**
+  (scoring inputs) use the full tuple key. These do not gate eligibility —
+  they only adjust score.
+
+Default TTL: `30s`. Triggers that affect the signal:
+
+1. `RecordRouteAttempt` with `Status="success"` clears matching active
+   failures (see clearing semantics below).
+2. The `health_cooldown` TTL elapsing since the last failed attempt restores
+   eligibility without explicit clearing.
+3. No other refresh paths exist in this round.
+
+**Clearing semantics.** A success `RecordRouteAttempt` clears every failure
+record whose key matches the success key under wildcard semantics: empty
+fields in the success key match any value in the failure key
+(`service_route_attempts.go::routeAttemptKeysMatch`). A bare
+`{Provider: "alpha"}` success therefore clears **all** failure records
+under provider `alpha`; a fully-keyed
+`{Harness, Provider, Model, Endpoint}` success clears only that exact
+record. This lets harness-level recoveries (`agent doctor` flush, manual
+reset) clear a swath of failures with one call without forcing callers to
+enumerate every dependent tuple.
+
 #### Provider Config Fields
 
 Per-provider optional fields (in addition to `type`, `base_url`, `api_key`, `headers`, `model`):
@@ -337,6 +373,17 @@ return `false` for all protocol flags so routing rejects rather than dispatches.
 This surface is distinct from the benchmark-based capability scoring used by
 smart-routing (`CapabilityScore` / `CapabilityWeight`); the two axes do not
 interact.
+
+**`RequiresTools` filter scope.** `RequiresTools=true` filters candidates at
+the `(harness, provider, model)` level via an **OR-permissive gate**: a
+candidate passes when **either** `routing.HarnessEntry.SupportsTools` **or**
+`routing.ProviderEntry.SupportsTools` is `true`, AND the catalog's per-model
+override (`no_tools: true` in the manifest) is not set. Currently every
+builtin harness advertises `SupportsTools=true`
+(`service_routing.go::buildRoutingInputsWithCatalog`), so the gate is
+effectively provider-and-model driven; the OR exists so a future
+tool-incapable harness can still satisfy `RequiresTools` via a tool-capable
+provider it fronts.
 
 **D14: `DetectedType()` layers on top of `providerSystem` without replacing
 it.** `providerSystem` (URL-heuristic, eager, non-blocking) remains the source

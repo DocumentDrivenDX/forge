@@ -57,6 +57,18 @@ Per request:
 5. **Dispatch top-1**, return the full ranked candidate trace in the routing decision event so callers can see why candidates 2..N lost.
 6. **On failure rotate** within the same tier; only escalate the tier when the same-tier set is exhausted. Record outcome to update per-(provider,model) stats. **Replaces the per-tier trailing-window adaptive min-tier** (which was too coarse — locked the cheap tier out forever after 17 failed attempts because no cheap attempts could refresh the signal).
 
+#### Pipeline order
+
+Steps 1–6 above describe the user-visible flow. The implementation collapses them into the engine's two phases:
+
+**In `routing.Resolve` (`internal/routing/engine.go`):** build candidate set → apply inline gates (liveness via provider cooldown, capability via `EstimatedPromptTokens` / `RequiresTools` / `Reasoning`, subscription gate via `SubscriptionOK`, harness allowlist) → score eligible candidates with cost, latency, capability, and quota signals (subscription quota above the warning threshold applies a **score penalty**, not a cost-amount mutation) → rank and tie-break by cost.
+
+**In `service.ResolveRoute` (`service_routing.go`):** wrap the engine with profile-tier escalation when the engine returns `ErrNoLiveProvider`. Catalog tier filtering and profile ceiling enforcement happen in the engine's inline gates as part of candidate construction; cross-tier escalation lives at the service layer because it loops `routing.Resolve` over successive ladder profiles.
+
+#### Escalation ladder
+
+When same-tier candidates are exhausted (all filtered or all scored ineligible), `service.ResolveRoute` walks the profile tier ladder defined by the `routing.ProfileEscalationLadder` constant (`internal/routing/engine.go`). The ladder is `cheap → standard → smart` and is **one-way upward only** — escalation past `smart` returns `ErrNoLiveProvider` with no fallback down. Profiles not present in this ladder (custom profiles, `local`, `offline`, `air-gapped`) do not escalate. The ladder is not catalog-driven in this release.
+
 ### 3. Per-(provider, model) success/latency
 
 In-memory + TTL only this round (matches today's `service_route_attempts.go:13`). Persistent state across restarts is deferred until storage and warm-start behavior are designed. Key change vs. today: signal is keyed on `(provider, model)`, not on tier. A single bad model does not lock out its whole tier.

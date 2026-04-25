@@ -276,6 +276,38 @@ type StallPolicy struct {
     MaxNoopCompactions        int // 0 = disabled
 }
 
+### Selection precedence
+
+When multiple selection inputs are set on `ExecuteRequest`, they resolve in
+the following order, most-specific first. The list is also the precedence
+the routing engine enforces:
+
+1. **`Harness`** — hard pin. Routing never substitutes a different harness.
+2. **`Provider`** — *soft preference* when set alone; affects scoring affinity
+   but does not exclude other providers. *Hard pin* when paired with
+   `Harness` — routing never substitutes a different provider for that
+   `(Harness, Provider)` combination. A `Provider` value naming a provider
+   not in config fails pre-dispatch with a configuration error; no
+   auto-substitution happens.
+3. **`Model`** — hard pin. The request's `Model` field overrides any default
+   model declared in the matching provider's config.
+4. **`ModelRef`** — catalog tier alias that resolves to a concrete model on
+   the routing surface chosen by `Profile`. **When `Profile` is unset,
+   `ModelRef` may also act as a profile alias** (e.g. `ModelRef="cheap"`
+   resolves both the tier and the concrete model). **When both `Profile`
+   and `ModelRef` are set, `Profile` determines the tier and provider
+   preference; `ModelRef` is a hint for concrete model selection within that
+   tier.** A `ModelRef` value that does not resolve on the tier's surface
+   fails with `model ref %q not available on surface %q`.
+5. **`Profile`** — soft intent. Maps to a default tier and reasoning level.
+   Has no effect on tier choice when `Model` is set; with `Provider` set,
+   becomes a hint for selecting among that provider's models, never a
+   reason to override the pin.
+
+Auto-selection inputs (`EstimatedPromptTokens`, `RequiresTools`, `Reasoning`)
+apply only when **none** of `Harness`, `Provider`, `Model`, `ModelRef`, or
+`Profile` is set. They never override an explicit pin.
+
 ### Prompt-caching opt-out (`CachePolicy`)
 
 `ServiceExecuteRequest.CachePolicy` (and the mirrored `RouteRequest.CachePolicy`)
@@ -300,6 +332,14 @@ bead, not by callers. Set `CachePolicy = "off"` for:
 The field is plumbed end-to-end (request → routing → provider opts) so that
 the Anthropic `cache_control` writer (bead C) and the cache-aware cost
 attribution path (bead D) can land without further contract churn.
+
+**Scope.** `CachePolicy` is request-scoped. In this contract version,
+`ResolveRoute` MUST be observationally identical for `CachePolicy=""`,
+`"default"`, and `"off"` — same `RouteDecision`, same ranked candidates.
+`"off"` only suppresses provider-side cache writes (e.g. Anthropic
+`cache_control` markers) and emits explicit-zero cache amounts in cost
+attribution. Routing avoidance of caching-supporting vs. caching-only
+providers is out of scope for this round.
 
 ### Cost attribution and cache pricing
 
@@ -1249,6 +1289,17 @@ The agent owns these execution-time behaviors. Callers do not opt in or out.
   discovery and no catalog entry, `Execute` fails fast with
   `Status="failed", error="orphan model: <name>"` rather than silently picking
   the wrong provider.
+
+- **Discovery-backed model pins.** When `Model` is pinned and no catalog entry
+  exists, `Execute` resolves it through provider discovery: if `Provider` is
+  also pinned, only that provider's discovery is consulted; otherwise discovery
+  runs across all configured discovery-capable providers. If any returns the
+  model, the request proceeds with the catalog's no-entry cost
+  (`cost_source: "unknown"`) and the **provider's** default reasoning (no
+  `Profile` reasoning override applies to discovery-only models). If discovery
+  does not return it, the orphan-model rule above fires before any session log
+  is opened. Smart-routing scoring does not apply — discovery-only models
+  cannot be auto-selected by `--profile`.
 
 - **Provider request deadline wrapping.** Every HTTP call to a provider is
   wrapped with `ProviderTimeout`. Per-request failures classified as
