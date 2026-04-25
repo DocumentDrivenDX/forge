@@ -5,6 +5,69 @@ Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
 
 ## [Unreleased]
 
+## [v0.9.10] — 2026-04-25
+
+Prompt-caching support lands across the public surface, the Anthropic provider,
+the openai-compat regression gate, and cost attribution. No breaking changes.
+
+### Added
+
+- **`ServiceExecuteRequest.CachePolicy` and `RouteRequest.CachePolicy`.**
+  Public opt-out for callers who must disable caching (deterministic eval,
+  privacy-sensitive prompts, one-shot benchmark runs). Values: `""` and
+  `"default"` mean "cache as designed"; `"off"` suppresses provider-side
+  cache markers and emits explicit-zero cache-amounts in cost attribution.
+  Unknown values rejected at the boundary. (`agent-cccc2df7`)
+- **Anthropic provider emits `cache_control: {type: "ephemeral"}` on the
+  last tool definition and the last system block.** Multi-turn native
+  Anthropic sessions now hit Anthropic's prompt cache (~10× discount on
+  cache reads). System-block construction extracted to a shared
+  `buildSystemBlocks` helper consumed by both `Chat` and `ChatStream` so
+  streaming and non-streaming paths cache identically. `CachePolicy="off"`
+  suppresses both markers. Wire-body assertions cover both paths.
+  (`agent-3bc67e94`)
+- **openai-compat prefix-stability regression gate.** New wire-level test
+  via `httptest.NewServer` captures actual HTTP request bodies across two
+  `Chat` calls with identical tools+system but a differing trailing user
+  message; asserts byte-equality on the prefix. A negative test
+  (`TestOpenAIRequestPreservesToolOrder`) ensures tool order is preserved.
+  No behavior change — this protects auto-prefix-caching on OpenAI,
+  LM Studio, oMLX, and OpenRouter against silent regressions.
+  (`agent-50658a65`)
+- **Cache-aware cost attribution at the native loop.** `core.ModelPricing`
+  carries `CacheReadPerM` / `CacheWritePerM`; `modelcatalog.PricingFor`
+  preserves them from manifest v4 (`cost_cache_read_per_m`,
+  `cost_cache_write_per_m`); `loop.go:303` configured-cost computation
+  now adds cache-read and cache-write costs and populates
+  `CostAttribution.CacheReadAmount` / `CacheWriteAmount`. `CachePolicy="off"`
+  emits explicit `*float64(0.0)`; absence of cache reporting from the
+  harness/provider remains nil. (`agent-6e2ebcdb`)
+- **`gpt-5.5` model entry in the embedded catalog.** Available for explicit
+  `--model gpt-5.5` pinning on the codex harness. The code-high candidate
+  list keeps `gpt-5.4` as the default first pick to preserve existing
+  routing test expectations.
+- **Architecture doc gains a Caching section.** Documents the prefix-order
+  invariant (tools → system → conversation → trailing user), two-marker
+  placement, and the compaction and tool-mutation caveats.
+
+### Changed
+
+- Existing telemetry parsing of `cache_read_input_tokens`,
+  `cache_creation_input_tokens`, and `prompt_tokens_details.cached_tokens`
+  is unchanged but now feeds cost attribution that actually uses those
+  numbers. Operators reading `ddx-agent usage` get accurate cost figures
+  for cache-supporting providers.
+
+### Fixed
+
+- **Cache-amount nil-vs-zero ambiguity in cost attribution.** Reviewer
+  caught that the initial cost-attribution wiring set
+  `CacheReadAmount` / `CacheWriteAmount` pointers unconditionally during
+  configured-cost computation, collapsing two distinct conventions:
+  `CachePolicy="off"` (explicit zero) and "harness reports zero cache
+  tokens" (nil). Fixed in `6cdfdc5`; the nil leg is now covered by
+  `TestCacheAttributionNilWhenHarnessReportsZeroAndPolicyDefault`.
+
 ## [v0.9.9] — 2026-04-25
 
 This release lands ADR-005 (smart routing replaces `model_routes`) plus the
