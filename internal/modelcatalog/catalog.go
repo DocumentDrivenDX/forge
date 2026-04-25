@@ -387,8 +387,10 @@ func (c *Catalog) CandidatesFor(surface Surface, targetKey string) []string {
 
 // CatalogModelPricing holds per-million-token costs for a model as sourced from the catalog.
 type CatalogModelPricing struct {
-	InputPerMTok  float64
-	OutputPerMTok float64
+	InputPerMTok   float64
+	OutputPerMTok  float64
+	CacheReadPerM  float64
+	CacheWritePerM float64
 }
 
 // AllModels returns all per-model entries from the top-level models: map
@@ -417,8 +419,10 @@ func (c *Catalog) PricingFor() map[string]CatalogModelPricing {
 			continue
 		}
 		result[modelID] = CatalogModelPricing{
-			InputPerMTok:  input,
-			OutputPerMTok: entry.outputCostPerM(),
+			InputPerMTok:   input,
+			OutputPerMTok:  entry.outputCostPerM(),
+			CacheReadPerM:  entry.CostCacheReadPerM,
+			CacheWritePerM: entry.CostCacheWritePerM,
 		}
 	}
 

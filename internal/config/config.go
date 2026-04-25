@@ -545,10 +545,12 @@ func seedFromCatalog(dst telemetry.RuntimePricing, cat *modelcatalog.Catalog) {
 			}
 			if _, exists := dst[s.providerSystem][concreteModel]; !exists {
 				dst[s.providerSystem][concreteModel] = telemetry.Cost{
-					InputPerMTok:  p.InputPerMTok,
-					OutputPerMTok: p.OutputPerMTok,
-					Currency:      "USD",
-					PricingRef:    s.providerSystem + "/" + concreteModel,
+					InputPerMTok:   p.InputPerMTok,
+					OutputPerMTok:  p.OutputPerMTok,
+					CacheReadPerM:  p.CacheReadPerM,
+					CacheWritePerM: p.CacheWritePerM,
+					Currency:       "USD",
+					PricingRef:     s.providerSystem + "/" + concreteModel,
 				}
 			}
 		}

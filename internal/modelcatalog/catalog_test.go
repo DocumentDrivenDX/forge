@@ -721,6 +721,51 @@ func TestCandidatesFor_MissingSurface(t *testing.T) {
 	assert.Nil(t, candidates)
 }
 
+// TestPricingForPreservesCacheFieldsFromManifest verifies that PricingFor
+// projects cost_cache_read_per_m / cost_cache_write_per_m from the manifest
+// model entry onto CatalogModelPricing. Bead D (agent-6e2ebcdb) AC#2.
+func TestPricingForPreservesCacheFieldsFromManifest(t *testing.T) {
+	manifestPath := writeFixtureManifest(t, `
+version: 4
+generated_at: 2026-04-25T00:00:00Z
+catalog_version: 2026-04-25.1
+models:
+  cache-priced-model:
+    family: cached
+    tier: cache-tier
+    status: active
+    provider_system: anthropic
+    cost_input_per_m: 3.00
+    cost_output_per_m: 15.00
+    cost_cache_read_per_m: 0.30
+    cost_cache_write_per_m: 3.75
+    surfaces:
+      agent.anthropic: cache-priced-model
+profiles:
+  cache-default:
+    target: cache-tier
+targets:
+  cache-tier:
+    family: cached
+    aliases: []
+    status: active
+    candidates: [cache-priced-model]
+    surfaces:
+      agent.anthropic:
+        candidates: [cache-priced-model]
+`)
+	catalog, err := Load(LoadOptions{ManifestPath: manifestPath, RequireExternal: true})
+	require.NoError(t, err)
+
+	pricing := catalog.PricingFor()
+	p, ok := pricing["cache-priced-model"]
+	require.True(t, ok, "expected cache-priced-model in pricing")
+	assert.Equal(t, 3.00, p.InputPerMTok)
+	assert.Equal(t, 15.00, p.OutputPerMTok)
+	assert.Equal(t, 0.30, p.CacheReadPerM, "PricingFor must preserve cost_cache_read_per_m")
+	assert.Equal(t, 3.75, p.CacheWritePerM, "PricingFor must preserve cost_cache_write_per_m")
+}
+
 func TestPricingFor_IncludesModelsWithCost(t *testing.T) {
 	catalog := loadV4FixtureCatalog(t)
 

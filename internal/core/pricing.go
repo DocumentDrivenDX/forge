@@ -4,8 +4,10 @@ import "github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 
 // ModelPricing holds per-million-token costs for a model.
 type ModelPricing struct {
-	InputPerMTok  float64 `json:"input_per_mtok"`
-	OutputPerMTok float64 `json:"output_per_mtok"`
+	InputPerMTok   float64 `json:"input_per_mtok"`
+	OutputPerMTok  float64 `json:"output_per_mtok"`
+	CacheReadPerM  float64 `json:"cache_read_per_m,omitempty"`
+	CacheWritePerM float64 `json:"cache_write_per_m,omitempty"`
 }
 
 // PricingTable maps model IDs to their pricing.
@@ -51,8 +53,10 @@ func LoadCatalogPricing(cat *modelcatalog.Catalog) PricingTable {
 	}
 	for modelID, cp := range cat.PricingFor() {
 		result[modelID] = ModelPricing{
-			InputPerMTok:  cp.InputPerMTok,
-			OutputPerMTok: cp.OutputPerMTok,
+			InputPerMTok:   cp.InputPerMTok,
+			OutputPerMTok:  cp.OutputPerMTok,
+			CacheReadPerM:  cp.CacheReadPerM,
+			CacheWritePerM: cp.CacheWritePerM,
 		}
 	}
 	return result

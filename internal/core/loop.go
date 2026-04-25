@@ -305,16 +305,29 @@ func Run(ctx context.Context, req Request) (Result, error) {
 				resp.Attempt.ResolvedModel != "" {
 				if configuredCost, ok := runtimeTelemetry.ResolveCost(resp.Attempt.ProviderSystem, resp.Attempt.ResolvedModel); ok {
 					amount := configuredCost.Amount
-					if amount == nil && (configuredCost.InputPerMTok > 0 || configuredCost.OutputPerMTok > 0) {
+					var cacheReadAmount, cacheWriteAmount *float64
+					if amount == nil && (configuredCost.InputPerMTok > 0 || configuredCost.OutputPerMTok > 0 || configuredCost.CacheReadPerM > 0 || configuredCost.CacheWritePerM > 0) {
+						cacheReadCost := float64(resp.Usage.CacheRead) / 1_000_000 * configuredCost.CacheReadPerM
+						cacheWriteCost := float64(resp.Usage.CacheWrite) / 1_000_000 * configuredCost.CacheWritePerM
 						computed := float64(resp.Usage.Input)/1_000_000*configuredCost.InputPerMTok +
-							float64(resp.Usage.Output)/1_000_000*configuredCost.OutputPerMTok
+							float64(resp.Usage.Output)/1_000_000*configuredCost.OutputPerMTok +
+							cacheReadCost + cacheWriteCost
 						amount = &computed
+						cacheReadAmount = &cacheReadCost
+						cacheWriteAmount = &cacheWriteCost
+					}
+					if req.CachePolicy == "off" {
+						zeroR, zeroW := 0.0, 0.0
+						cacheReadAmount = &zeroR
+						cacheWriteAmount = &zeroW
 					}
 					resp.Attempt.Cost = &CostAttribution{
-						Source:     CostSourceConfigured,
-						Currency:   configuredCost.Currency,
-						Amount:     amount,
-						PricingRef: configuredCost.PricingRef,
+						Source:           CostSourceConfigured,
+						Currency:         configuredCost.Currency,
+						Amount:           amount,
+						CacheReadAmount:  cacheReadAmount,
+						CacheWriteAmount: cacheWriteAmount,
+						PricingRef:       configuredCost.PricingRef,
 					}
 				}
 			}

@@ -118,12 +118,14 @@ type Telemetry interface {
 // only InputPerMTok / OutputPerMTok are set, callers must multiply by the
 // actual token usage to derive the total cost.
 type Cost struct {
-	Source        string   `json:"source,omitempty" yaml:"-"`
-	Amount        *float64 `json:"amount,omitempty"`
-	Currency      string   `json:"currency,omitempty"`
-	PricingRef    string   `json:"pricing_ref,omitempty"`
-	InputPerMTok  float64  `json:"input_per_mtok,omitempty"  yaml:"input_per_mtok,omitempty"`
-	OutputPerMTok float64  `json:"output_per_mtok,omitempty" yaml:"output_per_mtok,omitempty"`
+	Source         string   `json:"source,omitempty" yaml:"-"`
+	Amount         *float64 `json:"amount,omitempty"`
+	Currency       string   `json:"currency,omitempty"`
+	PricingRef     string   `json:"pricing_ref,omitempty"`
+	InputPerMTok   float64  `json:"input_per_mtok,omitempty"    yaml:"input_per_mtok,omitempty"`
+	OutputPerMTok  float64  `json:"output_per_mtok,omitempty"   yaml:"output_per_mtok,omitempty"`
+	CacheReadPerM  float64  `json:"cache_read_per_m,omitempty"  yaml:"cache_read_per_m,omitempty"`
+	CacheWritePerM float64  `json:"cache_write_per_m,omitempty" yaml:"cache_write_per_m,omitempty"`
 }
 
 // RuntimePricing maps provider system -> resolved model -> exact configured

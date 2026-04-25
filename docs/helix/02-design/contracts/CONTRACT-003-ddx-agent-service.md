@@ -301,6 +301,30 @@ The field is plumbed end-to-end (request → routing → provider opts) so that
 the Anthropic `cache_control` writer (bead C) and the cache-aware cost
 attribution path (bead D) can land without further contract churn.
 
+### Cost attribution and cache pricing
+
+When the configured-cost fallback prices an attempt from per-MTok rates
+(rather than a provider-reported total), cache-read and cache-write tokens
+are charged at the manifest's `cost_cache_read_per_m` and
+`cost_cache_write_per_m` rates — sourced from the model entry in
+`internal/modelcatalog/catalog/models.yaml` and projected onto
+`telemetry.Cost.CacheReadPerM` / `CacheWritePerM`. The total
+`CostAttribution.Amount` is the sum of input, output, cache-read, and
+cache-write costs; the per-component cache amounts are surfaced on
+`CostAttribution.CacheReadAmount` and `CacheWriteAmount` as `*float64`.
+
+The pointer-vs-zero distinction matters:
+
+- `nil` cache amounts mean the harness or provider did not report cache
+  usage and no cache-rate pricing was available — the cost is unknown.
+- An explicit zero (`*float64(0.0)`) means the caller opted out of caching
+  via `CachePolicy = "off"`. The native loop emits explicit zero values in
+  this case so downstream consumers can distinguish "no cache activity by
+  design" from "we have no idea."
+
+Historical session-log records are not retroactively re-priced; this
+semantics applies to new runs going forward.
+
 Native `agent` permission modes are enforced by tool exposure at the service
 boundary:
 
