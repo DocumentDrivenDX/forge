@@ -90,9 +90,11 @@ type DdxAgent interface {
     HealthCheck(ctx context.Context, target HealthTarget) error
 
     // ResolveRoute resolves a single under-specified request to a concrete
-    // (Harness, Provider, Model). The returned RouteDecision can be passed
-    // back to Execute via ExecuteRequest.PreResolved to skip re-resolution
-    // (used by dry-run-then-execute flows).
+    // (Harness, Provider, Model). The returned RouteDecision is informational —
+    // operator dashboards, route-status displays, debug surfaces — and is not
+    // re-injectable into Execute. Execute always re-resolves on its own inputs
+    // (idempotent for the same caller intent, modulo health changes which is
+    // the intended behavior).
     ResolveRoute(ctx context.Context, req RouteRequest) (*RouteDecision, error)
 
     // RecordRouteAttempt records caller feedback about a routed candidate.
@@ -223,13 +225,14 @@ type ExecuteRequest struct {
     WorkDir      string  // required when the chosen harness uses tools
     Tools        []Tool  // optional native-agent override; nil = built-in tools
     ToolPreset   string  // optional native built-in selector; "benchmark" excludes task
-    // PreResolved bypasses ResolveRoute when the caller already has a decision
-    // from this service (for example a prior ResolveRoute dry-run). When
-    // non-nil, agent uses these values verbatim and does not re-route.
-    // Provider/Model/Harness fields above are ignored in this mode. Consumers
-    // must not reconstruct equivalent RouteDecision values from raw config or
-    // private candidate tables; config-backed routing remains service-owned.
-    PreResolved *RouteDecision
+
+    // Auto-selection inputs. When the caller pins nothing (Profile, Model,
+    // ModelRef, Provider all empty), Execute uses these to filter candidates
+    // by capability before scoring. Explicit pins always win — these never
+    // override an explicit Provider/Model. Defaults: 0 / false skip the
+    // corresponding filter. See ADR-005.
+    EstimatedPromptTokens int  // when >0, filter candidates whose context window cannot hold the prompt
+    RequiresTools         bool // when true, filter providers whose SupportsTools() is false
 
     // Three independent timeout knobs:
     //   Timeout         — wall-clock cap; the request fails after this duration
@@ -277,13 +280,15 @@ boundary:
   exists. Subprocess harnesses may still implement their own supervised modes.
 
 type RouteRequest struct {
-    Profile            string
-    Model              string
-    Provider           string
-    Harness            string
-    ModelRef           string
-    Reasoning          Reasoning
-    Permissions        string
+    Profile               string
+    Model                 string
+    Provider              string
+    Harness               string
+    ModelRef              string
+    Reasoning             Reasoning
+    Permissions           string
+    EstimatedPromptTokens int  // when >0, filter candidates whose context window cannot hold the prompt
+    RequiresTools         bool // when true, filter providers whose SupportsTools() is false
 }
 
 type RouteDecision struct {
@@ -458,7 +463,6 @@ type ModelInfo struct {
     Cost          CostInfo
     PerfSignal    PerfSignal
     Available     bool
-    IsConfigured  bool    // matches an explicit model_routes entry
     IsDefault     bool    // matches the configured default model
     CatalogRef    string  // canonical catalog reference if recognized
     ReasoningDefault Reasoning // catalog/provider default for this model, if known
@@ -860,7 +864,7 @@ Notes:
 
 `virtual` and `script` are explicit test-only harnesses. The router and profile
 routing never choose them implicitly; callers must set `ExecuteRequest.Harness`
-or pass a `PreResolved` decision with that harness.
+explicitly to opt in.
 
 `Harness="virtual"` accepts either:
 
@@ -1180,9 +1184,12 @@ The agent owns these execution-time behaviors. Callers do not opt in or out.
 - **Service-owned native routing and provider construction.** For the embedded
   `agent` harness, `Execute` resolves configured provider candidates,
   constructs the concrete provider adapter, and performs failover internally.
-  Callers express intent with `Harness`, `Provider`, `Model`, `ModelRef`,
-  `Profile`, or a `PreResolved` value previously returned by `ResolveRoute`;
-  they do not pass provider instances or private candidate tables.
+  Callers express intent with `Harness`, `Provider`, `Model`, `ModelRef`, or
+  `Profile`, plus the optional `EstimatedPromptTokens`/`RequiresTools`
+  auto-selection inputs; they do not pass provider instances, private
+  candidate tables, or pre-resolved `RouteDecision` values. `ResolveRoute`
+  results are informational only — `Execute` always re-resolves on its own
+  inputs (idempotent for the same caller intent, modulo health changes).
 
 - **Route-reason attribution.** The start-event `routing_decision` and
   final-event `routing_actual` together capture why each candidate was

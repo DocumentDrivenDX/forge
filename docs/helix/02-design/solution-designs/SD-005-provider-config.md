@@ -27,30 +27,40 @@ real users need three separate concerns:
 Prompt presets already exist in agent and must remain a separate concern for
 system prompt behavior only.
 
-## Design: Three-Layer Resolution Model
+## Design: Two-Layer Resolution Model
 
-DDX Agent keeps three layers above the runtime boundary:
+DDX Agent keeps two layers above the runtime boundary:
 
-- **Providers** — transport/auth definitions and optional direct pinned models
+- **Providers** — transport/auth definitions and optional direct pinned models.
 - **Model catalog** — agent-owned reusable policy/data loaded from an embedded
   snapshot plus an optional external manifest override, with published manifest
-  bundles distributed outside binary releases
-- **Model routes** — routing entries keyed by requested model or canonical
-  target that pick one provider candidate before a run
+  bundles distributed outside binary releases. Owns tier membership, cost,
+  context window, capability score, and reasoning defaults per model.
+
+There is no third "routing config" layer. Per-request routing is **smart
+routing** (ADR-005): the service combines the catalog (policy), provider
+config (transport), and live signals (provider liveness, per-(provider,model)
+success/latency, subscription quota) to pick the best candidate per request.
+Users do not author per-tier candidate lists; they plug in providers, the
+service decides.
 
 After resolution, the service builds exactly one concrete native provider
-adapter (or one ordered candidate set for service-owned failover) and executes
-it internally. Consumers do not receive provider instances.
+adapter and executes it internally. Consumers do not receive provider
+instances.
 
 Caller boundary (see CONTRACT-003):
 
 - Callers choose the harness and pass routing intent through public request
-  fields (`Provider`, `Model`, `ModelRef`, `Profile`, or a `PreResolved`
-  decision returned by `ResolveRoute`).
+  fields (`Provider`, `Model`, `ModelRef`, `Profile`) plus optional
+  auto-selection inputs (`EstimatedPromptTokens`, `RequiresTools`). Explicit
+  pins always win over auto-selection.
 - Embedded `ddx-agent` chooses the concrete provider candidate, constructs the
   provider adapter, and owns passive failover.
-- Callers receive attribution facts from the embedded run, but do not build
-  providers or inspect private provider candidate tables.
+- Callers receive attribution facts from the embedded run (the full ranked
+  candidate trace, score components per candidate, and the actual provider
+  fired), but do not build providers, inspect private candidate tables, or
+  re-inject pre-resolved `RouteDecision` values. `ResolveRoute` results are
+  informational only — `Execute` re-resolves on its own inputs.
 
 ### Config Format
 
@@ -95,47 +105,21 @@ providers:
     reasoning: off
 
 routing:
-  default_model_ref: code-medium
-  health_cooldown: 30s
+  default_model_ref: code-medium    # default catalog tier when caller pins nothing
+  health_cooldown: 30s               # how long an unhealthy provider stays excluded
 
-model_routes:
-  code-medium:
-    strategy: priority-round-robin
-    candidates:
-      - provider: vidar
-        model: gpt-5.4-mini
-        reasoning_default: off
-        priority: 100
-      - provider: bragi
-        model: gpt-5.4-mini
-        reasoning_default: off
-        priority: 100
-      - provider: grendel
-        model: gpt-5.4-mini
-        reasoning_default: off
-        priority: 100
-      - provider: openrouter
-        model: gpt-5.4-mini
-        reasoning_default: off
-        priority: 10
-
-  code-high:
-    strategy: ordered-failover
-    candidates:
-      - provider: anthropic
-        model: opus-4.7
-        reasoning_default: high
-        priority: 100
-      - provider: openrouter
-        model: gpt-5.4
-        reasoning_default: high
-        priority: 50
-
-default: vidar
+default: vidar                        # fallback provider when no profile/model is requested
 preset: default
 max_iterations: 20
 session_log_dir: .agent/sessions
 ```
+
+`model_routes:` is **deprecated** (ADR-005). Legacy configs that still set it
+are parsed for one release with a deprecation warning naming the offending
+config path; the next release rejects the field outright. Smart routing
+covers the same intent automatically: the catalog defines tier membership,
+provider config lists endpoints, and the routing engine picks the best
+candidate per request without per-tier candidate lists in YAML.
 
 #### Provider Config Fields
 
@@ -193,20 +177,36 @@ values above high such as `xhigh`, `x-high`, or `max`.
 
 ### Resolution Model
 
-1. Load provider config and the agent model catalog.
-2. If `--provider` is provided, build that provider directly.
-3. Else if `--model` is provided, treat it as the requested model key and
-   resolve a model route for it.
-4. Else if `--model-ref` is provided, resolve it through the catalog and then
-   resolve the corresponding model route.
-5. Else if `routing.default_model_ref` or `routing.default_model` exists, use
-   that route.
-6. Else fall back to direct provider selection via `default`.
-7. Build exactly one provider with one concrete model string and pass it to
-   `agent.Run()`.
+Per request, the service:
 
-This preserves the current architecture while making model policy reusable and
-terminology-safe.
+1. Loads provider config and the agent model catalog.
+2. If any of `--provider`, `--model`, `--model-ref`, or `--profile` is set,
+   honors the explicit pin. `--provider` builds that provider directly;
+   `--model` resolves the model name through the catalog; `--model-ref` is a
+   catalog alias (`code-medium`, `code-high`, etc.); `--profile` selects a
+   named routing policy bundle (`cheap`, `fast`, `smart`).
+3. Otherwise (caller pinned nothing), runs smart routing:
+   1. Builds the candidate set = every catalog `(provider, model)` whose tier
+      ≥ the profile's target and whose provider is configured.
+   2. Filters by liveness (`HealthCheck`); escalates the tier ceiling once if
+      the filter empties the set; surfaces a clear "no live provider" error
+      when truly empty.
+   3. Filters by capability: drops candidates whose context window <
+      `EstimatedPromptTokens`, whose `SupportsTools()` is false when
+      `RequiresTools` is true, or whose reasoning support is below the
+      request.
+   4. Scores survivors using the existing routing engine (quality + cost
+      penalty including subscription quota ramp + latency penalty +
+      recent-success bonus, all keyed per `(provider, model)`).
+   5. Dispatches top-1; on failure rotates within tier; only escalates the
+      tier when the same-tier set is exhausted.
+4. Falls back to `default:` provider as the last resort if nothing was
+   pinned, no profile resolved, and the catalog yielded no candidates.
+5. Builds exactly one provider with one concrete model string and dispatches.
+
+The full ranked candidate trace and per-candidate score components are
+emitted as part of the routing-decision event (CONTRACT-003) so operators can
+explain why candidate 2 lost via `route-status`, not by reading config.
 
 ## Key Design Decisions
 
@@ -262,33 +262,41 @@ targets:
 SD-003. Model policy uses `model_ref`, `alias`, `profile`, or `catalog`, never
 `preset`.
 
-**D4: Model routes resolve providers, not policy.** A model route selects one
-provider candidate and one concrete model string before the run. It does not
-replace the catalog.
+**D4: Smart routing replaces `model_routes`.** Per ADR-005, the service
+combines catalog (tier membership, cost, context, capability), provider
+config (transport), and live signals (liveness, per-(provider,model) success
+and latency, subscription quota) to pick the best candidate per request.
+Users do not author per-tier candidate lists. `model_routes:` config is
+deprecated for one release (parsed with a warning), then rejected outright.
 
-**D5: Model-first routing is the public surface.** Users ask for `--model` or
-`--model-ref`; they should not have to invent arbitrary backend labels.
+**D5: Auto-selection inputs are deterministic.** The service auto-fills the
+route only when the caller pinned nothing. Auto-selection signals are
+`EstimatedPromptTokens` (filter by context window), `RequiresTools` (filter
+by `SupportsTools()`), and `Reasoning` (filter by reasoning support). No
+prose-heuristic complexity classifier; explicit pins always win.
 
-**D6: Passive availability and bounded failover are additive.** Supported
-selection strategies are:
-- `priority-round-robin` — use the highest-priority healthy tier and rotate
-  within that tier
-- `ordered-failover` — walk candidates in priority/order when the current one
-  is unavailable
+**D6: Passive availability with same-tier rotation, then escalation.** The
+routing engine ranks candidates with the existing scoring (quality − λ_cost ·
+cost − λ_lat · p50 + recent_success_bonus). On dispatch failure, the engine
+rotates within the same tier first; only escalates the tier when the
+same-tier set is exhausted. Per-(provider,model) success/latency replaces
+the per-tier adaptive min-tier window — one bad model no longer locks out
+its whole tier (in-memory + TTL this round; persistence deferred).
 
-Failover applies only to provider-side availability failures.
-
-**D7: Direct concrete model pins remain supported.** `--model` and provider
-defaults remain valid for exact control, imports, and back-compat, but catalog
-references are the preferred shared-policy surface.
+**D7: Explicit pins remain supported.** `--provider`, `--model`, `--model-ref`,
+and `--profile` remain valid for exact control. They override auto-selection
+unconditionally; the routing engine does not second-guess explicit caller
+intent.
 
 **D8: Environment variable expansion still applies to values.** `${VAR}` is
 expanded at config load time. No shell evaluation.
 
-**D9: Backwards compatible with the legacy flat format and backend pools.** Old
-flat config still maps to a single provider named `default`. Existing
-`backends`/`default_backend` config is translated into internal model routes
-during migration and emits a deprecation warning.
+**D9: Backwards compatible with the legacy flat format.** Old flat config
+still maps to a single provider named `default`. Legacy `backends`/
+`default_backend` and `model_routes:` config are parsed for one release with
+a deprecation warning naming the offending key path; the next release
+rejects them outright. A boundary test forbids re-introduction of
+`model_routes` parsing after the deprecation cycle ends.
 
 **D10: Provider limit discovery is live and flavor-gated.** When
 `context_window` or `max_tokens` are zero, the CLI calls `LookupModelLimits`
@@ -405,12 +413,13 @@ ddx-agent run --provider vidar --reasoning 8192 "prompt"
 The public CLI flag is `--reasoning <value>`. Do not introduce alternate public
 reasoning flags.
 
-### Model-Route Selection
+### Smart-Routed Selection
 
 ```bash
-ddx-agent run --model qwen3.5-27b "prompt"
-ddx-agent run --model-ref code-medium "prompt"
-ddx-agent run "prompt"                        # use default model route if set, else default provider
+ddx-agent run --model qwen3.5-27b "prompt"            # pin a concrete model
+ddx-agent run --model-ref code-medium "prompt"        # pin a catalog tier; engine picks the provider
+ddx-agent run --profile smart "prompt"                # smart routing across all eligible candidates
+ddx-agent run "prompt"                                # default profile, fallback to default provider
 ```
 
 Compatibility:
@@ -449,10 +458,12 @@ Expected package split:
 - SD-003 reserves `preset` for system prompt behavior
 - `plan-2026-04-08-shared-model-catalog.md` defines the catalog package/API,
   manifest format, and consumer examples
-- `plan-2026-04-10-model-first-routing.md` captures the converged replacement
+- `plan-2026-04-10-model-first-routing.md` captures the original model-first
+  routing convergence (superseded by ADR-005 for the `model_routes` removal)
 - `plan-2026-04-10-catalog-distribution-and-refresh.md` defines published
   manifest bundles, explicit update flow, and the initial reasoning-tier
-  baseline of backend pools with model routes
+  baseline
+- ADR-005 supersedes D4–D7 with smart routing
 - `agent-94b5d420` covers the shared-catalog design lineage
 - D10–D12 (provider limit discovery, flavor detection, omlx support) are
   implemented in `internal/config/config.go`, `internal/provider/openai`, and
