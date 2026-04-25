@@ -30,6 +30,14 @@ type DdxAgent interface {
 	ResolveRoute(ctx context.Context, req RouteRequest) (*RouteDecision, error)
 	RecordRouteAttempt(ctx context.Context, attempt RouteAttempt) error
 	RouteStatus(ctx context.Context) (*RouteStatusReport, error)
+
+	// Historical session-log projections. CONTRACT-003 owns these so CLI
+	// subcommands such as log/replay/usage do not need to read the
+	// internal session-log JSONL schema.
+	UsageReport(ctx context.Context, opts UsageReportOptions) (*UsageReport, error)
+	ListSessionLogs(ctx context.Context) ([]SessionLogEntry, error)
+	WriteSessionLog(ctx context.Context, sessionID string, w io.Writer) error
+	ReplaySession(ctx context.Context, sessionID string, w io.Writer) error
 }
 
 // ServiceConfig provides provider and routing data to the service without
@@ -122,6 +130,13 @@ type ServiceOptions struct {
 	// SubscriptionCostCurve optionally overrides the default subscription
 	// effective-cost curve used by routing.
 	SubscriptionCostCurve *SubscriptionCostCurve
+
+	// SessionLogDir overrides the directory used by historical session-log
+	// projections (UsageReport, ListSessionLogs, WriteSessionLog,
+	// ReplaySession). Empty falls back to ServiceConfig.WorkDir() +
+	// "/.agent/sessions". Per-Execute requests still set their own
+	// ServiceExecuteRequest.SessionLogDir.
+	SessionLogDir string
 }
 
 // SubscriptionCostCurve tunes effective subscription cost by quota utilization.

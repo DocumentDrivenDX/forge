@@ -25,7 +25,6 @@ import (
 	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
 	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
-	"github.com/DocumentDrivenDX/agent/internal/session"
 	"github.com/DocumentDrivenDX/agent/internal/tool"
 	"github.com/DocumentDrivenDX/agent/occompat"
 	"github.com/DocumentDrivenDX/agent/picompat"
@@ -1284,36 +1283,31 @@ func cmdLog(workDir string, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
 	}
-	logDir := sessionLogDir(workDir, cfg)
-
-	if len(args) > 0 {
-		path := filepath.Join(logDir, args[0]+".jsonl")
-		events, err := session.ReadEvents(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %s\n", err)
-			return 1
-		}
-		for _, e := range events {
-			data, _ := json.MarshalIndent(e, "", "  ")
-			fmt.Println(string(data))
-		}
-		return 0
-	}
-
-	entries, err := os.ReadDir(logDir)
+	svc, err := newSessionProjectionService(workDir, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
 	}
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".jsonl") {
-			name := strings.TrimSuffix(e.Name(), ".jsonl")
-			info, _ := e.Info()
-			if info != nil {
-				fmt.Printf("%s  %s  %d bytes\n", name, info.ModTime().Format("2006-01-02 15:04"), info.Size())
-			} else {
-				fmt.Println(name)
-			}
+	ctx := context.Background()
+
+	if len(args) > 0 {
+		if err := svc.WriteSessionLog(ctx, args[0], os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %s\n", err)
+			return 1
+		}
+		return 0
+	}
+
+	entries, err := svc.ListSessionLogs(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+	for _, entry := range entries {
+		if !entry.ModTime.IsZero() {
+			fmt.Printf("%s  %s  %d bytes\n", entry.SessionID, entry.ModTime.Format("2006-01-02 15:04"), entry.Size)
+		} else {
+			fmt.Println(entry.SessionID)
 		}
 	}
 	return 0
@@ -1329,8 +1323,12 @@ func cmdReplay(workDir string, args []string) int {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
 	}
-	path := filepath.Join(sessionLogDir(workDir, cfg), args[0]+".jsonl")
-	if err := session.Replay(path, os.Stdout); err != nil {
+	svc, err := newSessionProjectionService(workDir, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+	if err := svc.ReplaySession(context.Background(), args[0], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 1
 	}
@@ -1351,8 +1349,7 @@ func cmdUsage(workDir string, args []string) int {
 		return 2
 	}
 
-	now := time.Now().UTC()
-	if _, err := session.ParseUsageWindow(*since, now); err != nil {
+	if err := agent.ValidateUsageSince(*since); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
 		return 2
 	}
@@ -1363,9 +1360,15 @@ func cmdUsage(workDir string, args []string) int {
 		return 2
 	}
 
-	report, err := session.AggregateUsage(sessionLogDir(workDir, cfg), session.UsageOptions{
+	svc, err := newSessionProjectionService(workDir, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %s\n", err)
+		return 1
+	}
+
+	report, err := svc.UsageReport(context.Background(), agent.UsageReportOptions{
 		Since: *since,
-		Now:   now,
+		Now:   time.Now().UTC(),
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %s\n", err)
@@ -1386,6 +1389,18 @@ func cmdUsage(workDir string, args []string) int {
 	return 0
 }
 
+// newSessionProjectionService constructs a DdxAgent for the historical
+// session-log subcommands (log/replay/usage). The session-log directory is
+// resolved from cfg and handed to the service via ServiceOptions so that the
+// CLI never reads the on-disk session-log layout directly.
+func newSessionProjectionService(workDir string, cfg *agentConfig.Config) (agent.DdxAgent, error) {
+	logDir := sessionLogDir(workDir, cfg)
+	return agent.New(agent.ServiceOptions{
+		ServiceConfig: agentConfig.NewServiceConfig(cfg, workDir),
+		SessionLogDir: logDir,
+	})
+}
+
 func sessionLogDir(workDir string, cfg *agentConfig.Config) string {
 	if cfg == nil || cfg.SessionLogDir == "" {
 		return filepath.Join(workDir, ".agent", "sessions")
@@ -1396,7 +1411,7 @@ func sessionLogDir(workDir string, cfg *agentConfig.Config) string {
 	return filepath.Join(workDir, cfg.SessionLogDir)
 }
 
-func printUsageReport(report *session.UsageReport, since string) {
+func printUsageReport(report *agent.UsageReport, since string) {
 	if report.Window != nil {
 		fmt.Printf("Window: %s .. %s\n", formatUsageWindowBound(report.Window.Start), formatUsageWindowBound(report.Window.End))
 	} else if since != "" {
@@ -1420,7 +1435,7 @@ func formatUsageWindowBound(ts time.Time) string {
 	return ts.UTC().Format("2006-01-02")
 }
 
-func printUsageRow(row session.UsageRow) {
+func printUsageRow(row agent.UsageReportRow) {
 	cost := "unknown"
 	if row.UnknownCostSessions == 0 && row.KnownCostUSD != nil {
 		cost = fmt.Sprintf("$%.4f", *row.KnownCostUSD)
@@ -1454,7 +1469,7 @@ func printUsageRow(row session.UsageRow) {
 	)
 }
 
-func printUsageCSV(report *session.UsageReport) {
+func printUsageCSV(report *agent.UsageReport) {
 	fmt.Println("provider,model,sessions,success_sessions,failed_sessions,input_tokens,output_tokens,total_tokens,duration_ms,known_cost_usd,unknown_cost_sessions,success_rate,cost_per_success,input_tokens_per_second,output_tokens_per_second,cache_read_tokens,cache_write_tokens")
 	for _, row := range report.Rows {
 		printUsageCSVRow(row)
@@ -1464,7 +1479,7 @@ func printUsageCSV(report *session.UsageReport) {
 	printUsageCSVRow(total)
 }
 
-func printUsageCSVRow(row session.UsageRow) {
+func printUsageCSVRow(row agent.UsageReportRow) {
 	cost := ""
 	if row.UnknownCostSessions == 0 && row.KnownCostUSD != nil {
 		cost = fmt.Sprintf("%.4f", *row.KnownCostUSD)

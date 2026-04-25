@@ -105,16 +105,44 @@ type DdxAgent interface {
     // Distinct from per-request ResolveRoute — this is the read-only operator
     // dashboard view.
     RouteStatus(ctx context.Context) (*RouteStatusReport, error)
+
+    // UsageReport aggregates token, cost, and reliability totals across the
+    // service-owned session-log directory. CLI subcommands such as
+    // `ddx-agent usage` consume this projection rather than re-reading
+    // session-log JSONL records.
+    UsageReport(ctx context.Context, opts UsageReportOptions) (*UsageReport, error)
+
+    // ListSessionLogs returns the historical session-log entries known to the
+    // service (session id, mod time, size). Consumers display these without
+    // touching the on-disk session-log layout.
+    ListSessionLogs(ctx context.Context) ([]SessionLogEntry, error)
+
+    // WriteSessionLog renders every event in the named session log to w as
+    // indented JSON, one event per object. The format is service-owned;
+    // consumers do not parse it back into private session-log structs.
+    WriteSessionLog(ctx context.Context, sessionID string, w io.Writer) error
+
+    // ReplaySession renders a human-readable conversation transcript for the
+    // named session log onto w. Used by `ddx-agent replay <id>`.
+    ReplaySession(ctx context.Context, sessionID string, w io.Writer) error
 }
+
+// ValidateUsageSince returns nil when spec is a usage window value accepted by
+// UsageReport. CLI subcommands call this to surface validation errors with
+// exit-code 2 before invoking the service.
+func ValidateUsageSince(spec string) error
 
 // New constructs a DdxAgent. Options is intentionally minimal.
 func New(opts Options) (DdxAgent, error)
 ```
 
-**Twelve methods total.** `Execute` is the primary verb; `TailSessionLog`,
+**Sixteen methods total.** `Execute` is the primary verb; `TailSessionLog`,
 `ListHarnesses`, `ListProviders`, `ListModels`, `ListProfiles`,
 `ResolveProfile`, `ProfileAliases`, `HealthCheck`, `ResolveRoute`,
-`RecordRouteAttempt`, and `RouteStatus` are the supporting surface.
+`RecordRouteAttempt`, and `RouteStatus` are the supporting routing/status
+surface; `UsageReport`, `ListSessionLogs`, `WriteSessionLog`, and
+`ReplaySession` are the historical session-log projection used by
+`ddx-agent log`, `replay`, and `usage`.
 
 ## Public types
 
@@ -122,6 +150,13 @@ func New(opts Options) (DdxAgent, error)
 type Options struct {
     ConfigPath string    // optional override; default $XDG_CONFIG_HOME/ddx-agent/config.yaml
     Logger     io.Writer // optional; agent writes structured session logs internally regardless
+
+    // SessionLogDir overrides the directory used by the historical session-log
+    // projections (UsageReport, ListSessionLogs, WriteSessionLog,
+    // ReplaySession). Empty falls back to ServiceConfig.WorkDir() +
+    // "/.agent/sessions". Per-Execute requests still set their own
+    // ExecuteRequest.SessionLogDir.
+    SessionLogDir string
 
     // Test-only injection seams. Each MUST be nil in production builds —
     // enforced by build tag `//go:build testseam`. Forming an Options with
@@ -507,6 +542,51 @@ type RouteCandidateStatus struct {
     RecentSuccessRate float64  // 0-1
 }
 
+type UsageReportOptions struct {
+    Since string     // "today", "7d", "30d", "YYYY-MM-DD", or "YYYY-MM-DD..YYYY-MM-DD"
+    Now   time.Time  // zero = time.Now().UTC()
+}
+
+type UsageReport struct {
+    Window *UsageReportWindow `json:"window,omitempty"`
+    Rows   []UsageReportRow   `json:"rows"`
+    Totals UsageReportRow     `json:"totals"`
+}
+
+type UsageReportWindow struct {
+    Start time.Time `json:"start"`
+    End   time.Time `json:"end"`
+}
+
+type UsageReportRow struct {
+    Provider            string   `json:"provider"`
+    Model               string   `json:"model"`
+    Sessions            int      `json:"sessions"`
+    SuccessSessions     int      `json:"success_sessions"`
+    FailedSessions      int      `json:"failed_sessions"`
+    InputTokens         int      `json:"input_tokens"`
+    OutputTokens        int      `json:"output_tokens"`
+    TotalTokens         int      `json:"total_tokens"`
+    DurationMs          int64    `json:"duration_ms"`
+    KnownCostUSD        *float64 `json:"known_cost_usd"`
+    UnknownCostSessions int      `json:"unknown_cost_sessions"`
+    CacheReadTokens     int      `json:"cache_read_tokens"`
+    CacheWriteTokens    int      `json:"cache_write_tokens"`
+}
+
+// Derived helpers on UsageReportRow:
+//   SuccessRate() float64           — successful sessions / total sessions
+//   CostPerSuccess() *float64       — known cost / successful sessions, nil when unknown
+//   InputTokensPerSecond() float64
+//   OutputTokensPerSecond() float64
+//   CacheHitRate() float64          — cache_read / (input + cache_read + cache_write)
+
+type SessionLogEntry struct {
+    SessionID string    `json:"session_id"`
+    ModTime   time.Time `json:"mod_time"`
+    Size      int64     `json:"size"`
+}
+
 type Event struct {
     Type     string          // see event types below
     Sequence int64
@@ -666,6 +746,10 @@ render public service results. The CLI boundary is strict:
 - session replay/follow goes through `TailSessionLog`;
 - output decoding uses `DecodeServiceEvent` or `DrainExecute`, not local copies
   of private payload structs;
+- historical session-log projections (`ddx-agent log`, `replay`, `usage`) go
+  through `ListSessionLogs`, `WriteSessionLog`, `ReplaySession`, and
+  `UsageReport`; CLI subcommands do not parse session-log JSONL records
+  directly;
 - harness capabilities, profile projection, route feedback, quota/status, and
   test-only harness dispatch are consumed through public service methods.
 
