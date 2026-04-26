@@ -243,6 +243,14 @@ type Inputs struct {
 	CooldownDuration    time.Duration        // 0 = no cooldown enforcement
 	Now                 time.Time            // injected for deterministic testing; default time.Now()
 	CatalogResolver     func(ref, surface string) (concreteModel string, ok bool)
+
+	// ReasoningResolver returns the catalog's surface_policy reasoning_default
+	// for a (profile, surface) pair. When set, buildHarnessCandidates uses it
+	// to resolve Reasoning=auto to a concrete level before invoking the
+	// capability gate, so candidates that cannot satisfy the resolved level
+	// (e.g. an off-only variant under a profile whose surface default is
+	// "high") are correctly disqualified instead of slipping through.
+	ReasoningResolver func(profile, surface string) (resolved string, ok bool)
 }
 
 // candidateInternal carries the engine's intermediate state per (harness, provider, model).
@@ -643,10 +651,12 @@ func buildHarnessCandidates(h HarnessEntry, req Request, in Inputs) []rankedCand
 			latencyMS = in.ObservedLatencyMS[ProviderModelKey(p.Name, "", model)]
 		}
 
+		gateReq := resolveRequestReasoning(req, h.Surface, in.ReasoningResolver)
+
 		eligible := true
 		var filterReason FilterReason
 		if reason == "" {
-			if g, fr := CheckGating(entryCaps, req); g != "" {
+			if g, fr := CheckGating(entryCaps, gateReq); g != "" {
 				eligible = false
 				reason = g
 				filterReason = fr

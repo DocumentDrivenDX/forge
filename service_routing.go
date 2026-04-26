@@ -473,6 +473,7 @@ func (s *service) buildRoutingInputsWithCatalog(ctx context.Context, cat *modelc
 		ProviderSuccessRate: successRate,
 		ObservedLatencyMS:   latencyMS,
 		CatalogResolver:     serviceRoutingCatalogResolver(cat),
+		ReasoningResolver:   serviceRoutingReasoningResolver(cat),
 	}
 }
 
@@ -501,6 +502,36 @@ func serviceRoutingCatalogResolver(cat *modelcatalog.Catalog) func(ref, surface 
 			return "", false
 		}
 		return resolved.ConcreteModel, true
+	}
+}
+
+// serviceRoutingReasoningResolver returns the catalog's surface_policy
+// reasoning_default for a (profile, surface) pair. Used by the routing engine
+// to resolve Reasoning=auto to a concrete level before the capability gate.
+func serviceRoutingReasoningResolver(cat *modelcatalog.Catalog) func(profile, surface string) (string, bool) {
+	if cat == nil {
+		return nil
+	}
+	return func(profile, surface string) (string, bool) {
+		if profile == "" {
+			return "", false
+		}
+		catalogSurface, ok := serviceRoutingCatalogSurface(surface)
+		if !ok {
+			return "", false
+		}
+		resolved, err := cat.Resolve(profile, modelcatalog.ResolveOptions{
+			Surface:         catalogSurface,
+			AllowDeprecated: true,
+		})
+		if err != nil {
+			return "", false
+		}
+		def := string(resolved.SurfacePolicy.ReasoningDefault)
+		if def == "" {
+			return "", false
+		}
+		return def, true
 	}
 }
 

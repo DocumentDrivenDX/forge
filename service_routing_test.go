@@ -763,6 +763,102 @@ profiles:
 	})
 }
 
+// TestResolveRouteAutoResolvesToTierDefaultBeforeGate proves that when a
+// request specifies Reasoning=auto, the routing engine resolves it to the
+// catalog's surface_policy reasoning_default for the requested profile/surface
+// BEFORE invoking the capability gate. Without this resolution an off-only
+// candidate could win under a profile whose surface default is "high",
+// silently dropping reasoning the operator implicitly asked for.
+func TestResolveRouteAutoResolvesToTierDefaultBeforeGate(t *testing.T) {
+	// off-only harness: SupportedReasoning is empty so the gate accepts
+	// "off" (which imposes no requirement) but rejects any named level.
+	offOnly := func() routing.HarnessEntry {
+		return routing.HarnessEntry{
+			Name:                "off-only",
+			Surface:             "test-surface",
+			CostClass:           "medium",
+			AutoRoutingEligible: true,
+			Available:           true,
+			QuotaOK:             true,
+			SubscriptionOK:      true,
+			ExactPinSupport:     true,
+			DefaultModel:        "off-model",
+			SupportsTools:       true,
+		}
+	}
+
+	resolver := func(profile, surface string) (string, bool) {
+		switch profile {
+		case "cheap":
+			return "off", true
+		case "smart":
+			return "high", true
+		}
+		return "", false
+	}
+
+	t.Run("cheap_resolves_to_off_gate_passes", func(t *testing.T) {
+		dec, err := routing.Resolve(routing.Request{
+			Profile:   "cheap",
+			Reasoning: "auto",
+		}, routing.Inputs{
+			Harnesses:         []routing.HarnessEntry{offOnly()},
+			ReasoningResolver: resolver,
+		})
+		if err != nil {
+			t.Fatalf("Resolve cheap+auto: %v", err)
+		}
+		if dec.Harness != "off-only" || dec.Model != "off-model" {
+			t.Fatalf("decision=%#v, want off-only/off-model (auto must resolve to off and pass)", dec)
+		}
+	})
+
+	t.Run("smart_resolves_to_high_gate_rejects", func(t *testing.T) {
+		dec, err := routing.Resolve(routing.Request{
+			Profile:   "smart",
+			Reasoning: "auto",
+		}, routing.Inputs{
+			Harnesses:         []routing.HarnessEntry{offOnly()},
+			ReasoningResolver: resolver,
+		})
+		if err == nil {
+			t.Fatalf("Resolve smart+auto: expected NoViableCandidateError, got decision=%#v", dec)
+		}
+		var noViable *routing.NoViableCandidateError
+		if !errors.As(err, &noViable) {
+			t.Fatalf("error=%T %v, want *routing.NoViableCandidateError", err, err)
+		}
+		if dec == nil || len(dec.Candidates) != 1 {
+			t.Fatalf("Candidates=%#v, want exactly one off-only candidate", dec)
+		}
+		c := dec.Candidates[0]
+		if c.Harness != "off-only" || c.Eligible {
+			t.Fatalf("candidate=%#v, want ineligible off-only", c)
+		}
+		if c.FilterReason != routing.FilterReasonReasoningUnsupported {
+			t.Fatalf("FilterReason=%q, want %q (Reason=%q)", c.FilterReason, routing.FilterReasonReasoningUnsupported, c.Reason)
+		}
+	})
+
+	t.Run("unset_reasoning_does_not_resolve", func(t *testing.T) {
+		// Regression guard: the Reasoning=unset path keeps its existing
+		// "no requirement" behavior — only Reasoning=auto triggers
+		// surface_policy resolution.
+		dec, err := routing.Resolve(routing.Request{
+			Profile: "smart",
+		}, routing.Inputs{
+			Harnesses:         []routing.HarnessEntry{offOnly()},
+			ReasoningResolver: resolver,
+		})
+		if err != nil {
+			t.Fatalf("Resolve smart+unset: %v", err)
+		}
+		if dec.Harness != "off-only" {
+			t.Fatalf("unset+smart decision=%#v, want off-only (unset must not trigger auto resolution)", dec)
+		}
+	})
+}
+
 func TestDecisionWithCandidatesCopiesInput(t *testing.T) {
 	candidates := []RouteCandidate{{Harness: "agent", Reason: "original"}}
 	err := withRouteCandidates(errors.New("no viable routing candidate"), candidates)
