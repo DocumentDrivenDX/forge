@@ -155,6 +155,28 @@
       "model": "minimax/minimax-m2.7",
       "tier": "research",
       "rationale": "Native agent through OpenRouter on the configured smart-profile model; compares routing defaults against explicit model pins."
+    },
+    {
+      "id": "agent-omlx-vidar-qwen36",
+      "harness": "agent",
+      "provider": "vidar-omlx",
+      "model": "Qwen3.6-27B-MLX-8bit",
+      "effort": "medium",
+      "tier": "harness-parity",
+      "review_harness": "codex",
+      "review_model": "gpt-5.5",
+      "rationale": "Agent harness against the vidar OMLX Qwen 3.6 27B endpoint with a pinned codex/gpt-5.5 reviewer; paired with pi-omlx-vidar-qwen36 to isolate harness behavior on identical model/provider."
+    },
+    {
+      "id": "pi-omlx-vidar-qwen36",
+      "harness": "pi",
+      "provider": "vidar",
+      "model": "Qwen3.6-27B-MLX-8bit",
+      "effort": "medium",
+      "tier": "harness-parity",
+      "review_harness": "codex",
+      "review_model": "gpt-5.5",
+      "rationale": "Pi harness against the same vidar OMLX Qwen 3.6 27B endpoint (named 'vidar' in pi's models.json) with a pinned codex/gpt-5.5 reviewer; paired with agent-omlx-vidar-qwen36 to isolate harness behavior on identical model/provider."
     }
   ],
   "tasks": [
