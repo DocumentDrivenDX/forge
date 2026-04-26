@@ -157,6 +157,28 @@ func (sl *serviceSessionLog) endWritten() bool {
 	return sl.endWrote.Load()
 }
 
+// persistRejectedOverride writes a session.start + rejected_override pair
+// to a freshly-opened session log for sessionID. Used by Execute's
+// pre-dispatch rejection branch, which never reaches runExecute and so
+// never goes through the normal openSessionLog path. Without this,
+// rejected_override events are invisible to UsageReport (which scans
+// session logs over a --since window).
+//
+// The session.start is required by ScanRoutingQuality, which only counts
+// log files that include one — and we want this rejection counted in
+// TotalRequests so AutoAcceptanceRate reflects reality.
+func (s *service) persistRejectedOverride(req ServiceExecuteRequest, sessionID string, payload ServiceOverrideData) {
+	if req.SessionLogDir == "" || sessionID == "" {
+		return
+	}
+	sl := s.openSessionLog(req, RouteDecision{}, sessionID)
+	if sl == nil || sl.logger == nil {
+		return
+	}
+	defer sl.close()
+	sl.writeOverrideEvent(ServiceEventTypeRejectedOverride, payload)
+}
+
 // providerTypeLabel maps a configured provider name ("local") to its provider
 // type ("lmstudio") when available. Returns the input unchanged if no
 // ServiceConfig is attached or the name is not configured. Callers use this

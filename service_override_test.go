@@ -10,7 +10,12 @@ import (
 
 	agent "github.com/DocumentDrivenDX/agent"
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
+	"github.com/DocumentDrivenDX/agent/internal/session"
 )
+
+func sessionScanRoutingQuality(dir string) (*session.RoutingQualityScan, error) {
+	return session.ScanRoutingQuality(dir, nil)
+}
 
 // drainOverrideEvents collects events from ch until close or timeout.
 func drainOverrideEvents(t *testing.T, ch <-chan agent.ServiceEvent, timeout time.Duration) []agent.ServiceEvent {
@@ -448,6 +453,60 @@ func TestOverrideEventPromptFeaturesPopulation(t *testing.T) {
 	}
 	if payload2.ReasonHint != "" {
 		t.Fatalf("reason_hint without metadata: got %q", payload2.ReasonHint)
+	}
+}
+
+// TestRejectedOverridePersistedToSessionLog locks in the bead-2 review fix:
+// pre-dispatch rejected_override events must be written to the session log
+// so UsageReport's windowed aggregation (which scans session logs, not the
+// in-memory ring) sees them. Without this persistence, the rejection class
+// is invisible to historical and cross-restart reporting.
+func TestRejectedOverrideEventPersistedToSessionLog(t *testing.T) {
+	dir := t.TempDir()
+	svc, err := agent.New(agent.ServiceOptions{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ch, execErr := svc.Execute(context.Background(), agent.ServiceExecuteRequest{
+		Prompt:        "hi",
+		Harness:       "gemini",
+		Model:         "minimax/minimax-m2.7",
+		SessionLogDir: dir,
+	})
+	if execErr == nil {
+		t.Fatal("expected typed pin error, got nil")
+	}
+	if ch != nil {
+		t.Fatalf("expected nil channel for typed pin error, got %#v", ch)
+	}
+	if _, ok := agent.AsRejectedOverride(execErr); !ok {
+		t.Fatalf("expected ErrRejectedOverride wrapper, got %T %v", execErr, execErr)
+	}
+
+	// One .jsonl file must exist with session.start + rejected_override.
+	scan, err := sessionScanRoutingQuality(dir)
+	if err != nil {
+		t.Fatalf("ScanRoutingQuality: %v", err)
+	}
+	if scan.TotalRequests != 1 {
+		t.Fatalf("TotalRequests = %d, want 1 (rejection counted in scan)", scan.TotalRequests)
+	}
+	if len(scan.OverrideEvents) != 1 {
+		t.Fatalf("OverrideEvents = %d, want 1 (rejected_override persisted)", len(scan.OverrideEvents))
+	}
+	got := scan.OverrideEvents[0]
+	if string(got.Type) != agent.ServiceEventTypeRejectedOverride {
+		t.Fatalf("event type = %q, want %q", got.Type, agent.ServiceEventTypeRejectedOverride)
+	}
+	var payload agent.ServiceOverrideData
+	if err := json.Unmarshal(got.Data, &payload); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if payload.RejectionError == "" {
+		t.Fatalf("rejection_error must be set on persisted rejected_override: %+v", payload)
+	}
+	if payload.Outcome != nil {
+		t.Fatalf("rejected_override outcome must be nil, got %+v", payload.Outcome)
 	}
 }
 

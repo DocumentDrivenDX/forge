@@ -122,6 +122,14 @@ func (s *service) Execute(ctx context.Context, req ServiceExecuteRequest) (<-cha
 			if overrideCtx != nil {
 				if rejectedEv, payload, ok := makeRejectedOverrideEvent(overrideCtx, sessionID, pinErr, req.Metadata); ok {
 					s.hub.broadcastEvent(sessionID, rejectedEv)
+					// Persist the rejected_override to the session log so
+					// UsageReport's windowed scan (which sources from
+					// session logs, not the in-memory ring) sees this
+					// rejection. The pin failed pre-dispatch, so no
+					// runExecute will open a log for this session — open
+					// one briefly here, write session.start + the rejected
+					// payload, and close.
+					s.persistRejectedOverride(req, sessionID, payload)
 					pinErr = &ErrRejectedOverride{Inner: err, Event: payload}
 				}
 			}
