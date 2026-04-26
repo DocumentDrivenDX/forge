@@ -20,9 +20,21 @@ const (
 // overrideContext carries the per-Execute override-event payload from the
 // service entrypoint through to the channel-fan-out goroutine, where the
 // terminal outcome is stamped on right before the final event is forwarded.
+//
+// record points at the live in-memory ring entry for this request (set by
+// Execute via recordRoutingQualityForRequest); the fan-out goroutine
+// back-writes the outcome onto it when the override event fires so
+// RouteStatus surfaces non-zero outcome aggregates.
+//
+// sl points at the request's session log (set in runExecute after
+// openSessionLog); the fan-out goroutine writes the override event there
+// so UsageReport can recompute routing-quality from persisted session logs
+// across restarts and beyond the in-memory ring's bounded retention.
 type overrideContext struct {
 	payload ServiceOverrideData
 	emitted atomic.Bool
+	record  *routingQualityRecord
+	sl      atomic.Pointer[serviceSessionLog]
 }
 
 // axesOverridden returns the canonical, ordered list of axes the caller
@@ -175,10 +187,12 @@ func overrideReasonHint(req ServiceExecuteRequest) string {
 }
 
 // makeOverrideEvent constructs the wire-level override event, stamping
-// outcome from the corresponding final event.
-func makeOverrideEvent(ovr *overrideContext, sessionID string, finalEv ServiceEvent, meta map[string]string) (ServiceEvent, bool) {
+// outcome from the corresponding final event. Also returns the populated
+// payload so callers can back-write the outcome to the in-memory ring and
+// persist the same payload to the session log in lock-step.
+func makeOverrideEvent(ovr *overrideContext, sessionID string, finalEv ServiceEvent, meta map[string]string) (ServiceEvent, ServiceOverrideData, bool) {
 	if ovr == nil {
-		return ServiceEvent{}, false
+		return ServiceEvent{}, ServiceOverrideData{}, false
 	}
 	payload := ovr.payload
 	payload.SessionID = sessionID
@@ -191,7 +205,7 @@ func makeOverrideEvent(ovr *overrideContext, sessionID string, finalEv ServiceEv
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return ServiceEvent{}, false
+		return ServiceEvent{}, ServiceOverrideData{}, false
 	}
 	seq := finalEv.Sequence
 	if seq > 0 {
@@ -207,7 +221,7 @@ func makeOverrideEvent(ovr *overrideContext, sessionID string, finalEv ServiceEv
 		Time:     t,
 		Metadata: meta,
 		Data:     raw,
-	}, true
+	}, payload, true
 }
 
 func decodeFinalForOutcome(ev ServiceEvent) (ServiceFinalData, bool) {
@@ -223,9 +237,11 @@ func decodeFinalForOutcome(ev ServiceEvent) (ServiceFinalData, bool) {
 
 // makeRejectedOverrideEvent constructs a rejected_override event from the
 // override context plus the typed pin error. Outcome is intentionally nil.
-func makeRejectedOverrideEvent(ovr *overrideContext, sessionID string, pinErr error, meta map[string]string) (ServiceEvent, bool) {
+// Returns the populated payload alongside the wire event so callers can
+// surface the same struct via ErrRejectedOverride.
+func makeRejectedOverrideEvent(ovr *overrideContext, sessionID string, pinErr error, meta map[string]string) (ServiceEvent, ServiceOverrideData, bool) {
 	if ovr == nil {
-		return ServiceEvent{}, false
+		return ServiceEvent{}, ServiceOverrideData{}, false
 	}
 	payload := ovr.payload
 	payload.SessionID = sessionID
@@ -235,7 +251,7 @@ func makeRejectedOverrideEvent(ovr *overrideContext, sessionID string, pinErr er
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
-		return ServiceEvent{}, false
+		return ServiceEvent{}, ServiceOverrideData{}, false
 	}
 	return ServiceEvent{
 		Type:     harnesses.EventType(ServiceEventTypeRejectedOverride),
@@ -243,7 +259,7 @@ func makeRejectedOverrideEvent(ovr *overrideContext, sessionID string, pinErr er
 		Time:     time.Now().UTC(),
 		Metadata: meta,
 		Data:     raw,
-	}, true
+	}, payload, true
 }
 
 // ErrRejectedOverride wraps a pin-rejection error and carries the

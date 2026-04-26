@@ -82,7 +82,7 @@ type routingQualityRecord struct {
 // is added).
 type routingQualityStore struct {
 	mu      sync.RWMutex
-	records []routingQualityRecord
+	records []*routingQualityRecord
 	cap     int
 }
 
@@ -92,16 +92,19 @@ func newRoutingQualityStore() *routingQualityStore {
 	return &routingQualityStore{cap: routingQualityStoreCap}
 }
 
-// recordRequest appends a request to the store. override may be nil for the
-// no-override case.
-func (s *routingQualityStore) recordRequest(at time.Time, override *ServiceOverrideData) {
+// recordRequest appends a request to the store and returns the freshly
+// allocated record. override may be nil for the no-override case. The
+// returned pointer remains valid even after the bounded ring rotates,
+// allowing callers (the override fan-out goroutine) to back-write the
+// post-execution outcome without racing the ring's eviction.
+func (s *routingQualityStore) recordRequest(at time.Time, override *ServiceOverrideData) *routingQualityRecord {
 	if s == nil {
-		return
+		return nil
 	}
 	if at.IsZero() {
 		at = time.Now().UTC()
 	}
-	rec := routingQualityRecord{at: at.UTC()}
+	rec := &routingQualityRecord{at: at.UTC()}
 	if override != nil {
 		clone := *override
 		rec.override = &clone
@@ -113,18 +116,19 @@ func (s *routingQualityStore) recordRequest(at time.Time, override *ServiceOverr
 		drop := len(s.records) - s.cap
 		s.records = s.records[drop:]
 	}
+	return rec
 }
 
 // snapshotRecent returns up to maxN of the most recent records, optionally
 // filtered by since (zero means no time filter). Records are returned in
 // insertion order (oldest first within the slice).
-func (s *routingQualityStore) snapshotRecent(maxN int, since time.Time) []routingQualityRecord {
+func (s *routingQualityStore) snapshotRecent(maxN int, since time.Time) []*routingQualityRecord {
 	if s == nil {
 		return nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]routingQualityRecord, 0, len(s.records))
+	out := make([]*routingQualityRecord, 0, len(s.records))
 	for _, r := range s.records {
 		if !since.IsZero() && r.at.Before(since) {
 			continue
@@ -139,13 +143,13 @@ func (s *routingQualityStore) snapshotRecent(maxN int, since time.Time) []routin
 
 // snapshotWindow returns records whose timestamps fall within [start, end).
 // Either bound may be zero to mean "unbounded".
-func (s *routingQualityStore) snapshotWindow(start, end time.Time) []routingQualityRecord {
+func (s *routingQualityStore) snapshotWindow(start, end time.Time) []*routingQualityRecord {
 	if s == nil {
 		return nil
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]routingQualityRecord, 0, len(s.records))
+	out := make([]*routingQualityRecord, 0, len(s.records))
 	for _, r := range s.records {
 		if !start.IsZero() && r.at.Before(start) {
 			continue
@@ -189,14 +193,16 @@ func computeRoutingQualityMetrics(totalRequests int, overrides []ServiceOverride
 }
 
 // computeRoutingQualityMetricsFromRecords aggregates the store-side record
-// shape directly. Used by RouteStatus / UsageReport once they have selected
-// their respective windows.
-func computeRoutingQualityMetricsFromRecords(records []routingQualityRecord) RoutingQualityMetrics {
+// shape directly. Used by RouteStatus once it has selected its window.
+// UsageReport sources from session logs instead — see
+// aggregateRoutingQualityFromSessionLogs.
+func computeRoutingQualityMetricsFromRecords(records []*routingQualityRecord) RoutingQualityMetrics {
 	overrides := make([]ServiceOverrideData, 0, len(records))
 	for _, r := range records {
-		if r.override != nil {
-			overrides = append(overrides, *r.override)
+		if r == nil || r.override == nil {
+			continue
 		}
+		overrides = append(overrides, *r.override)
 	}
 	return computeRoutingQualityMetrics(len(records), overrides)
 }
@@ -305,9 +311,11 @@ func promptFeatureBucket(pf ServiceOverridePromptFeatures) string {
 
 // recordRoutingQualityForRequest records one Execute call into the
 // service's routing-quality store. ovr may be nil for non-overridden
-// requests; when non-nil, the recorded payload mirrors the override event
-// minus the outcome (which is stamped onto the wire event later, in the
-// fan-out path, but not back-propagated into the store).
+// requests; when non-nil, the recorded record pointer is stashed onto the
+// override context so the fan-out goroutine can back-write the
+// post-execution outcome (success / stalled / failed / cancelled) once the
+// final event arrives. The back-write is what makes the in-memory ring's
+// outcome aggregates real rather than always-zero (ADR-006 §5).
 func (s *service) recordRoutingQualityForRequest(ovr *overrideContext) {
 	if s == nil || s.routingQuality == nil {
 		return
@@ -318,7 +326,21 @@ func (s *service) recordRoutingQualityForRequest(ovr *overrideContext) {
 		return
 	}
 	payload := ovr.payload
-	s.routingQuality.recordRequest(now, &payload)
+	rec := s.routingQuality.recordRequest(now, &payload)
+	ovr.record = rec
+}
+
+// stampOutcomeOnRecord copies the post-execution outcome into the ring
+// record stored on ovr. Safe to call once after the override event is
+// emitted (the channel send-receive between runExecute and the fan-out
+// goroutine establishes happens-before, so plain field writes are race-free
+// here).
+func stampOutcomeOnRecord(rec *routingQualityRecord, outcome *ServiceOverrideOutcome) {
+	if rec == nil || outcome == nil || rec.override == nil {
+		return
+	}
+	clone := *outcome
+	rec.override.Outcome = &clone
 }
 
 func tokenSizeBucket(tokens *int) string {

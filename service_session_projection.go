@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	agentcore "github.com/DocumentDrivenDX/agent/internal/core"
 	"github.com/DocumentDrivenDX/agent/internal/session"
 )
 
@@ -125,17 +126,30 @@ func ValidateUsageSince(spec string) error {
 
 // UsageReport aggregates token, cost, and reliability totals across the
 // service-owned session-log directory.
+//
+// RoutingQuality is sourced from persisted session logs, not the in-memory
+// ring (ADR-006 §5): UsageReport's --since window can extend across
+// restarts and beyond the ring's bounded retention, so the authoritative
+// data source has to be the on-disk session-log corpus that already
+// carries override and rejected_override events. When no log directory is
+// configured, the in-memory ring is used as a best-effort fallback so
+// in-process callers still see live routing-quality numbers.
 func (s *service) UsageReport(ctx context.Context, opts UsageReportOptions) (*UsageReport, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	logDir := s.publicSessionLogDir()
-	if logDir == "" {
-		return &UsageReport{}, nil
-	}
 	now := opts.Now
 	if now.IsZero() {
 		now = time.Now().UTC()
+	}
+	logDir := s.publicSessionLogDir()
+	if logDir == "" {
+		// AC bug-fix: even without a log directory, surface the
+		// in-memory ring's live routing-quality so the field is never
+		// silently dropped.
+		report := &UsageReport{}
+		report.RoutingQuality = s.routingQualityFromRing(nil)
+		return report, nil
 	}
 	internal, err := session.AggregateUsage(logDir, session.UsageOptions{
 		Since: opts.Since,
@@ -145,14 +159,33 @@ func (s *service) UsageReport(ctx context.Context, opts UsageReportOptions) (*Us
 		return nil, err
 	}
 	report := convertUsageReport(internal)
-	report.RoutingQuality = s.routingQualityForUsageWindow(report.Window)
+	rq, err := s.routingQualityFromSessionLogs(logDir, report.Window)
+	if err != nil {
+		return nil, err
+	}
+	report.RoutingQuality = rq
 	return report, nil
 }
 
-// routingQualityForUsageWindow aggregates the in-memory routing-quality
-// store over the same window selected by AggregateUsage. A nil window
-// means "all records".
-func (s *service) routingQualityForUsageWindow(window *UsageReportWindow) RoutingQualityMetrics {
+// routingQualityFromSessionLogs is the windowed reader UsageReport calls
+// to rebuild RoutingQualityMetrics from persisted override events. The
+// session-log corpus is authoritative because it survives restarts and
+// supports arbitrary --since windows; the in-memory ring is bounded and
+// recent-only.
+func (s *service) routingQualityFromSessionLogs(logDir string, window *UsageReportWindow) (RoutingQualityMetrics, error) {
+	scanWindow := convertUsageWindow(window)
+	scan, err := session.ScanRoutingQuality(logDir, scanWindow)
+	if err != nil {
+		return RoutingQualityMetrics{}, err
+	}
+	overrides := decodeRoutingQualityOverrides(scan.OverrideEvents)
+	return computeRoutingQualityMetrics(scan.TotalRequests, overrides), nil
+}
+
+// routingQualityFromRing is the fallback path used when no session-log
+// directory is configured: aggregate from the in-memory ring over window
+// (nil = all records).
+func (s *service) routingQualityFromRing(window *UsageReportWindow) RoutingQualityMetrics {
 	if s == nil || s.routingQuality == nil {
 		return RoutingQualityMetrics{}
 	}
@@ -163,6 +196,32 @@ func (s *service) routingQualityForUsageWindow(window *UsageReportWindow) Routin
 	}
 	records := s.routingQuality.snapshotWindow(start, end)
 	return computeRoutingQualityMetricsFromRecords(records)
+}
+
+// decodeRoutingQualityOverrides converts persisted override / rejected_override
+// session-log events back into ServiceOverrideData payloads. Events that
+// fail to decode are skipped — a single corrupt record must not poison the
+// whole report.
+func decodeRoutingQualityOverrides(events []agentcore.Event) []ServiceOverrideData {
+	if len(events) == 0 {
+		return nil
+	}
+	out := make([]ServiceOverrideData, 0, len(events))
+	for _, e := range events {
+		var payload ServiceOverrideData
+		if err := json.Unmarshal(e.Data, &payload); err != nil {
+			continue
+		}
+		out = append(out, payload)
+	}
+	return out
+}
+
+func convertUsageWindow(w *UsageReportWindow) *session.UsageWindow {
+	if w == nil {
+		return nil
+	}
+	return &session.UsageWindow{Start: w.Start, End: w.End}
 }
 
 // ListSessionLogs returns the session log files known to the service, sorted

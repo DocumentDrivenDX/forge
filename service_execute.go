@@ -120,10 +120,8 @@ func (s *service) Execute(ctx context.Context, req ServiceExecuteRequest) (<-cha
 			// telemetry can extract via AsRejectedOverride.
 			pinErr := err
 			if overrideCtx != nil {
-				if rejectedEv, ok := makeRejectedOverrideEvent(overrideCtx, sessionID, pinErr, req.Metadata); ok {
+				if rejectedEv, payload, ok := makeRejectedOverrideEvent(overrideCtx, sessionID, pinErr, req.Metadata); ok {
 					s.hub.broadcastEvent(sessionID, rejectedEv)
-					var payload ServiceOverrideData
-					_ = json.Unmarshal(rejectedEv.Data, &payload)
 					pinErr = &ErrRejectedOverride{Inner: err, Event: payload}
 				}
 			}
@@ -161,7 +159,7 @@ func (s *service) Execute(ctx context.Context, req ServiceExecuteRequest) (<-cha
 	// Emit start-of-execution routing_decision so consumers know the picked
 	// chain before any real work fires. The actual chain (post-fallback) is
 	// stamped onto the final event's RoutingActual field.
-	go s.runExecute(ctx, req, *decision, meta, inner, sessionID)
+	go s.runExecute(ctx, req, *decision, meta, inner, sessionID, overrideCtx)
 	return outer, nil
 }
 
@@ -351,7 +349,7 @@ func validateExplicitHarnessReasoning(name string, cfg harnesses.HarnessConfig, 
 // runExecute is the per-Execute goroutine. It owns the channel close path
 // and the final event emit. All termination paths funnel through emitFinal
 // so the channel always sees a final event before close.
-func (s *service) runExecute(ctx context.Context, req ServiceExecuteRequest, decision RouteDecision, meta map[string]string, out chan<- ServiceEvent, sessionID string) {
+func (s *service) runExecute(ctx context.Context, req ServiceExecuteRequest, decision RouteDecision, meta map[string]string, out chan<- ServiceEvent, sessionID string, overrideCtx *overrideContext) {
 	defer close(out)
 
 	start := time.Now()
@@ -363,6 +361,11 @@ func (s *service) runExecute(ctx context.Context, req ServiceExecuteRequest, dec
 	// per-path finalizeAndEmit calls below feed writeEnd in lock-step with
 	// the public final event.
 	sl := s.openSessionLog(req, decision, sessionID)
+	if overrideCtx != nil {
+		// Stash sl so the fan-out goroutine in wrapExecuteWithHub can
+		// persist override events to the session log (ADR-006 §5).
+		overrideCtx.sl.Store(sl)
+	}
 	defer func() {
 		if !sl.endWritten() {
 			sl.writeEnd(req, meta, harnesses.FinalData{

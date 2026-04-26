@@ -166,6 +166,12 @@ const (
 	EventLLMDelta        EventType = "llm.delta"
 	EventCompactionStart EventType = "compaction.start"
 	EventCompactionEnd   EventType = "compaction.end"
+	// EventOverride and EventRejectedOverride mirror the service-stream
+	// override / rejected_override events into the session log so windowed
+	// reporting (UsageReport, ADR-006 §5) can rebuild routing-quality
+	// metrics across restarts and beyond the in-memory ring's retention.
+	EventOverride         EventType = "override"
+	EventRejectedOverride EventType = "rejected_override"
 )
 
 // Event is a structured event emitted during a internal agent loop.

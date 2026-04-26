@@ -177,8 +177,18 @@ func (h *sessionHub) wrapExecuteWithHub(sessionID string, outer chan ServiceEven
 			// final event so consumers correlating per-session can join
 			// cleanly. Outcome is populated from the final event itself.
 			if ev.Type == harnesses.EventTypeFinal && ovr != nil && !ovr.emitted.Load() {
-				if overrideEv, ok := makeOverrideEvent(ovr, sessionID, ev, meta); ok {
+				if overrideEv, payload, ok := makeOverrideEvent(ovr, sessionID, ev, meta); ok {
 					ovr.emitted.Store(true)
+					// Back-write the outcome onto the in-memory ring so
+					// RouteStatus aggregates surface real success/stalled/
+					// failed counts (ADR-006 §5).
+					stampOutcomeOnRecord(ovr.record, payload.Outcome)
+					// Persist the override event to the session log so
+					// UsageReport can recompute routing-quality from
+					// historical sessions across restarts.
+					if sl := ovr.sl.Load(); sl != nil {
+						sl.writeOverrideEvent(ServiceEventTypeOverride, payload)
+					}
 					select {
 					case outer <- overrideEv:
 					case <-time.After(5 * time.Second):

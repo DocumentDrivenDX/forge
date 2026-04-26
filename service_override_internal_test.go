@@ -133,7 +133,7 @@ func TestOverrideEventCoincidentalAgreement(t *testing.T) {
 		Time:     time.Now().UTC(),
 		Data:     finalRaw,
 	}
-	ev, ok := makeOverrideEvent(octx, "test-session", finalEv, nil)
+	ev, _, ok := makeOverrideEvent(octx, "test-session", finalEv, nil)
 	if !ok {
 		t.Fatal("makeOverrideEvent returned ok=false on coincidental agreement")
 	}

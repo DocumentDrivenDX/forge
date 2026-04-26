@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	agentcore "github.com/DocumentDrivenDX/agent/internal/core"
 	"github.com/DocumentDrivenDX/agent/internal/harnesses"
@@ -19,6 +21,7 @@ import (
 type serviceSessionLog struct {
 	logger    *session.Logger
 	path      string
+	sessionID string
 	endOnce   sync.Once
 	endWrote  atomic.Bool
 	closeOnce sync.Once
@@ -33,8 +36,9 @@ func (s *service) openSessionLog(req ServiceExecuteRequest, decision RouteDecisi
 	}
 	logger := session.NewLogger(req.SessionLogDir, sessionID)
 	sl := &serviceSessionLog{
-		logger: logger,
-		path:   filepath.Join(req.SessionLogDir, sessionID+".jsonl"),
+		logger:    logger,
+		path:      filepath.Join(req.SessionLogDir, sessionID+".jsonl"),
+		sessionID: sessionID,
 	}
 	start := session.SessionStartData{
 		Provider:          s.providerTypeLabel(decision.Provider),
@@ -107,10 +111,32 @@ func (sl *serviceSessionLog) writeEvent(ev agentcore.Event) {
 		return
 	}
 	switch ev.Type {
-	case agentcore.EventSessionStart, agentcore.EventSessionEnd:
+	case agentcore.EventSessionStart, agentcore.EventSessionEnd,
+		agentcore.EventOverride, agentcore.EventRejectedOverride:
 		return
 	}
 	sl.logger.Write(ev)
+}
+
+// writeOverrideEvent persists an override or rejected_override payload to
+// the session log so windowed reporting (UsageReport, ADR-006 §5) can
+// recompute routing-quality across restarts and beyond the in-memory
+// ring's bounded retention. eventType is one of ServiceEventTypeOverride
+// / ServiceEventTypeRejectedOverride.
+func (sl *serviceSessionLog) writeOverrideEvent(eventType string, payload ServiceOverrideData) {
+	if sl == nil || sl.logger == nil {
+		return
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return
+	}
+	sl.logger.Write(agentcore.Event{
+		SessionID: sl.sessionID,
+		Type:      agentcore.EventType(eventType),
+		Timestamp: time.Now().UTC(),
+		Data:      raw,
+	})
 }
 
 // close flushes the underlying file. Safe to call multiple times.
