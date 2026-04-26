@@ -14,6 +14,14 @@ func (s *service) RouteStatus(ctx context.Context) (*RouteStatusReport, error) {
 	report := &RouteStatusReport{
 		GeneratedAt: time.Now(),
 	}
+	// ADR-006 §5: populate routing-quality over a recent window
+	// (RouteStatusRoutingQualityWindow) regardless of whether a route
+	// catalog is configured — the metric reflects Execute traffic, not
+	// configured routes.
+	if s != nil && s.routingQuality != nil {
+		recent := s.routingQuality.snapshotRecent(RouteStatusRoutingQualityWindow, time.Time{})
+		report.RoutingQuality = computeRoutingQualityMetricsFromRecords(recent)
+	}
 	if sc == nil {
 		return report, nil
 	}

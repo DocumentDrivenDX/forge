@@ -101,6 +101,14 @@ func (s *service) Execute(ctx context.Context, req ServiceExecuteRequest) (<-cha
 	// resolution takes.
 	overrideCtx := s.buildOverrideContext(ctx, req)
 
+	// ADR-006 §5: record this request into the routing-quality store so
+	// auto_acceptance_rate / override_disagreement_rate / class_breakdown
+	// reflect both overridden and non-overridden traffic. The recorded
+	// override payload carries no outcome — outcome aggregation for live
+	// requests is best-effort and lives in session logs once that
+	// persistence path lands.
+	s.recordRoutingQualityForRequest(overrideCtx)
+
 	// Resolve the route.
 	decision, err := s.resolveExecuteRoute(req)
 	if err != nil {

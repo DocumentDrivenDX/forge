@@ -482,11 +482,26 @@ type RouteAttempt struct {
 }
 
 // RouteStatusReport is returned by RouteStatus.
+//
+// RoutingQuality (ADR-006 §5) is the operator-facing measure of how often
+// auto-routing produces an acceptable decision. It is intentionally
+// distinct from per-(provider, model) provider-reliability surfaced on
+// each RouteCandidateStatus: the two compose, and conflating them is the
+// UI bug ADR-006 fixes.
 type RouteStatusReport struct {
 	Routes          []RouteStatusEntry
 	GeneratedAt     time.Time
 	GlobalCooldowns []CooldownState
+	// RoutingQuality holds the three first-class routing-quality metrics
+	// over a recent window (last RouteStatusRoutingQualityWindow requests).
+	RoutingQuality RoutingQualityMetrics
 }
+
+// RouteStatusRoutingQualityWindow caps how many recent Execute calls
+// contribute to RouteStatusReport.RoutingQuality. ADR-006 §5 calls for a
+// "recent window"; the constant is exported so operator UIs can label the
+// metric appropriately.
+const RouteStatusRoutingQualityWindow = 100
 
 // RouteStatusEntry describes one configured model route.
 type RouteStatusEntry struct {
@@ -498,14 +513,20 @@ type RouteStatusEntry struct {
 }
 
 // RouteCandidateStatus describes a single candidate within a route.
+//
+// ProviderReliabilityRate is the per-(provider, model) observed completion
+// rate (the legacy "success rate" metric). Per ADR-006 §5 it is labeled
+// "provider reliability" to distinguish it from RoutingQualityMetrics on
+// the parent report — the two metrics measure different things and are
+// surfaced as separate fields.
 type RouteCandidateStatus struct {
-	Provider          string
-	Model             string
-	Priority          int
-	Healthy           bool
-	Cooldown          *CooldownState
-	RecentLatencyMS   float64 // observation-derived; 0 when unavailable
-	RecentSuccessRate float64 // 0-1; 0 when unavailable
+	Provider                string
+	Model                   string
+	Priority                int
+	Healthy                 bool
+	Cooldown                *CooldownState
+	RecentLatencyMS         float64 // observation-derived; 0 when unavailable
+	ProviderReliabilityRate float64 // 0-1; 0 when unavailable. Legacy success-rate field, relabeled per ADR-006 §5 to disambiguate from routing-quality.
 }
 
 // ServiceEvent is a contract-level event (mirrors harnesses.Event).
@@ -624,6 +645,11 @@ type service struct {
 	// same endpoint isn't probed per-dispatch during a drain. See
 	// service_catalog_cache.go.
 	catalog *catalogCache
+
+	// routingQuality records routing-quality observations (ADR-006 §5).
+	// Populated by Execute on every request and read by RouteStatus and
+	// UsageReport.
+	routingQuality *routingQualityStore
 }
 
 // lastDecisionEntry caches the most recent RouteDecision for a route key.
@@ -688,11 +714,12 @@ func New(opts ServiceOptions) (DdxAgent, error) {
 		opts.ServiceConfig = sc
 	}
 	svc := &service{
-		opts:         opts,
-		registry:     harnesses.NewRegistry(),
-		hub:          newSessionHub(),
-		catalog:      newCatalogCache(catalogCacheOptions{}),
-		routeMetrics: make(map[routeAttemptKey]routeMetricRecord),
+		opts:           opts,
+		registry:       harnesses.NewRegistry(),
+		hub:            newSessionHub(),
+		catalog:        newCatalogCache(catalogCacheOptions{}),
+		routeMetrics:   make(map[routeAttemptKey]routeMetricRecord),
+		routingQuality: newRoutingQualityStore(),
 	}
 	svc.ensurePrimaryQuotaRefresh(context.Background(), quotaRefreshStartup)
 	svc.startPrimaryQuotaRefreshWorker()

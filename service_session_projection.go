@@ -27,10 +27,17 @@ type UsageReportOptions struct {
 // UsageReport is the public, service-owned aggregation over historical session
 // logs. CLI subcommands consume this projection rather than re-reading the
 // session-log JSONL schema directly.
+//
+// RoutingQuality (ADR-006 §5) summarizes how often auto-routing produced an
+// acceptable decision over the report window. It is intentionally distinct
+// from the per-(provider, model) provider-reliability rate carried on each
+// UsageReportRow (Row.SuccessRate); the two metrics measure different
+// things and should be presented as separate numbers in operator UIs.
 type UsageReport struct {
-	Window *UsageReportWindow `json:"window,omitempty"`
-	Rows   []UsageReportRow   `json:"rows"`
-	Totals UsageReportRow     `json:"totals"`
+	Window         *UsageReportWindow    `json:"window,omitempty"`
+	Rows           []UsageReportRow      `json:"rows"`
+	Totals         UsageReportRow        `json:"totals"`
+	RoutingQuality RoutingQualityMetrics `json:"routing_quality"`
 }
 
 // UsageReportWindow describes the active reporting window.
@@ -137,7 +144,25 @@ func (s *service) UsageReport(ctx context.Context, opts UsageReportOptions) (*Us
 	if err != nil {
 		return nil, err
 	}
-	return convertUsageReport(internal), nil
+	report := convertUsageReport(internal)
+	report.RoutingQuality = s.routingQualityForUsageWindow(report.Window)
+	return report, nil
+}
+
+// routingQualityForUsageWindow aggregates the in-memory routing-quality
+// store over the same window selected by AggregateUsage. A nil window
+// means "all records".
+func (s *service) routingQualityForUsageWindow(window *UsageReportWindow) RoutingQualityMetrics {
+	if s == nil || s.routingQuality == nil {
+		return RoutingQualityMetrics{}
+	}
+	var start, end time.Time
+	if window != nil {
+		start = window.Start
+		end = window.End
+	}
+	records := s.routingQuality.snapshotWindow(start, end)
+	return computeRoutingQualityMetricsFromRecords(records)
 }
 
 // ListSessionLogs returns the session log files known to the service, sorted
