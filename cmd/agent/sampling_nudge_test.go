@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 
+	agentConfig "github.com/DocumentDrivenDX/agent/internal/config"
 	"github.com/DocumentDrivenDX/agent/internal/sampling"
 	"github.com/stretchr/testify/assert"
 )
@@ -46,6 +47,66 @@ func TestSamplingProfileNudge_FiresOnceWhenMissing(t *testing.T) {
 	buf.Reset()
 	emit(sampling.Resolve(nil, "any-model", "code", nil))
 	assert.Empty(t, buf.String(), "second miss in the same process must not re-warn")
+}
+
+// TestSamplingProfileNudge_SoftMessageForImplicitGenerationConfig confirms
+// the ADR-007 §7 rule 4 toning rule: providers whose servers auto-load
+// model-card defaults (vLLM) get the softer "note" wording, not the
+// "warning" — they are not in the loop-bug regime.
+func TestSamplingProfileNudge_SoftMessageForImplicitGenerationConfig(t *testing.T) {
+	samplingProfileNudgeOnce = sync.Once{}
+	var buf bytes.Buffer
+	prevSink := samplingNudgeSink
+	samplingNudgeSink = &buf
+	t.Cleanup(func() { samplingNudgeSink = prevSink })
+
+	emit := func(res sampling.ResolveResult, providerType string) {
+		if res.MissingProfile {
+			msg := samplingProfileNudgeMessage
+			if agentConfig.ProviderImplicitGenerationConfig(providerType) {
+				msg = samplingProfileNudgeMessageImplicit
+			}
+			samplingProfileNudgeOnce.Do(func() {
+				_, _ = samplingNudgeSink.Write([]byte(msg + "\n"))
+			})
+		}
+	}
+
+	emit(sampling.Resolve(nil, "any-model", "code", nil), "vllm")
+	out := buf.String()
+	assert.Contains(t, out, "note:", "vLLM gets the soft 'note:' prefix, not 'warning:'")
+	assert.Contains(t, out, "generation_config.json", "soft message names the model-card default mechanism")
+	assert.Contains(t, out, "ddx-agent catalog update", "soft message still points at the refresh path")
+	assert.NotContains(t, out, "samplers will use server defaults", "loud-warning phrasing must not leak into the soft note")
+}
+
+// TestSamplingProfileNudge_HardMessageForExplicitProviders covers the other
+// branch: providers without ImplicitGenerationConfig (omlx, lmstudio, luce)
+// get the loud warning because their server fallback is decode-greedy.
+func TestSamplingProfileNudge_HardMessageForExplicitProviders(t *testing.T) {
+	for _, providerType := range []string{"omlx", "lmstudio", "luce"} {
+		t.Run(providerType, func(t *testing.T) {
+			samplingProfileNudgeOnce = sync.Once{}
+			var buf bytes.Buffer
+			prevSink := samplingNudgeSink
+			samplingNudgeSink = &buf
+			t.Cleanup(func() { samplingNudgeSink = prevSink })
+
+			res := sampling.Resolve(nil, "any-model", "code", nil)
+			if res.MissingProfile {
+				msg := samplingProfileNudgeMessage
+				if agentConfig.ProviderImplicitGenerationConfig(providerType) {
+					msg = samplingProfileNudgeMessageImplicit
+				}
+				samplingProfileNudgeOnce.Do(func() {
+					_, _ = samplingNudgeSink.Write([]byte(msg + "\n"))
+				})
+			}
+			out := buf.String()
+			assert.Contains(t, out, "warning:", "non-vLLM providers get the loud 'warning:' prefix")
+			assert.NotContains(t, out, "generation_config.json", "loud warning must not mention the implicit-load mechanism")
+		})
+	}
 }
 
 // TestSamplingProfileNudge_SilentWhenProfilePresent confirms the nudge stays

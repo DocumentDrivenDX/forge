@@ -22,6 +22,7 @@ import (
 	"github.com/DocumentDrivenDX/agent/internal/provider/omlx"
 	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
 	"github.com/DocumentDrivenDX/agent/internal/provider/openrouter"
+	"github.com/DocumentDrivenDX/agent/internal/provider/vllm"
 	"github.com/DocumentDrivenDX/agent/internal/reasoning"
 	"github.com/DocumentDrivenDX/agent/internal/safefs"
 	"github.com/DocumentDrivenDX/agent/internal/sampling"
@@ -31,7 +32,7 @@ import (
 
 // ProviderConfig describes a single named provider.
 type ProviderConfig struct {
-	Type      string             `yaml:"type"`               // "openai", "openrouter", "lmstudio", "omlx", "luce", "ollama", or "anthropic"
+	Type      string             `yaml:"type"`               // "openai", "openrouter", "lmstudio", "omlx", "luce", "vllm", "ollama", or "anthropic"
 	BaseURL   string             `yaml:"base_url,omitempty"` // shorthand for one endpoint
 	Endpoints []ProviderEndpoint `yaml:"endpoints,omitempty"`
 	APIKey    string             `yaml:"api_key,omitempty"`
@@ -821,6 +822,16 @@ func buildProviderFromConfig(pc ProviderConfig) (agent.Provider, error) {
 			Headers:      pc.Headers,
 			Reasoning:    pc.Reasoning,
 		}), nil
+	case "vllm":
+		return vllm.New(vllm.Config{
+			BaseURL:      pc.BaseURL,
+			APIKey:       pc.APIKey,
+			Model:        pc.Model,
+			ModelPattern: pc.ModelPattern,
+			KnownModels:  knownModels,
+			Headers:      pc.Headers,
+			Reasoning:    pc.Reasoning,
+		}), nil
 	case "ollama":
 		return ollama.New(ollama.Config{
 			BaseURL:      pc.BaseURL,
@@ -1046,6 +1057,8 @@ func defaultEndpointPort(providerType string) int {
 		return 1235
 	case "luce":
 		return 1236
+	case "vllm":
+		return 8000
 	case "ollama":
 		return 11434
 	default:
@@ -1114,6 +1127,10 @@ func normalizeProviderConfig(pc ProviderConfig) ProviderConfig {
 		if pc.BaseURL == "" {
 			pc.BaseURL = luce.DefaultBaseURL
 		}
+	case "vllm":
+		if pc.BaseURL == "" {
+			pc.BaseURL = vllm.DefaultBaseURL
+		}
 	case "ollama":
 		if pc.BaseURL == "" {
 			pc.BaseURL = ollama.DefaultBaseURL
@@ -1150,6 +1167,8 @@ func inferProviderTypeFromBaseURL(baseURL string) string {
 		return "omlx"
 	case strings.Contains(low, ":1236"):
 		return "luce"
+	case strings.Contains(low, ":8000"):
+		return "vllm"
 	default:
 		return ""
 	}
@@ -1157,7 +1176,7 @@ func inferProviderTypeFromBaseURL(baseURL string) string {
 
 func providerUsesEndpoint(providerType string) bool {
 	switch providerType {
-	case "openai", "openrouter", "lmstudio", "omlx", "luce", "ollama", "minimax", "qwen", "zai":
+	case "openai", "openrouter", "lmstudio", "omlx", "luce", "vllm", "ollama", "minimax", "qwen", "zai":
 		return true
 	default:
 		return false
@@ -1187,9 +1206,28 @@ func defaultModelCatalogManifestPath() string {
 	return filepath.Join(configDir, globalConfigDirName, "models.yaml")
 }
 
+// ProviderImplicitGenerationConfig reports whether the inference server
+// behind the given provider type auto-applies the model's HuggingFace
+// generation_config.json when the request omits sampler fields. The CLI
+// uses this to tone the ADR-007 §7 catalog-stale nudge — vLLM users with
+// no catalog profile aren't decoding greedy, they're getting model-card
+// defaults; everyone else is in the loop-bug regime.
+//
+// The single source of truth is each provider package's
+// ProtocolCapabilities; this function exists because cmd/agent cannot
+// import provider packages directly.
+func ProviderImplicitGenerationConfig(providerType string) bool {
+	switch providerType {
+	case "vllm":
+		return vllm.ProtocolCapabilities.ImplicitGenerationConfig
+	default:
+		return false
+	}
+}
+
 func surfaceForProviderType(providerType string) (modelcatalog.Surface, error) {
 	switch providerType {
-	case "openai", "openrouter", "lmstudio", "omlx", "luce", "ollama", "minimax", "qwen", "zai":
+	case "openai", "openrouter", "lmstudio", "omlx", "luce", "vllm", "ollama", "minimax", "qwen", "zai":
 		return modelcatalog.SurfaceAgentOpenAI, nil
 	case "anthropic":
 		return modelcatalog.SurfaceAgentAnthropic, nil
@@ -1247,9 +1285,9 @@ func (c *Config) validateProviders() error {
 			return fmt.Errorf("config: provider %q: type openai-compat is no longer supported; use openai, openrouter, lmstudio, omlx, or ollama", name)
 		}
 		switch pc.Type {
-		case "openai", "openrouter", "lmstudio", "omlx", "luce", "ollama", "minimax", "qwen", "zai", "anthropic":
+		case "openai", "openrouter", "lmstudio", "omlx", "luce", "vllm", "ollama", "minimax", "qwen", "zai", "anthropic":
 		default:
-			return fmt.Errorf("config: provider %q has unknown type %q (use openai, openrouter, lmstudio, omlx, luce, ollama, or anthropic)", name, pc.Type)
+			return fmt.Errorf("config: provider %q has unknown type %q (use openai, openrouter, lmstudio, omlx, luce, vllm, ollama, or anthropic)", name, pc.Type)
 		}
 		if providerUsesEndpoint(pc.Type) {
 			for i, endpoint := range pc.Endpoints {

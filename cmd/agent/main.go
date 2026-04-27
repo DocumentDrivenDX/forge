@@ -38,7 +38,17 @@ var (
 	samplingNudgeSink        io.Writer = os.Stderr
 )
 
+// samplingProfileNudgeMessage is the loud variant for providers whose
+// inference servers do NOT auto-load generation_config.json. Without a
+// catalog profile these decode greedy (or worse) — e.g., the Qwen3.x
+// tool-loop bug on omlx that ADR-007 was built to fix.
 const samplingProfileNudgeMessage = "warning: model catalog does not declare sampling_profiles.code; samplers will use server defaults. Run 'ddx-agent catalog update' to fetch the latest profiles (see ADR-007)."
+
+// samplingProfileNudgeMessageImplicit is the soft variant for providers
+// that DO auto-load model-card defaults (vLLM). The user is not in the
+// loop-bug regime — the model creator's recommended bundle is in effect —
+// but a catalog profile would still take precedence if installed.
+const samplingProfileNudgeMessageImplicit = "note: model catalog does not declare sampling_profiles.code; the inference server is applying the model's generation_config.json. Run 'ddx-agent catalog update' to install the agent's curated profile (see ADR-007)."
 
 // Version info set via -ldflags.
 var (
@@ -271,8 +281,17 @@ func run() int {
 		res := sampling.Resolve(lookup, selection.ResolvedModel, "code", pc.Sampling)
 		samplingSource = sampling.SourceSummary(res.Sources)
 		if res.MissingProfile {
+			// ADR-007 §7 rule 4: tone the nudge by provider capability.
+			// Servers that auto-load generation_config.json (vLLM) get the
+			// soft note; servers that do not (omlx, lmstudio, luce) get
+			// the loud warning because their fallback is decode-greedy or
+			// worse.
+			msg := samplingProfileNudgeMessage
+			if agentConfig.ProviderImplicitGenerationConfig(pc.Type) {
+				msg = samplingProfileNudgeMessageImplicit
+			}
 			samplingProfileNudgeOnce.Do(func() {
-				fmt.Fprintln(samplingNudgeSink, samplingProfileNudgeMessage)
+				fmt.Fprintln(samplingNudgeSink, msg)
 			})
 		}
 		if res.Profile.Temperature != nil {
