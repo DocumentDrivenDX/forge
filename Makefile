@@ -11,7 +11,7 @@ build:
 
 catalog-dist:
 	go run ./cmd/catalogdist \
-		--manifest modelcatalog/catalog/models.yaml \
+		--manifest internal/modelcatalog/catalog/models.yaml \
 		--out website/static/catalog \
 		--channel stable \
 		--min-agent-version "$${MIN_AGENT_VERSION:-$$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo dev)}"
