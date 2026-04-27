@@ -5,6 +5,34 @@ Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
 
 ## [Unreleased]
 
+## [v0.9.13] — 2026-04-26
+
+Iteration-cap fix for the execute-bead service path. Live Claude Opus
+baselines for medium-difficulty agent tasks land in the 29–99 tool-call
+range, which the prior implicit cap of 50 was truncating mid-loop. The
+operator-config `max_iterations` was also being silently ignored on the
+execute-bead path, so the configured ceiling never reached the service.
+
+### Changed
+
+- `service.Execute` decouples its iteration ceiling from the
+  read-only stall threshold. New explicit `defaultMaxIterations = 200`
+  applies when the caller leaves `ServiceExecuteRequest.MaxIterations`
+  unset (was: implicit `MaxReadOnlyToolIterations × 2 = 50`). The
+  read-only stall detector is unchanged. (`service_execute.go`)
+- `config.Defaults().MaxIterations` raised from 20 to 100 to match
+  the observed tool-call envelope and avoid silently truncating
+  legitimate long-loop work in the agent CLI path.
+  (`internal/config/config.go`, `internal/config/config_test.go`)
+- Beadbench manifest gains harness-parity arms on the Qwen 3.5 27B
+  family across local/cloud server backings
+  (`agent-omlx-vidar-qwen35-27b`, `agent-bragi-lmstudio-qwen35-27b`,
+  `agent-openrouter-qwen35-27b`) plus reference tasks
+  `agent-beadbench-preflight` (Claude Opus baseline 31 tool calls)
+  and `agent-pi-local-providers` (62 tool calls — stretch canary
+  that exceeds the prior 50-iteration cap).
+  (`scripts/beadbench/manifest-v1.json`)
+
 ## [v0.9.12] — 2026-04-26
 
 Operational/research release — scaffolds the harness-parity iteration loop

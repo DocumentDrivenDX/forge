@@ -201,7 +201,7 @@ func TestLoad_MissingFile(t *testing.T) {
 	cfg, err := Load(t.TempDir())
 	require.NoError(t, err)
 
-	assert.Equal(t, 20, cfg.MaxIterations)
+	assert.Equal(t, 100, cfg.MaxIterations)
 	assert.Equal(t, ".agent/sessions", cfg.SessionLogDir)
 }
 

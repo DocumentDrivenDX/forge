@@ -42,6 +42,12 @@ const defaultStallReadOnlyIterations = 25
 // useful state changes — fail fast.
 const defaultStallNoopCompactions = 50
 
+// defaultMaxIterations is the implicit per-execute iteration ceiling when the
+// caller does not set ServiceExecuteRequest.MaxIterations. Sized for the
+// 29–99 tool-call envelope observed on Claude Opus medium-task baselines,
+// with headroom. The read-only-streak stall detector remains independent.
+const defaultMaxIterations = 200
+
 // readOnlyTools enumerates tool names that do not mutate filesystem or
 // remote state. Used by the StallPolicy enforcement to detect "loops of
 // reads with no writes". The list is conservative — when in doubt a tool
@@ -693,9 +699,10 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 		provider = wrapProviderRequestTimeout(provider, req.ProviderTimeout)
 	}
 
-	// Stall policy: derive an implicit MaxIterations ceiling (~2× read-only
-	// limit) so callers don't have to configure it directly, but honor an
-	// explicit native-loop limit when the caller provides one.
+	// Stall policy enforces a read-only-streak circuit breaker; the iteration
+	// cap is decoupled from it. Recorded Claude Opus execute-bead baselines
+	// for medium-difficulty agent tasks land in the 29–99 tool-call range,
+	// so the implicit cap must comfortably exceed that envelope.
 	policy := req.StallPolicy
 	if policy == nil {
 		policy = &StallPolicy{
@@ -705,10 +712,7 @@ func (s *service) runNative(ctx context.Context, req ServiceExecuteRequest, deci
 	}
 	maxIter := req.MaxIterations
 	if maxIter <= 0 {
-		maxIter = policy.MaxReadOnlyToolIterations * 2
-	}
-	if maxIter == 0 {
-		maxIter = 100 // safety net when policy disables read-only tracking
+		maxIter = defaultMaxIterations
 	}
 
 	// Stall tracking state, updated from the loop callback.

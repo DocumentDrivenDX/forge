@@ -254,7 +254,7 @@ type Config struct {
 // Defaults returns a Config with sensible defaults.
 func Defaults() Config {
 	return Config{
-		MaxIterations:         20,
+		MaxIterations:         100,
 		SessionLogDir:         filepath.Join(projectConfigDir, "sessions"),
 		Preset:                "default",
 		ReasoningByteLimit:    agent.DefaultReasoningByteLimit,

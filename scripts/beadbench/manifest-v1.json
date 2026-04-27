@@ -161,7 +161,7 @@
       "harness": "agent",
       "provider": "vidar-omlx",
       "model": "Qwen3.6-27B-MLX-8bit",
-      "effort": "medium",
+      "effort": "off",
       "tier": "harness-parity",
       "review_harness": "codex",
       "review_model": "gpt-5.5",
@@ -172,11 +172,44 @@
       "harness": "pi",
       "provider": "vidar",
       "model": "Qwen3.6-27B-MLX-8bit",
-      "effort": "medium",
+      "effort": "off",
       "tier": "harness-parity",
       "review_harness": "codex",
       "review_model": "gpt-5.5",
       "rationale": "Pi harness against the same vidar OMLX Qwen 3.6 27B endpoint (named 'vidar' in pi's models.json) with a pinned codex/gpt-5.5 reviewer; paired with agent-omlx-vidar-qwen36 to isolate harness behavior on identical model/provider."
+    },
+    {
+      "id": "agent-omlx-vidar-qwen35-27b",
+      "harness": "agent",
+      "provider": "vidar-omlx",
+      "model": "Qwen3.5-27B-4bit",
+      "effort": "off",
+      "tier": "harness-parity",
+      "review_harness": "codex",
+      "review_model": "gpt-5.5",
+      "rationale": "Native agent harness against vidar OMLX Qwen3.5-27B-4bit. Same-server, prior-generation pair to agent-openrouter-qwen35-27b for isolating local-vs-cloud serving on the same model family."
+    },
+    {
+      "id": "agent-bragi-lmstudio-qwen35-27b",
+      "harness": "agent",
+      "provider": "bragi",
+      "model": "qwen3.5-27b",
+      "effort": "off",
+      "tier": "harness-parity",
+      "review_harness": "codex",
+      "review_model": "gpt-5.5",
+      "rationale": "Native agent harness against bragi LM Studio qwen3.5-27b. Third server-side variation paired with omlx-vidar and openrouter for the same model family."
+    },
+    {
+      "id": "agent-openrouter-qwen35-27b",
+      "harness": "agent",
+      "provider": "openrouter",
+      "model": "qwen/qwen3.5-27b",
+      "effort": "off",
+      "tier": "harness-parity",
+      "review_harness": "codex",
+      "review_model": "gpt-5.5",
+      "rationale": "Native agent harness against OpenRouter qwen/qwen3.5-27b to isolate server-side (omlx local vs cloud-hosted) from harness behavior. Closest single-axis (server-only) variation OpenRouter offers near the 3.6 27B used on omlx-vidar; pairs with agent-omlx-vidar-qwen36 and pi-omlx-vidar-qwen36."
     }
   ],
   "tasks": [
@@ -192,6 +225,34 @@
       "acceptance_command": "go test ./...",
       "verifier_command": "go test ./...",
       "rationale": "Adds benchmark-critical navigation tools and eval scoring; exercises tool API design, tests, and benchmark behavior."
+    },
+    {
+      "id": "agent-beadbench-preflight",
+      "project": "agent",
+      "project_root": "/Users/erik/Projects/agent",
+      "bead_id": "agent-37aeb88e",
+      "known_good_rev": "d33de60a220e606db83a41b87212b51d38191b20",
+      "base_rev": "8925d4b823878be0eddabb1cbc5de34f336d92c9",
+      "category": "benchmarking",
+      "difficulty": "medium",
+      "tier": "harness-parity",
+      "acceptance_command": "go test ./...",
+      "verifier_command": "go test ./...",
+      "rationale": "Beadbench preflight + phase-specific verification. Recorded Claude Opus execute-bead baseline: 31 tool calls, 4.1 min, 20K tokens, 3 files +439/-15. Easy-to-medium reference task for harness parity comparison."
+    },
+    {
+      "id": "agent-pi-local-providers",
+      "project": "agent",
+      "project_root": "/Users/erik/Projects/agent",
+      "bead_id": "agent-9dbfad9c",
+      "known_good_rev": "8ec82e2f8fe738235b605e09c173f71b9089d2aa",
+      "base_rev": "7ad9b475128792e47f3d3b2b12c7ecece31b9c98",
+      "category": "harness",
+      "difficulty": "medium",
+      "tier": "harness-parity",
+      "acceptance_command": "go test ./...",
+      "verifier_command": "go test ./...",
+      "rationale": "Pi harness LM Studio/OMLX provider pin support. Recorded Claude Opus execute-bead baseline: 62 tool calls, 5.6 min, 16K tokens, 6 files +227/-8. Stretch task that immediately exceeds the prior 50-iteration cap; useful canary for cap-bump fix."
     },
     {
       "id": "agent-benchmark-preset",
