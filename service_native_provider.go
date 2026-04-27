@@ -8,10 +8,12 @@ import (
 	"github.com/DocumentDrivenDX/agent/internal/modelcatalog"
 	"github.com/DocumentDrivenDX/agent/internal/provider/anthropic"
 	"github.com/DocumentDrivenDX/agent/internal/provider/lmstudio"
+	"github.com/DocumentDrivenDX/agent/internal/provider/lucebox"
 	"github.com/DocumentDrivenDX/agent/internal/provider/ollama"
 	"github.com/DocumentDrivenDX/agent/internal/provider/omlx"
 	oaiProvider "github.com/DocumentDrivenDX/agent/internal/provider/openai"
 	"github.com/DocumentDrivenDX/agent/internal/provider/openrouter"
+	"github.com/DocumentDrivenDX/agent/internal/provider/vllm"
 )
 
 type nativeProviderResolution struct {
@@ -183,6 +185,18 @@ func buildNativeProvider(name string, entry ServiceProviderEntry) agentcore.Prov
 		})
 	case "omlx":
 		return omlx.New(omlx.Config{
+			BaseURL: entry.BaseURL,
+			APIKey:  entry.APIKey,
+			Model:   entry.Model,
+		})
+	case "lucebox":
+		return lucebox.New(lucebox.Config{
+			BaseURL: entry.BaseURL,
+			APIKey:  entry.APIKey,
+			Model:   entry.Model,
+		})
+	case "vllm":
+		return vllm.New(vllm.Config{
 			BaseURL: entry.BaseURL,
 			APIKey:  entry.APIKey,
 			Model:   entry.Model,
