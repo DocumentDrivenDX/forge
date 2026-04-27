@@ -76,7 +76,7 @@ func TestDefault_LoadsEmbeddedManifest(t *testing.T) {
 	assert.Equal(t, "opus-4.7", resolved.ConcreteModel)
 	assert.Equal(t, reasoning.ReasoningHigh, resolved.SurfacePolicy.ReasoningDefault)
 	assert.Equal(t, "embedded", resolved.ManifestSource)
-	assert.Equal(t, "2026-04-27.1", resolved.CatalogVersion)
+	assert.Equal(t, "2026-04-27.2", resolved.CatalogVersion)
 }
 
 func TestDefault_ReasoningDefaultsByTier(t *testing.T) {

@@ -5,7 +5,7 @@ generated_at: 2026-04-27T00:00:00Z
 # `ddx-agent catalog update` to reach existing installations — including
 # additive schema extensions per ADR-007 §7. Format: YYYY-MM-DD.N
 # (calendar date, increment N for same-day changes).
-catalog_version: 2026-04-27.1
+catalog_version: 2026-04-27.2
 
 # Sampling profiles (ADR-007 L1 — generic per-task bundles).
 # A field unset here stays nil through the resolver and is omitted from
@@ -172,6 +172,26 @@ models:
     surfaces:
       agent.anthropic: haiku-5.5
       claude-code: haiku-5.5
+
+  luce-dflash:
+    family: qwen
+    display_name: Luce DFlash (Qwen3.5/3.6 27B speculative)
+    tier: code-economy
+    status: active
+    provider_system: luce
+    # Speculative-decoding inference server from lucebox-hub
+    # (https://github.com/Luce-Org/lucebox-hub). Single hardcoded model id;
+    # the underlying weights are Qwen3.5-27B-Q4_K_M GGUF (3.6-27B drop-in
+    # supported per upstream README, experimental). Greedy decoding only;
+    # no tool calling; no reasoning toggle. Catalog flags reflect that:
+    # samplers and reasoning are both pinned at the server.
+    context_window: 131072
+    reasoning_levels: [off]
+    reasoning_control: none
+    reasoning_wire: none
+    sampling_control: harness_pinned
+    surfaces:
+      agent.openai: luce-dflash
 
   qwen3.5-27b:
     family: qwen

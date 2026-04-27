@@ -572,7 +572,7 @@ func TestCLI_CatalogShow_EmbeddedFallback(t *testing.T) {
 	require.NoError(t, err, string(out))
 	output := string(out)
 	assert.Contains(t, output, "source: embedded")
-	assert.Contains(t, output, "catalog_version: 2026-04-27.1")
+	assert.Contains(t, output, "catalog_version: 2026-04-27.2")
 	assert.Contains(t, output, "code-high:")
 	assert.Contains(t, output, "agent.openai: gpt-5.4")
 	assert.Contains(t, output, "agent.anthropic: opus-4.7")
