@@ -288,6 +288,16 @@
       "review_harness": "codex",
       "review_model": "gpt-5.5",
       "rationale": "Agent harness against openrouter qwen/qwen3.6-plus (Alibaba-hosted). Cloud baseline for the harness-parity Qwen3.6 comparison."
+    },
+    {
+      "id": "pi-openrouter-qwen36plus",
+      "harness": "pi",
+      "provider": "openrouter",
+      "model": "qwen/qwen3.6-plus",
+      "tier": "harness-parity",
+      "review_harness": "codex",
+      "review_model": "gpt-5.5",
+      "rationale": "Pi harness against openrouter qwen/qwen3.6-plus paired with agent-openrouter-qwen36plus to produce the first agent-vs-pi-parity row per agent-f43d1ed2."
     }
   ],
   "tasks": [
