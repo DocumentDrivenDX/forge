@@ -92,8 +92,8 @@ type Descriptor struct {
 }
 
 var (
-	mu       sync.RWMutex
-	entries  = map[string]Descriptor{}
+	mu      sync.RWMutex
+	entries = map[string]Descriptor{}
 )
 
 // Register installs a provider Descriptor. Called from each provider

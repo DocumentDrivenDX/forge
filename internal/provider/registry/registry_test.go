@@ -14,8 +14,8 @@ import (
 	_ "github.com/DocumentDrivenDX/agent/internal/provider/omlx"
 	_ "github.com/DocumentDrivenDX/agent/internal/provider/openai"
 	_ "github.com/DocumentDrivenDX/agent/internal/provider/openrouter"
-	_ "github.com/DocumentDrivenDX/agent/internal/provider/vllm"
 	"github.com/DocumentDrivenDX/agent/internal/provider/registry"
+	_ "github.com/DocumentDrivenDX/agent/internal/provider/vllm"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
