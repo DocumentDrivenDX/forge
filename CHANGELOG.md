@@ -5,7 +5,55 @@ Dates use the repo convention (`YYYY-MM-DD`); versions follow semver.
 
 ## [Unreleased]
 
-## [v0.9.20] — 2026-04-27
+## [v0.9.21] — 2026-04-27
+
+Bug-fix release. Closes the lucebox + vllm provider integration loop
+that v0.9.18-.20 left half-shipped, and adds deeper tool-call
+conformance coverage that surfaced the gap.
+
+### Fixed
+
+- `service_native_provider.go`'s `buildNativeProvider` had its own
+  switch over provider types parallel to `internal/config/config.go`'s
+  factory — the lucebox + vllm additions in v0.9.18-.20 missed it.
+  Result: `ServiceExecuteRequest` with `provider=lucebox` or `=vllm`
+  failed at execute time with `no configured provider matches type`
+  even though config validation accepted them. Both factories now
+  register both types. Filed as architectural smell `agent-8e4eb44c`
+  (provider registry refactor) for the longer-term fix.
+
+### Added
+
+- **Conformance tool-call coverage doubled** (commit `72399fa`).
+  Existing `tool_call_streaming` subtest tightened — args must parse as
+  JSON with non-empty `target` string, not just contain the literal.
+  Three new subtests under `SupportsToolCalls`:
+  - `non-streaming_tool_call` — exercises Chat path independently of
+    ChatStream so regressions in either are visible.
+  - `multi-tool_wire_shape` — sends 3 tools in one request; asserts
+    response chose one of them (does not lock to which — that's
+    model intelligence, not wire conformance).
+  - `tool_result_roundtrip` — synthesizes user → assistant tool_call →
+    tool result conversation; asserts the follow-up does not re-emit
+    a tool call. Validates `tool_call_id` pairing serialization.
+- Two new conformance helper tools: `summarizeTool()`, `countWordsTool()`.
+- Shaped-double fixtures for both wire flavors (openai-compat,
+  anthropic) updated to support the new subtests — non-streaming with
+  tools returns tool_calls; tool-result history returns plain content.
+
+### Documentation
+
+- `docs/research/lucebox-tool-support-2026-04-27.md` — comprehensive
+  report on the lucebox-hub dflash server's wire compliance + four
+  gaps (tool_choice silently ignored, conservative auto-mode,
+  Blackwell-consumer perf unswept, server stability under burst load).
+- `docs/research/qwen3.6-27b-cross-provider-2026-04-27.md` — Tier-2
+  grading-harness comparison across openrouter (cloud baseline),
+  vidar omlx, grendel omlx, bragi lucebox, bragi LM Studio. All six
+  targets pass 8/8 quality; 23× spread on speed. Identifies bragi
+  LM Studio as the production local pick today.
+
+
 
 Renames `luce` → `lucebox` (aligns with upstream lucebox-hub project,
 removes ambiguity with "Luce" the org), promotes the provider to
