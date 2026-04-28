@@ -177,11 +177,36 @@ func cmdRun(args []string) int {
 	maxCostUSD := fs.Float64("max-cost-usd", 0.50, "Cost cap in USD; sweep halts when accumulated cost reaches this limit (0 = no cap)")
 	timeoutSec := fs.Int("timeout", 120, "Per-task timeout in seconds")
 	resultsDir := fs.String("results-dir", "", "Directory to write result JSON (default: bench/results relative to work-dir)")
+	external := fs.String("external", "", "External benchmark adapter (currently supported: termbench)")
+	externalSubset := fs.String("external-subset", "", "Path to external benchmark subset manifest (default: scripts/beadbench/external/<adapter>-subset.json)")
+	externalTasks := fs.String("external-tasks-dir", "", "Path to external benchmark tasks directory (default: scripts/benchmark/external/terminal-bench/tasks)")
+	externalHarness := fs.String("external-harness", "ddx-agent", "Harness label for external benchmark runs")
+	externalModel := fs.String("external-model", "", "Model ID for external benchmark runs")
+	externalPerms := fs.String("external-permissions", "", "Permissions preset override for external runs (default: trusted)")
+	externalMax := fs.Int("external-max-tasks", 0, "Cap external benchmark to first N tasks (0 = no cap)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 
 	wd := resolveWorkDir(*workDir)
+
+	if *external != "" {
+		switch *external {
+		case "termbench":
+			return runExternalTermbench(externalRunOptions{
+				workDir:     wd,
+				subsetPath:  *externalSubset,
+				tasksDir:    *externalTasks,
+				harness:     *externalHarness,
+				model:       *externalModel,
+				permissions: *externalPerms,
+				maxTasks:    *externalMax,
+			})
+		default:
+			fmt.Fprintf(os.Stderr, "%s run: unknown --external=%q (supported: termbench)\n", benchCommandName(), *external)
+			return 2
+		}
+	}
 
 	// Resolve corpus directory.
 	corpus := *corpusDir

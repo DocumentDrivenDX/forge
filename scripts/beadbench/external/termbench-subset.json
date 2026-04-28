@@ -1,0 +1,31 @@
+{
+  "_comment": "Frozen TerminalBench subset for routine external-benchmark runs. Inclusion criteria: (1) real terminal-bench-2 task IDs at the pinned dataset_commit; (2) environment.cpus == 1 and memory <= 2G so trials fit single-host runners; (3) verifier.timeout_sec and agent.timeout_sec both <= 1200; (4) metadata.expert_time_estimate_min <= 180; (5) no 'no-verified-solution' tag; (6) stratified across software-engineering / security / file-operations / system-administration / data-processing / debugging so a small per-release sweep still covers the major task families. Bumping version requires a fresh baseline.",
+  "version": "1",
+  "captured": "2026-04-27",
+  "dataset": "terminal-bench@2.0",
+  "dataset_repo": "https://github.com/laude-institute/terminal-bench-2",
+  "dataset_commit": "53ff2b87d621bdb97b455671f2bd9728b7d86c11",
+  "selection_rule": "Same selection as scripts/benchmark/task-subset-v2.yaml — filtered TB2 tasks with fixed category quotas (5/3/2/2/2/1) sorted by difficulty then ID. Use this JSON form for cmd/bench --external=termbench; the YAML form is preserved for the evidence-grade comparison script.",
+  "tasks": [
+    {"id": "cancel-async-tasks",        "category": "software-engineering",   "difficulty": "hard",   "rationale": "Async/debug-heavy code fix; exercises read, edit, and test loops."},
+    {"id": "build-pmars",               "category": "software-engineering",   "difficulty": "medium", "rationale": "Build-oriented task that stresses shell discipline and targeted fixes."},
+    {"id": "code-from-image",           "category": "software-engineering",   "difficulty": "medium", "rationale": "Mixed extraction and coding workflow; broadens beyond plain text edits."},
+    {"id": "git-leak-recovery",         "category": "software-engineering",   "difficulty": "medium", "rationale": "Git-oriented remediation task aligned with repository tooling workflows."},
+    {"id": "headless-terminal",         "category": "software-engineering",   "difficulty": "medium", "rationale": "Terminal-centric task that can expose shell exploration anti-patterns."},
+    {"id": "fix-code-vulnerability",    "category": "security",                "difficulty": "hard",   "rationale": "High-signal secure-editing task for structured edit and validation behavior."},
+    {"id": "password-recovery",         "category": "security",                "difficulty": "hard",   "rationale": "Troubleshooting-heavy security task with file and shell interaction."},
+    {"id": "break-filter-js-from-html", "category": "security",                "difficulty": "medium", "rationale": "Smaller security task that helps detect regressions on easier remediation work."},
+    {"id": "db-wal-recovery",           "category": "file-operations",         "difficulty": "medium", "rationale": "Recovery task with binary/file handling and verification pressure."},
+    {"id": "extract-elf",               "category": "file-operations",         "difficulty": "medium", "rationale": "File-inspection task that stresses targeted reads over shell thrash."},
+    {"id": "configure-git-webserver",   "category": "system-administration",   "difficulty": "hard",   "rationale": "Short but high-signal config task that exercises precise shell usage."},
+    {"id": "git-multibranch",           "category": "system-administration",   "difficulty": "medium", "rationale": "Multi-branch git workflow useful for navigation and command discipline."},
+    {"id": "log-summary-date-ranges",   "category": "data-processing",         "difficulty": "medium", "rationale": "Text-processing/report task aligned with read-edit-run loops."},
+    {"id": "multi-source-data-merger",  "category": "data-processing",         "difficulty": "medium", "rationale": "Multi-input transformation task that stresses structured reasoning over bash search."},
+    {"id": "build-cython-ext",          "category": "debugging",               "difficulty": "medium", "rationale": "Build/debug task that checks diagnosis quality and fix verification."},
+    {"id": "hello-world",               "category": "smoke",                    "difficulty": "easy",   "rationale": "Canonical TB hello-world; cheap signal that the adapter is wired end-to-end."},
+    {"id": "fizzbuzz",                  "category": "software-engineering",    "difficulty": "easy",   "rationale": "Easy programming smoke task; useful as a low-variance harness sanity check."},
+    {"id": "decimal-to-binary",         "category": "software-engineering",    "difficulty": "easy",   "rationale": "Easy algorithmic task; complements the hard-mode coverage above."},
+    {"id": "factorial",                 "category": "software-engineering",    "difficulty": "easy",   "rationale": "Trivial task to keep the easy tail represented."},
+    {"id": "reverse-string",            "category": "software-engineering",    "difficulty": "easy",   "rationale": "Trivial task; helps confirm even cheap models clear something."}
+  ]
+}
