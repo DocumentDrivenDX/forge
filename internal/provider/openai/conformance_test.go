@@ -85,6 +85,10 @@ func TestConformance_OpenAICompatShapedDoubles(t *testing.T) {
 				SupportsStreaming: true,
 				SupportsThinking:  desc.supportsThinking,
 				SupportsToolCalls: desc.supportsToolCalls,
+				// Shaped-double fixture emits these deterministically.
+				ChatContains:      "pong",
+				StreamContains:    "stream-pong",
+				ReasoningContains: "reasoning",
 			})
 		})
 	}

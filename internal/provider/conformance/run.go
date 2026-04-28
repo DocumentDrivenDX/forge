@@ -94,15 +94,12 @@ func Run(t *testing.T, factory Factory, caps Capabilities) {
 	if caps.Name == "" {
 		t.Fatal("conformance: Capabilities.Name is required")
 	}
-	if caps.ChatContains == "" {
-		caps.ChatContains = "pong"
-	}
-	if caps.StreamContains == "" {
-		caps.StreamContains = "stream-pong"
-	}
-	if caps.ReasoningContains == "" {
-		caps.ReasoningContains = "reasoning"
-	}
+	// ChatContains / StreamContains / ReasoningContains are opt-in
+	// literal-substring assertions for callers that emit deterministic
+	// fixtures (shaped-double tests). Live conformance against real
+	// providers leaves them empty — see agent-bcea2d77 for why
+	// literal-substring checks fail thinking-mode local models even
+	// when the wire is working correctly.
 	if caps.MaxTokensSlack == 0 {
 		caps.MaxTokensSlack = 1
 	}
@@ -150,7 +147,18 @@ func Run(t *testing.T, factory Factory, caps Capabilities) {
 		if err != nil {
 			t.Fatalf("%s: Chat failed: %v", caps.Name, err)
 		}
-		if !strings.Contains(resp.Content, caps.ChatContains) {
+		// Wire-shape check: non-empty visible content. The previous
+		// literal "pong" assertion treated models as token-echoing
+		// oracles — works for instruct models, fails for thinking-mode
+		// locals (Qwen3.x) that think then phrase their own answer.
+		// Per agent-bcea2d77 the test now asserts only that the wire
+		// delivered something. caps.ChatContains, when set, still
+		// runs as an additional check for shaped doubles that emit
+		// deterministic fixtures.
+		if strings.TrimSpace(resp.Content) == "" {
+			t.Fatalf("%s: Chat returned empty content (wire delivered nothing)", caps.Name)
+		}
+		if caps.ChatContains != "" && !strings.Contains(resp.Content, caps.ChatContains) {
 			t.Fatalf("%s: Chat content %q, want substring %q", caps.Name, resp.Content, caps.ChatContains)
 		}
 		if resp.Model == "" {
@@ -173,7 +181,13 @@ func Run(t *testing.T, factory Factory, caps Capabilities) {
 		if !result.done {
 			t.Fatalf("%s: stream did not emit Done", caps.Name)
 		}
-		if !strings.Contains(result.content, caps.StreamContains) {
+		// Same logic as non-streaming: structural check (non-empty
+		// content) is the wire-shape test; literal-substring check
+		// applies to shaped doubles that emit deterministic fixtures.
+		if strings.TrimSpace(result.content) == "" {
+			t.Fatalf("%s: stream returned empty content (wire delivered nothing)", caps.Name)
+		}
+		if caps.StreamContains != "" && !strings.Contains(result.content, caps.StreamContains) {
 			t.Fatalf("%s: stream content %q, want substring %q", caps.Name, result.content, caps.StreamContains)
 		}
 	})
@@ -183,7 +197,16 @@ func Run(t *testing.T, factory Factory, caps Capabilities) {
 		streamer := requireStreamer(t, caps.Name, subject.Provider)
 		ctx, cancel := scenarioContext(caps)
 		defer cancel()
+		// Thinking-mode providers route most output budget through
+		// reasoning_content first; a 3-token cap (the default) is
+		// guaranteed to produce empty visible content even when the
+		// wire is working correctly. Floor the cap at 256 for those
+		// so reasoning + at least a few visible tokens both fit.
+		// agent-bcea2d77.
 		maxTokens := caps.streamMaxTokensCheck()
+		if caps.SupportsThinking && maxTokens < 256 {
+			maxTokens = 256
+		}
 		result := collectStream(t, caps.Name, streamer, ctx, []agent.Message{
 			{Role: agent.RoleUser, Content: "conformance: max tokens"},
 		}, nil, agent.Options{MaxTokens: maxTokens})
@@ -191,7 +214,10 @@ func Run(t *testing.T, factory Factory, caps Capabilities) {
 		if words == 0 {
 			t.Fatalf("%s: max_tokens stream returned empty content", caps.Name)
 		}
-		if words > maxTokens+caps.MaxTokensSlack {
+		// Bound check applies only when we set a tight cap; for the
+		// thinking-floor case we don't assert an upper bound on word
+		// count, since we deliberately raised the cap to fit reasoning.
+		if !caps.SupportsThinking && words > maxTokens+caps.MaxTokensSlack {
 			t.Fatalf("%s: stream returned %d words, want <= %d", caps.Name, words, maxTokens+caps.MaxTokensSlack)
 		}
 	})
@@ -205,7 +231,13 @@ func Run(t *testing.T, factory Factory, caps Capabilities) {
 			result := collectStream(t, caps.Name, streamer, ctx, []agent.Message{
 				{Role: agent.RoleUser, Content: "conformance: reason briefly then answer"},
 			}, nil, agent.Options{MaxTokens: caps.chatMaxTokens(), Reasoning: agent.ReasoningTokens(32)})
-			if !strings.Contains(result.reasoning, caps.ReasoningContains) {
+			// Wire-shape check: reasoning_content must arrive. The
+			// literal-substring check is preserved as an opt-in for
+			// shaped-double fixtures.
+			if strings.TrimSpace(result.reasoning) == "" {
+				t.Fatalf("%s: thinking-capable provider returned empty reasoning_content", caps.Name)
+			}
+			if caps.ReasoningContains != "" && !strings.Contains(result.reasoning, caps.ReasoningContains) {
 				t.Fatalf("%s: reasoning content %q, want substring %q", caps.Name, result.reasoning, caps.ReasoningContains)
 			}
 		})

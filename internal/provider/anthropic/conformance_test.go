@@ -73,6 +73,9 @@ func TestConformance_AnthropicShapedDouble(t *testing.T) {
 		ExpectedModels:    []string{model},
 		SupportsStreaming: true,
 		SupportsToolCalls: true,
+		// Shaped-double fixture emits these literals deterministically.
+		ChatContains:   "pong",
+		StreamContains: "stream-pong",
 	})
 }
 
