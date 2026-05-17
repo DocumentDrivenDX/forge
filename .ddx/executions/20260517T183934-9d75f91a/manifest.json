@@ -1,0 +1,33 @@
+{
+  "attempt_id": "20260517T183934-9d75f91a",
+  "bead_id": "fizeau-56e8e84b",
+  "base_rev": "392700274838935f24fa7d7f0f4010afdda80c18",
+  "created_at": "2026-05-17T18:39:39.204398409Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-56e8e84b",
+    "title": "bench-pr-A: bash runner + shell adapters + harbor-runner image + --prese: part 2",
+    "description": "PROBLEM\nParent bead fizeau-11e9c095 is too broad for one execution pass. This child owns part 2 of 2 of that parent scope.\n\nROOT CAUSE\nFirst and largest piece of the bench runner rewrite. Replaces cmd/bench/matrix.go with\na bash runner; ports the matrix-side Python harness_adapters/ to shell harness-adapters/;\nwraps Harbor invocation in a Docker container so the host stops needing Python.\n\nCONTEXT: today's runner is `fiz-bench matrix` (Go, cmd/bench/matrix.go ~2232 LOC). It\nputs repo root on host PYTHONPATH (cmd/bench/matrix.go:1105) so Harbor can import\nscripts.benchmark.harbor_adapters.*. That makes host Python required. We're moving\nHarbor and its plugins into a fizeau-harbor-runner Docker image so the host only needs\nbash + Node + Docker. The new runner is at scripts/benchmark/benchmark (no extension).\n\nSCOPE — runner (scripts/benchmark/benchmark, new bash script):\n  - Arg parsing + dispatch: ./benchmark \u003csubcommand\u003e ... with subcommands\n      profiles | bench-sets | task-executors | harness-adapters | validate |\n      preflight | (no subcommand = run mode)\n  - Run mode flags: --profile P[,P2,...] --bench-set B[,B2,...] [--plan]\n      [--force-rerun] [--retry-invalid] [--reps N] [--jobs N] [--max-cost-usd X]\n      [--out DIR]\n  - Read profile/bench-set/concurrency-group YAML with `yq -o=json`.\n  - Matrix expansion: profile × task × rep -\u003e ordered cell list. Resolve `tasks_from:`\n    references (path relative to bench-set file) AND inline `tasks:` lists. PR C will\n    finalize the schema; for PR A's smoke tests, default `task_executor` to `harbor`\n    when `framework == terminal-bench`.\n  - Resume default: if cell_dir/report.json exists with terminal final_status -\u003e skip.\n    --force-rerun ignores. --retry-invalid reruns cells with non-empty invalid_class OR\n    orphan cell-state.json.\n  - Per-cell loop: write cell-state.json sentinel; invoke\n    harness-adapters/\u003cname\u003e command \u003c profile.json -\u003e command-spec.json; compose\n    task-spec; invoke task-executors/\u003cname\u003e \u003c task-spec.json (writes\n    cell_dir/result.json); compose report.json; delete cell-state.json.\n  - Concurrency: flock per concurrency-group at\n    \\${FIZEAU_BENCH_STATE_DIR:-\\${XDG_CACHE_HOME:-\\$HOME/.cache}/fizeau-benchmark}/locks/\u003cgroup\u003e.lock;\n    setsid for each cell process group; background-job pool capped by --jobs.\n  - Signal handling: trap SIGINT/SIGTERM. Stop accepting new cells. SIGTERM each\n    in-flight cell's process group and `docker stop` each in-flight harbor-runner\n    container. Wait 30s, then SIGKILL.\n...[truncated]\n\nPROPOSED FIX\nImplement only this child acceptance slice:\n- Implement the remaining bounded slice of the parent bead.\n\nNON-SCOPE\nDo not implement parent acceptance criteria assigned to sibling child beads. Preserve every parent non-scope constraint unless this child explicitly narrows it.",
+    "acceptance": "1. Implement the remaining bounded slice of the parent bead.\n2. cd cli \u0026\u0026 go test ./... passes.\n3. lefthook run pre-commit passes.",
+    "parent": "fizeau-11e9c095",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed"
+    ]
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T183934-9d75f91a",
+    "prompt": ".ddx/executions/20260517T183934-9d75f91a/prompt.md",
+    "manifest": ".ddx/executions/20260517T183934-9d75f91a/manifest.json",
+    "result": ".ddx/executions/20260517T183934-9d75f91a/result.json",
+    "checks": ".ddx/executions/20260517T183934-9d75f91a/checks.json",
+    "usage": ".ddx/executions/20260517T183934-9d75f91a/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-56e8e84b-20260517T183934-9d75f91a"
+  },
+  "prompt_sha": "bd8d1cce55d5f337180d2c71a888cf2987fa768ba96a73ddc731b8dcb7223a24"
+}
