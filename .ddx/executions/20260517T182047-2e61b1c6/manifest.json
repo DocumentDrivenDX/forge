@@ -1,0 +1,33 @@
+{
+  "attempt_id": "20260517T182047-2e61b1c6",
+  "bead_id": "fizeau-3e41af01",
+  "base_rev": "f63437a7e2f0423f40a547e4a62ef77fd67556b1",
+  "created_at": "2026-05-17T18:21:01.129713778Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-3e41af01",
+    "title": "bench-pr-A.1: bash runner skeleton + arg parsing + YAML matrix expansion",
+    "description": "PROBLEM\nThe parent bead replaces cmd/bench/matrix.go (~2232 LOC Go) with a bash runner at scripts/benchmark/benchmark. This child delivers the runner's outer shell: arg parsing, subcommand dispatch, YAML loading, and matrix expansion — without per-cell execution, adapters, or Docker.\n\nROOT CAUSE\ncmd/bench/matrix.go:1105 puts repo root on host PYTHONPATH so Harbor can import scripts.benchmark.harbor_adapters.*, forcing host Python. The Go runner also owns arg parsing (cmd/bench/matrix.go arg-handling block) and matrix expansion (profile × task × rep). We need a bash entry point that can stand alone before adapters/Docker land.\n\nPROPOSED FIX\nCreate scripts/benchmark/benchmark (bash, no extension, +x). Implement:\n  - Subcommand dispatch: profiles | bench-sets | task-executors | harness-adapters | validate | preflight | (default = run).\n  - Run-mode flags exactly as parent spec: --profile, --bench-set, --plan, --force-rerun, --retry-invalid, --reps, --jobs, --max-cost-usd, --out.\n  - YAML loaders that shell out to `yq -o=json` for profile, bench-set, concurrency-group files.\n  - Matrix expansion: resolve `tasks_from:` (relative to bench-set file) and inline `tasks:`; default task_executor to `harbor` when framework == terminal-bench; emit ordered cell list to stdout as JSON when --plan is set.\n  - listing subcommands (profiles, bench-sets, task-executors, harness-adapters) print names found on disk; stub validate/preflight that exits 0 with a 'not yet implemented' note (filled in by sibling A.4).\n\nNON-SCOPE\n- No per-cell execution loop, no adapter invocation, no Docker. Those land in siblings A.2/A.3/A.4.\n- No removal of cmd/bench/matrix.go in this child.\n- Preserve every parent non-scope item.\n\nAC\n1. scripts/benchmark/benchmark exists, is executable, and `./benchmark --help` prints subcommand+flag usage matching the parent spec.\n2. `./benchmark --plan --profile P --bench-set B` emits a JSON cell list with correct profile×task×rep expansion including `tasks_from:` resolution; covered by TestBenchmarkRunnerPlanExpansion (Go test in cli/ that shells out to the script against fixture YAML).\n3. Unknown subcommand or missing required flag exits non-zero with a usage hint; covered by TestBenchmarkRunnerArgParsing.\n4. cd cli \u0026\u0026 go test ./... passes.\n5. lefthook run pre-commit passes.",
+    "acceptance": "1. scripts/benchmark/benchmark exists, executable, --help documents subcommands+flags.\n2. TestBenchmarkRunnerPlanExpansion verifies --plan output for profile×task×rep with tasks_from resolution.\n3. TestBenchmarkRunnerArgParsing verifies unknown-subcommand and missing-flag exit codes.\n4. cd cli \u0026\u0026 go test ./... passes.\n5. lefthook run pre-commit passes.",
+    "parent": "fizeau-bfdd6a77",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed"
+    ]
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T182047-2e61b1c6",
+    "prompt": ".ddx/executions/20260517T182047-2e61b1c6/prompt.md",
+    "manifest": ".ddx/executions/20260517T182047-2e61b1c6/manifest.json",
+    "result": ".ddx/executions/20260517T182047-2e61b1c6/result.json",
+    "checks": ".ddx/executions/20260517T182047-2e61b1c6/checks.json",
+    "usage": ".ddx/executions/20260517T182047-2e61b1c6/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-3e41af01-20260517T182047-2e61b1c6"
+  },
+  "prompt_sha": "688a5c71538a7fa510ff7d8bcad790dc9b71b233aa8978efbb7924821830ce83"
+}
