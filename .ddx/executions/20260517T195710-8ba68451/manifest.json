@@ -1,0 +1,34 @@
+{
+  "attempt_id": "20260517T195710-8ba68451",
+  "bead_id": "fizeau-a4844364",
+  "base_rev": "6ea4e1ddb2f9ed6edcc751b6903af5579031d80a",
+  "created_at": "2026-05-17T19:57:13.171426148Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-a4844364",
+    "title": "bench-pr-A1: harbor-runner image, shell adapters, runtime probe, and planning-mode fix",
+    "description": "PROBLEM: The benchmark path still requires host Python and keeps agent-specific Harbor import wiring in the Go matrix runner, while the benchmark preset also leaks planning mode into native execution. Governing artifact: plan-2026-05-15-benchmark-runner-simplification. Dependency ID: fizeau-163efede.\nROOT CAUSE: cmd/bench/matrix.go:1105 puts the repo root on host PYTHONPATH so Harbor can import scripts.benchmark.harbor_adapters.*; cmd/bench/matrix.go:1015 passes agent-import-path for claude/codex from Go instead of adapter contracts; internal/serviceimpl/execute_native.go:265 forces PlanningMode when req.ToolPreset == \"benchmark\".\nPROPOSED FIX: Add scripts/benchmark/Dockerfile.harbor-runner using python:3.12-slim, pinned harbor-bench or the documented git fallback, copies scripts/benchmark/harbor_adapters/ and harbor_agent.py into /app, sets PYTHONPATH=/app, and uses ENTRYPOINT [\"harbor\"]. Add scripts/benchmark/build-harbor-runner.sh that computes an image-content-sha from harbor_adapters/, harbor_agent.py, and Dockerfile.harbor-runner and labels fizeau-harbor-runner:latest. Port harness adapters into executable scripts/benchmark/harness-adapters/{fiz,claude,codex,opencode,pi,cost-probe,noop,dumb-script}, each with a '# SUMMARY:' header and install and command subcommands producing the documented JSON contracts. Add scripts/benchmark/task-executors/harbor as a bash wrapper around docker run with /var/run/docker.sock, cell_dir, tasks_dir, FIZEAU_* environment, Harbor plugin import path, task id, and output path; it reads task-spec.json from stdin and writes cell_dir/result.json. Add scripts/benchmark/runtime-probe.sh with lucebox, llamacpp, vllm, omlx, ds4, and rapid-mlx cases emitting model_server JSON. Add scripts/benchmark/task-executors/CONTRACT.md and scripts/benchmark/harness-adapters/CONTRACT.md. Delete the benchmark-preset PlanningMode clause, add sampling.planning_mode default false to profile YAML schema, migrate profiles found by rg -l 'preset.*benchmark|FIZEAU_PRESET' scripts/benchmark/profiles/, and make harness-adapters/fiz emit --plan only when sampling.planning_mode is true.\nNON-SCOPE: cell-report.schema.json (PR B); final tasks_from / task_executor bench-set schema (PR C); Node collector (PR D); Node importers (PR E); deleting cmd/bench (PR F); docs beyond the required CONTRACT.md files and existing redirect references (PR G). Do not refactor unrelated Go services or change non-benchmark presets.\nROLLBACK: If interrupted, leave partial cell-state.json sentinels alone as recovery anchors and revert only this child bead's partial commits.",
+    "acceptance": "1. TestHarborRunnerImageContentSha: go test ./... -run TestHarborRunnerImageContentSha verifies Dockerfile.harbor-runner, build-harbor-runner.sh, pinned Harbor install source, copied adapter files, PYTHONPATH, ENTRYPOINT, and image-content-sha label inputs.\n2. TestShellHarnessAdaptersInstallAndCommandContract: go test ./... -run TestShellHarnessAdaptersInstallAndCommandContract verifies all 8 harness-adapters are executable, include '# SUMMARY:', implement install and command, and emit install-spec.json and command-spec.json with install_command, artifact_source, binary_path, harbor_plugin, command, env, and secret_env_keys.\n3. TestHarborTaskExecutorContractAndMetadata: go test ./... -run TestHarborTaskExecutorContractAndMetadata verifies task-executors/harbor consumes task-spec.json, constructs the expected docker run invocation, writes cell_dir/result.json, and exposes task_executor_version plus harbor_runner_image_digest for sweep metadata.\n4. TestRuntimeProbeBackends: go test ./... -run TestRuntimeProbeBackends verifies runtime-probe.sh handles lucebox, llamacpp, vllm, omlx, ds4, and rapid-mlx and emits model_server JSON with name, version, commit, and endpoint.\n5. TestBenchmarkPresetPlanningModeMigration: go test ./... -run TestBenchmarkPresetPlanningModeMigration verifies internal/serviceimpl/execute_native.go no longer contains ToolPreset == \"benchmark\", profile schema has sampling.planning_mode default false, migrated benchmark profiles set it where required, and harness-adapters/fiz adds --plan only when true.\n6. TestA1Gates: go test ./... and lefthook run pre-commit pass on a clean checkout.",
+    "parent": "fizeau-11e9c095",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "parent:fizeau-163efede",
+      "child:A1"
+    ]
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T195710-8ba68451",
+    "prompt": ".ddx/executions/20260517T195710-8ba68451/prompt.md",
+    "manifest": ".ddx/executions/20260517T195710-8ba68451/manifest.json",
+    "result": ".ddx/executions/20260517T195710-8ba68451/result.json",
+    "checks": ".ddx/executions/20260517T195710-8ba68451/checks.json",
+    "usage": ".ddx/executions/20260517T195710-8ba68451/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-a4844364-20260517T195710-8ba68451"
+  },
+  "prompt_sha": "f33b51307a37bd66ad5d9c6e715aadca24095286c3bf2e7953891d435e3c77af"
+}
