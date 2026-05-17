@@ -1,0 +1,39 @@
+{
+  "attempt_id": "20260517T195753-d014a698",
+  "bead_id": "fizeau-08b1ad3b",
+  "base_rev": "07fd0d9cf12cbe507da11c2cf0aba98821333fa4",
+  "created_at": "2026-05-17T19:57:56.573470818Z",
+  "requested": {
+    "prompt": "synthesized",
+    "min_power": 5
+  },
+  "bead": {
+    "id": "fizeau-08b1ad3b",
+    "title": "bench-pr-A3: per-cell lifecycle, resume, rerun, and reports",
+    "description": "PROBLEM\nThe new bash runner needs a durable cell lifecycle before concurrency and Docker execution can be layered on safely.\n\nROOT CAUSE\nThe parent scope replaces cmd/bench/matrix.go:1 with scripts/benchmark/benchmark, but the current behavior for skipping completed cells, rerunning invalid or orphaned cells, writing cell-state.json sentinels, invoking adapters/executors, composing report.json, and deleting sentinels is embedded in the existing Go runner. The broad parent bead combines this lifecycle rewrite with unrelated adapter, concurrency, and Docker image work.\n\nPROPOSED FIX\nImplement sequential run-mode cell execution in scripts/benchmark/benchmark using the shell adapter and task-executor contracts. For each planned cell, create cell_dir, write cell-state.json, invoke harness-adapters/\u003cname\u003e with profile.json on stdin to produce command-spec.json, compose task-spec, invoke task-executors/\u003cname\u003e with task-spec.json on stdin so it writes cell_dir/result.json, compose report.json, and remove cell-state.json on terminal completion. Implement default resume skip when cell_dir/report.json has a terminal final_status. Implement --force-rerun to ignore completed reports. Implement --retry-invalid to rerun cells with non-empty invalid_class or orphan cell-state.json. Cover all behavior with fake adapters/executors and filesystem assertions.\n\nNON-SCOPE\nDo not implement background job pooling, flock locks, setsid process groups, signal fanout, docker stop cleanup, or the harbor-runner Docker image in this child. Do not expand the bench-set schema beyond PR A smoke requirements; PR C finalizes schema. Do not implement parent acceptance criteria assigned to sibling child beads. Preserve every parent non-scope constraint unless this child explicitly narrows it. Governing artifact reference must remain governing:plan-2026-05-15-benchmark-runner-simplification. Parent/dependency ID fizeau-11e9c095 must remain traceable. Verification requirements cd cli \u0026\u0026 go test ./... and lefthook run pre-commit are required gates.\n\nAC\n1. TestBenchmarkCellLifecycleWritesReport: a sequential run writes cell-state.json before execution, invokes adapter and executor with JSON stdin contracts, writes result.json/report.json, and removes cell-state.json after terminal completion.\n2. TestBenchmarkResumeSkipsTerminalReport: default run mode skips a cell whose report.json contains a terminal final_status.\n3. TestBenchmarkForceRerunIgnoresTerminalReport: --force-rerun executes a cell even when terminal report.json already exists.\n4. TestBenchmarkRetryInvalidRerunsInvalidOrOrphan: --retry-invalid reruns cells with non-empty invalid_class or orphan cell-state.json and does not rerun valid terminal cells.\n5. TestBenchmarkExecutorFailureLeavesSentinel: executor failure preserves enough cell-state.json/report context to support retry-invalid behavior and exits non-zero.\n6. TestBenchmarkVerificationGatesA3: cd cli \u0026\u0026 go test ./... passes.\n7. TestBenchmarkLefthookGateA3: lefthook run pre-commit passes.",
+    "acceptance": "1. TestBenchmarkCellLifecycleWritesReport passes.\n2. TestBenchmarkResumeSkipsTerminalReport passes.\n3. TestBenchmarkForceRerunIgnoresTerminalReport passes.\n4. TestBenchmarkRetryInvalidRerunsInvalidOrOrphan passes.\n5. TestBenchmarkExecutorFailureLeavesSentinel passes.\n6. TestBenchmarkVerificationGatesA3: cd cli \u0026\u0026 go test ./... passes.\n7. TestBenchmarkLefthookGateA3: lefthook run pre-commit passes.",
+    "parent": "fizeau-bfdd6a77",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed"
+    ],
+    "metadata": {
+      "closing_commit_sha": "6ecace174894ce68163f8784cba4e07118b1fe24",
+      "events_attachment": "fizeau-08b1ad3b/events.jsonl",
+      "session_id": "eb-fc4b1826"
+    }
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T195753-d014a698",
+    "prompt": ".ddx/executions/20260517T195753-d014a698/prompt.md",
+    "manifest": ".ddx/executions/20260517T195753-d014a698/manifest.json",
+    "result": ".ddx/executions/20260517T195753-d014a698/result.json",
+    "checks": ".ddx/executions/20260517T195753-d014a698/checks.json",
+    "usage": ".ddx/executions/20260517T195753-d014a698/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-08b1ad3b-20260517T195753-d014a698"
+  },
+  "prompt_sha": "2acbf046306b1c059a2cd8b0d0391529231c6e4d92473b12902009ee7369a166"
+}
