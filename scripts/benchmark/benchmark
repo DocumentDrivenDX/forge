@@ -37,12 +37,141 @@ DEFAULT_OUT_ROOT="${DEFAULT_OUT_ROOT:-bench/results/fiz-tools-v1}"
 BENCH_TASKS_DIR_DEFAULT="${SCRIPT_DIR}/external/terminal-bench-2/tasks"
 BENCH_RETRY_MAX_ATTEMPTS="${BENCH_RETRY_MAX_ATTEMPTS:-4}"
 BENCH_RETRY_BACKOFF_BASE="${BENCH_RETRY_BACKOFF_BASE:-1}"
+FIZEAU_BENCH_STATE_DIR="${FIZEAU_BENCH_STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/fizeau-benchmark}"
+BENCH_TERM_GRACE_SECONDS="${BENCH_TERM_GRACE_SECONDS:-30}"
 
 die() { printf 'benchmark: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'benchmark: %s\n' "$*" >&2; }
 
 require_tool() {
   command -v "$1" >/dev/null 2>&1 || die "required tool not found: $1"
+}
+
+# in_flight_state_dir returns the host-specific state directory.
+in_flight_state_dir() {
+  local hostname
+  hostname="$(hostname)"
+  printf '%s/%s\n' "${FIZEAU_BENCH_STATE_DIR}" "${hostname}"
+}
+
+# in_flight_lock_path returns the lock path for a concurrency group.
+in_flight_lock_path() {
+  local group="$1"
+  printf '%s/locks/%s.lock\n' "${FIZEAU_BENCH_STATE_DIR}" "${group}"
+}
+
+# in_flight_json_path returns the path to the in-flight state JSON file.
+in_flight_json_path() {
+  printf '%s/in-flight.json\n' "$(in_flight_state_dir)"
+}
+
+# acquire_group_lock acquires an flock for a concurrency group, blocking if needed.
+# Returns 0 on success, prints the lock fd to stdout.
+acquire_group_lock() {
+  local group="$1"
+  local lock_path
+  lock_path="$(in_flight_lock_path "${group}")"
+  mkdir -p "$(dirname "${lock_path}")"
+  local lock_fd
+  lock_fd=200
+  eval "exec ${lock_fd}>'${lock_path}'"
+  flock "${lock_fd}" || die "failed to acquire lock for concurrency-group=${group}"
+  printf '%d\n' "${lock_fd}"
+}
+
+# release_group_lock releases an flock acquired by acquire_group_lock.
+release_group_lock() {
+  local lock_fd="$1"
+  eval "exec ${lock_fd}>&-" || true
+}
+
+# register_inflight registers a cell as in-flight in the state file.
+# Reads current entries, adds this cell, removes dead PIDs, writes back.
+register_inflight() {
+  local cell_id="$1" cell_dir="$2"
+  local state_dir
+  state_dir="$(in_flight_state_dir)"
+  mkdir -p "${state_dir}"
+  local json_path
+  json_path="$(in_flight_json_path)"
+
+  local current_json="{\"cells\":[]}"
+  [[ -f "${json_path}" ]] && current_json="$(cat "${json_path}")" || true
+
+  # Prune dead PIDs by filtering in bash
+  local live_cells=()
+  local cell_json pid
+  while IFS= read -r cell_json; do
+    [[ -z "${cell_json}" ]] && continue
+    pid="$(jq -r '.pid' <<<"${cell_json}")"
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+      live_cells+=("${cell_json}")
+    fi
+  done < <(jq -r '.cells[] | @json' <<<"${current_json}")
+
+  # Rebuild with live cells
+  current_json="$(printf '%s\n' "${live_cells[@]}" | jq -s '{cells:.}')"
+
+  # Add this cell
+  current_json="$(jq \
+    --arg cell_id "${cell_id}" \
+    --arg cell_dir "${cell_dir}" \
+    --argjson pid $$ \
+    '.cells += [{cell_id:$cell_id, cell_dir:$cell_dir, pid:$pid}]' \
+    <<<"${current_json}")"
+
+  printf '%s\n' "${current_json}" >"${json_path}.tmp"
+  mv "${json_path}.tmp" "${json_path}"
+}
+
+
+# unregister_inflight removes a cell from the in-flight state file.
+unregister_inflight() {
+  local cell_id="$1"
+  local json_path
+  json_path="$(in_flight_json_path)"
+  [[ -f "${json_path}" ]] || return 0
+
+  local updated
+  updated="$(jq \
+    --arg cell_id "${cell_id}" \
+    '.cells |= map(select(.cell_id != $cell_id))' \
+    "${json_path}")"
+
+  printf '%s\n' "${updated}" >"${json_path}.tmp"
+  mv "${json_path}.tmp" "${json_path}"
+}
+
+# interrupt_inflight_cells is called during signal handling to mark in-flight
+# cells as interrupted and clean them up from the JSON file.
+interrupt_inflight_cells() {
+  local json_path
+  json_path="$(in_flight_json_path)"
+  [[ -f "${json_path}" ]] || return 0
+
+  local cells
+  cells="$(jq -r '.cells[] | @json' "${json_path}")" || return 0
+
+  local cell_id cell_dir pid
+  while IFS= read -r cell_json; do
+    [[ -z "${cell_json}" ]] && continue
+    cell_id="$(jq -r '.cell_id' <<<"${cell_json}")"
+    cell_dir="$(jq -r '.cell_dir' <<<"${cell_json}")"
+    pid="$(jq -r '.pid' <<<"${cell_json}")"
+
+    # Try to kill the cell's process group
+    if [[ -n "${pid}" ]] && (( pid > 0 )); then
+      kill -TERM -"${pid}" >/dev/null 2>&1 || true
+    fi
+
+    # Try to docker stop any harbor-runner containers in this cell
+    if [[ -d "${cell_dir}" ]]; then
+      # The container ID is typically embedded in result.json or we can search by cell_dir
+      # For now, we attempt a generic docker stop on containers that might be for this cell
+      docker ps -q --filter "label=fizeau-cell=${cell_id}" 2>/dev/null \
+        | xargs -r docker stop >/dev/null 2>&1 || true
+    fi
+  done <<<"${cells}"
 }
 
 usage() {
@@ -56,6 +185,7 @@ Usage:
   ./benchmark preflight
   ./benchmark --profile P[,P2,...] --bench-set B[,B2,...] [--plan] [--out DIR]
               [--force-rerun] [--retry-invalid] [--reps N] [--max-cost-usd X]
+              [--jobs N]
 
 Flags (run mode):
   --profile P[,P2,...]   Comma-separated profile IDs (required)
@@ -73,6 +203,7 @@ Flags (run mode):
                          the next cell; remaining cells are written as
                          placeholders with final_status=budget_halted,
                          process_outcome=setup_failed, and a note.
+  --jobs N               Maximum concurrent background jobs (default: 1)
 EOF
 }
 
@@ -702,18 +833,62 @@ write_budget_halted_cell() {
 # Run one cell start-to-finish: cell-state sentinel, harness-adapter command,
 # task-spec composition, task-executor invocation with retry, report.json
 # composition, sentinel cleanup, optional back-write of superseded_by into
-# the prior (attempt_of) cell.
+# the prior (attempt_of) cell. Registers as in-flight at start, unregisters at end.
 run_one_cell() {
   local out="$1" profile_id="$2" profile_file="$3"
   local framework="$4" dataset="$5" dataset_dir="$6" task="$7"
   local rep_idx="$8" total_reps="$9" harness_adapter="${10}"
   local attempt_of="${11}"
   local te_ver="${12}" hd="${13}"
+  local interrupted_flag="${14:-}"
 
   local cell_id cell_dir
   cell_id="$(new_cell_id)"
   cell_dir="${out}/cells/${dataset_dir}/${task}/${cell_id}"
   mkdir -p "${cell_dir}"
+
+  # Handler for SIGTERM during cell execution
+  write_interrupted_report() {
+    local now
+    now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    jq -n \
+      --arg cell_id "${cell_id}" \
+      --arg task "${task}" \
+      --arg profile "${profile_id}" \
+      --arg now "${now}" \
+      --arg te_ver "${te_ver}" \
+      --arg hd "${hd}" \
+      '{
+         cell_id:$cell_id,
+         task_id:$task,
+         framework:"terminal-bench",
+         dataset:"terminal-bench-2-1",
+         started_at:$now,
+         finished_at:$now,
+         rep:"1/1",
+         final_status:"interrupted",
+         invalid_class:"",
+         process_outcome:"killed",
+         cost_usd_at_run_time:0,
+         task_executor_version:$te_ver,
+         harbor_runner_image_digest:$hd
+       }' >"${cell_dir}/report.json.tmp"
+    mv "${cell_dir}/report.json.tmp" "${cell_dir}/report.json"
+  }
+
+  # Register as in-flight so signal handlers can interrupt us
+  register_inflight "${cell_id}" "${cell_dir}"
+  trap 'write_interrupted_report; unregister_inflight "${cell_id}"; trap - RETURN TERM; exit 143' TERM
+  trap 'unregister_inflight "${cell_id}"; trap - RETURN TERM' RETURN
+
+  # Check if global interrupt flag is set before starting
+  if [[ -n "${interrupted_flag}" && -f "${interrupted_flag}" ]]; then
+    warn "cell ${cell_id}: halting due to signal interrupt"
+    # Write interrupted report immediately
+    write_interrupted_report
+    printf '%s\n' "${cell_dir}"
+    return 0
+  fi
 
   local started_at
   started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -860,18 +1035,21 @@ run_one_cell() {
     rm -f "${attempt_of}/cell-state.json"
   fi
 
+  # Unregister from in-flight (trap will also call this on return)
+  unregister_inflight "${cell_id}"
   printf '%s\n' "${cell_dir}"
 }
 
 # budget_or_run_cell either writes a budget-halted placeholder (when the
 # budget cap has been hit) or invokes run_one_cell. On success it appends the
 # cell's cost into <out>/budget.json so the halt flag flips for the next
-# cell. cap="" disables budget machinery entirely.
+# cell. cap="" disables budget machinery entirely. interrupted_flag="" disables
+# interrupt checking.
 budget_or_run_cell() {
   local out="$1" profile_id="$2" profile_file="$3"
   local framework="$4" dataset="$5" dataset_dir="$6" task="$7"
   local rep_idx="$8" total_reps="$9" adapter="${10}" attempt_of="${11}"
-  local te_ver="${12}" hd="${13}" cap="${14}"
+  local te_ver="${12}" hd="${13}" cap="${14}" interrupted_flag="${15:-}"
 
   local cell_dir
   if [[ -n "${cap}" ]] && budget_is_halted "${out}"; then
@@ -885,7 +1063,7 @@ budget_or_run_cell() {
   cell_dir="$(run_one_cell "${out}" "${profile_id}" "${profile_file}" \
                 "${framework}" "${dataset}" "${dataset_dir}" "${task}" \
                 "${rep_idx}" "${total_reps}" "${adapter}" "${attempt_of}" \
-                "${te_ver}" "${hd}")"
+                "${te_ver}" "${hd}" "${interrupted_flag}")"
 
   if [[ -n "${cap}" && -f "${cell_dir}/report.json" ]]; then
     local cell_id cost
@@ -898,17 +1076,18 @@ budget_or_run_cell() {
 }
 
 # run_sweep walks the (profile, bench-set, task, rep) matrix, applies resume /
-# retry rules, and runs one cell per slot.
+# retry rules, and runs one cell per slot. Supports concurrency-group locking,
+# background job pool (--jobs), and signal handling (SIGINT/SIGTERM).
 run_sweep() {
   local profiles_csv="$1" bench_sets_csv="$2" out="$3"
   local force_rerun="$4" retry_invalid="$5" reps_override="$6"
-  local max_cost_usd="$7"
+  local max_cost_usd="$7" jobs="${8:-1}"
 
   require_tool yq
   require_tool jq
   require_tool sha256sum
 
-  mkdir -p "${out}"
+  mkdir -p "${out}" "${FIZEAU_BENCH_STATE_DIR}"
 
   local te_ver hd
   te_ver="$(task_executor_version)"
@@ -919,12 +1098,56 @@ run_sweep() {
     init_budget "${out}" "${max_cost_usd}"
   fi
 
+  # Signal handling: set up interrupt flag and trap
+  local interrupted_flag
+  interrupted_flag="${FIZEAU_BENCH_STATE_DIR}/.benchmark-interrupt-$$"
+
+  # Trap handler for SIGINT/SIGTERM: interrupt running cells, wait for cleanup
+  handle_interrupt() {
+    local grace_seconds="${BENCH_TERM_GRACE_SECONDS}"
+    [[ -f "${interrupted_flag}" ]] && return 0
+    warn "Received signal, stopping cell submission and interrupting running cells..."
+    touch "${interrupted_flag}"
+
+    # Terminate in-flight cells
+    interrupt_inflight_cells
+
+    # Send SIGTERM to all child processes (the background job pool)
+    local pids
+    pids="$(jobs -p)"
+    if [[ -n "${pids}" ]]; then
+      kill -TERM ${pids} 2>/dev/null || true
+
+      # Wait up to grace_seconds for them to exit
+      local elapsed=0
+      while (( elapsed < grace_seconds )); do
+        pids="$(jobs -p)"
+        if [[ -z "${pids}" ]]; then
+          break
+        fi
+        sleep 1
+        elapsed=$((elapsed + 1))
+      done
+
+      # Force kill any stragglers
+      pids="$(jobs -p)"
+      if [[ -n "${pids}" ]]; then
+        kill -KILL ${pids} 2>/dev/null || true
+      fi
+    fi
+  }
+
+  trap 'handle_interrupt' SIGINT SIGTERM
+
+  local active_jobs=0
+
   IFS=',' read -r -a profile_ids <<<"${profiles_csv}"
   IFS=',' read -r -a bench_set_ids <<<"${bench_sets_csv}"
 
   local profile_id bs_id bs_file profile_file
   local framework dataset dataset_dir reps tasks harness adapter
   local terminal_file invalid_file orphan_file
+  local concurrency_group
 
   for profile_id in "${profile_ids[@]}"; do
     [[ -n "${profile_id}" ]] || continue
@@ -933,6 +1156,7 @@ run_sweep() {
     profile_json_full="$(yq -o=json '.' "${profile_file}")"
     harness="$(jq -r '.harness // "none"' <<<"${profile_json_full}")"
     adapter="$(resolve_adapter_for_harness "${harness}")"
+    concurrency_group="$(jq -r '.concurrency_group // "default"' <<<"${profile_json_full}")"
 
     for bs_id in "${bench_set_ids[@]}"; do
       [[ -n "${bs_id}" ]] || continue
@@ -961,29 +1185,21 @@ run_sweep() {
         invalid_count="$(wc -l <"${invalid_file}" | tr -d ' ')"
         orphan_count="$(wc -l <"${orphan_file}" | tr -d ' ')"
 
+        local cells_to_run=()
         if [[ ${force_rerun} -eq 1 ]]; then
           local r
           for ((r = 1; r <= reps; r++)); do
-            budget_or_run_cell "${out}" "${profile_id}" "${profile_file}" \
-              "${framework}" "${dataset}" "${dataset_dir}" "${task}" \
-              "${r}" "${reps}" "${adapter}" "" "${te_ver}" "${hd}" \
-              "${max_cost_usd}" >/dev/null
+            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|${r}|${reps}|${adapter}||${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
           done
         elif [[ ${retry_invalid} -eq 1 ]]; then
           local prior
           while IFS= read -r prior; do
             [[ -n "${prior}" ]] || continue
-            budget_or_run_cell "${out}" "${profile_id}" "${profile_file}" \
-              "${framework}" "${dataset}" "${dataset_dir}" "${task}" \
-              "1" "${reps}" "${adapter}" "${prior}" "${te_ver}" "${hd}" \
-              "${max_cost_usd}" >/dev/null
+            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|1|${reps}|${adapter}|${prior}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
           done <"${invalid_file}"
           while IFS= read -r prior; do
             [[ -n "${prior}" ]] || continue
-            budget_or_run_cell "${out}" "${profile_id}" "${profile_file}" \
-              "${framework}" "${dataset}" "${dataset_dir}" "${task}" \
-              "1" "${reps}" "${adapter}" "${prior}" "${te_ver}" "${hd}" \
-              "${max_cost_usd}" >/dev/null
+            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|1|${reps}|${adapter}|${prior}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
           done <"${orphan_file}"
           warn "retry-invalid: profile=${profile_id} task=${task} reran invalid=${invalid_count} orphan=${orphan_count}"
         else
@@ -994,19 +1210,61 @@ run_sweep() {
             need=$((reps - terminal_count))
             idx=$((terminal_count + 1))
             for ((r = 1; r <= need; r++)); do
-              budget_or_run_cell "${out}" "${profile_id}" "${profile_file}" \
-                "${framework}" "${dataset}" "${dataset_dir}" "${task}" \
-                "${idx}" "${reps}" "${adapter}" "" "${te_ver}" "${hd}" \
-                "${max_cost_usd}" >/dev/null
+              cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|${idx}|${reps}|${adapter}||${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
               idx=$((idx + 1))
             done
           fi
         fi
 
+        # Run cells with job pool and concurrency-group locking
+        for cell_spec in "${cells_to_run[@]}"; do
+          # Wait for a job slot to become available
+          while (( active_jobs >= jobs )); do
+            wait -n 2>/dev/null || true
+            active_jobs=$((active_jobs - 1))
+          done
+
+          # Check if we've been interrupted
+          if [[ -f "${interrupted_flag}" ]]; then
+            warn "Stopping cell submission due to signal interrupt"
+            # Wait for remaining jobs
+            wait
+            rm -f "${interrupted_flag}" "${terminal_file}" "${invalid_file}" "${orphan_file}"
+            trap - SIGINT SIGTERM
+            return 130
+          fi
+
+          # Parse cell spec
+          IFS='|' read -r p_id p_file fw ds ds_dir tsk rep_idx t_reps adp att_of te_v hd_v cap cg <<<"${cell_spec}"
+
+          # Acquire concurrency-group lock
+          local lock_fd
+          lock_fd="$(acquire_group_lock "${cg}")"
+
+          # Run cell in background
+          (
+            budget_or_run_cell "${out}" "${p_id}" "${p_file}" \
+              "${fw}" "${ds}" "${ds_dir}" "${tsk}" \
+              "${rep_idx}" "${t_reps}" "${adp}" "${att_of}" \
+              "${te_v}" "${hd_v}" "${cap}" "${interrupted_flag}"
+            release_group_lock "${lock_fd}"
+          ) &
+
+          active_jobs=$((active_jobs + 1))
+        done
+
         rm -f "${terminal_file}" "${invalid_file}" "${orphan_file}"
       done <<<"${tasks}"
     done
   done
+
+  # Wait for all background jobs to complete
+  wait
+  local exit_code=0
+  [[ -f "${interrupted_flag}" ]] && exit_code=130
+  rm -f "${interrupted_flag}"
+  trap - SIGINT SIGTERM
+  return "${exit_code}"
 }
 
 # ---------------------------------------------------------------------------
@@ -1036,6 +1294,7 @@ main() {
   local retry_invalid=0
   local reps_override=""
   local max_cost_usd=""
+  local jobs=1
   local positional=()
 
   while [[ $# -gt 0 ]]; do
@@ -1048,6 +1307,7 @@ main() {
       --retry-invalid)  retry_invalid=1; shift ;;
       --reps)           reps_override="${2:?--reps requires a value}"; shift 2 ;;
       --max-cost-usd)   max_cost_usd="${2:?--max-cost-usd requires a value}"; shift 2 ;;
+      --jobs)           jobs="${2:?--jobs requires a value}"; shift 2 ;;
       -h|--help|help)   usage; exit 0 ;;
       --)               shift; positional+=("$@"); break ;;
       -*)               die "unknown flag: $1" ;;
@@ -1091,7 +1351,7 @@ main() {
       fi
       run_sweep "${profile_csv}" "${bench_set_csv}" "${out}" \
         "${force_rerun}" "${retry_invalid}" "${reps_override}" \
-        "${max_cost_usd}"
+        "${max_cost_usd}" "${jobs}"
       ;;
     *)
       die "unknown subcommand: ${sub}"
