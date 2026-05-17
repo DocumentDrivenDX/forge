@@ -38,16 +38,17 @@ Every executor file starts with a single `# SUMMARY:` line on line 2
     "FIZEAU_API_KEY":  "${FIZEAU_API_KEY}"
   },
   "secret_env_keys": ["FIZEAU_API_KEY"],
-  "extra_args":      ["--jobs-dir", "/jobs", "--job-name", "20260516T103045Z-a4c1"]
+  "extra_args":      ["--jobs-dir", "/output", "--job-name", "20260516T103045Z-a4c1"]
 }
 ```
 
 Fields:
 
-- `task_id` (required) — TerminalBench task id; the executor passes this
-  to `harbor run --task-id`.
+- `task_id` (required) — TerminalBench task id; the executor resolves
+  this to a local task directory and passes it to `harbor run --path`.
 - `tasks_dir` (required, host path) — directory containing the task
-  definitions. Bind-mounted at `/tasks` read-only.
+  definitions. Bind-mounted at `/tasks` read-only. The executor probes
+  `/tasks/<task_id>` first, then `/tasks/terminal-bench/<task_id>`.
 - `cell_dir` (required, host path) — directory the runner already created
   for this cell. Bind-mounted at `/output` read/write. Harbor writes
   `result.json`, logs, and trajectory artifacts here.
@@ -58,12 +59,13 @@ Fields:
   image tag. The runner overrides this when running a sha-pinned image.
 - `env` (optional) — env vars forwarded with `-e KEY=VALUE` into the
   container. Values containing `${VAR}` are expanded against the
-  runner's environment before docker invocation. Sourced from
+  runner's environment before docker invocation and are also mirrored to
+  Harbor with `--ae KEY=VALUE`. Sourced from
   `harness-adapters/<name> command` output.
 - `secret_env_keys` (optional) — subset of `env` keys flagged as
   secrets; values are redacted in any record the runner persists.
-- `extra_args` (optional) — passthrough trailing args appended to
-  `harbor run … --output /output`. Used for `--jobs-dir`, `--job-name`,
+- `extra_args` (optional) — passthrough trailing args appended after the
+  executor's fixed Harbor flags. Used for `--jobs-dir`, `--job-name`,
   `--reps`, harbor-side timeout multipliers, etc.
 
 ## Behavior
@@ -79,17 +81,19 @@ Fields:
      -v "$tasks_dir:/tasks:ro" \
      -e KEY1=VAL1 -e KEY2=VAL2 ... \
      <image> run \
+       --yes \
+       --delete \
+       --path /tasks/<task_id> \
        --agent-import-path <plugin> \
-       --task-id <task_id> \
-       --tasks-dir /tasks \
-       --output /output \
+       --model <env.FIZEAU_MODEL> \
+       --ae KEY1=VAL1 --ae KEY2=VAL2 ... \
        <extra_args...>
    ```
 
-3. Harbor writes `result.json` (and supporting artifacts) to
-   `/output`, which is `cell_dir` on the host.
+3. Harbor writes job artifacts under `/output`, and the executor writes
+   a top-level `result.json` summary into `cell_dir`.
 4. The executor exits with docker's exit code. If Harbor crashed without
-   producing `result.json`, the executor writes a stub
+   producing a usable summary, the executor writes a stub
    `{task_id, image, harbor_plugin, exit_code, status:"missing_result"}`
    so the runner can classify the cell.
 

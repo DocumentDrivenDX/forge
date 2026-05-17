@@ -34,11 +34,25 @@ TASK_EXECUTORS_DIR="${TASK_EXECUTORS_DIR:-${SCRIPT_DIR}/task-executors}"
 HARBOR_BUILD_SCRIPT="${SCRIPT_DIR}/build-harbor-runner.sh"
 HARBOR_IMAGE_TAG="${HARBOR_IMAGE_TAG:-fizeau-harbor-runner:latest}"
 DEFAULT_OUT_ROOT="${DEFAULT_OUT_ROOT:-bench/results/fiz-tools-v1}"
-BENCH_TASKS_DIR_DEFAULT="${SCRIPT_DIR}/external/terminal-bench-2/tasks"
+BENCH_TASKS_DIR_DEFAULT="${SCRIPT_DIR}/external/terminal-bench-2"
 BENCH_RETRY_MAX_ATTEMPTS="${BENCH_RETRY_MAX_ATTEMPTS:-4}"
 BENCH_RETRY_BACKOFF_BASE="${BENCH_RETRY_BACKOFF_BASE:-1}"
 FIZEAU_BENCH_STATE_DIR="${FIZEAU_BENCH_STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/fizeau-benchmark}"
 BENCH_TERM_GRACE_SECONDS="${BENCH_TERM_GRACE_SECONDS:-30}"
+
+export SCRIPT_DIR \
+  PROFILES_DIR \
+  BENCH_SETS_DIR \
+  HARNESS_ADAPTERS_DIR \
+  TASK_EXECUTORS_DIR \
+  HARBOR_BUILD_SCRIPT \
+  HARBOR_IMAGE_TAG \
+  DEFAULT_OUT_ROOT \
+  BENCH_TASKS_DIR_DEFAULT \
+  BENCH_RETRY_MAX_ATTEMPTS \
+  BENCH_RETRY_BACKOFF_BASE \
+  FIZEAU_BENCH_STATE_DIR \
+  BENCH_TERM_GRACE_SECONDS
 
 die() { printf 'benchmark: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'benchmark: %s\n' "$*" >&2; }
@@ -85,6 +99,54 @@ release_group_lock() {
   eval "exec ${lock_fd}>&-" || true
 }
 
+# export_cell_worker_functions exports the shell functions that the
+# per-cell setsid worker needs after bash -c hands execution off to a
+# fresh session leader.
+export_cell_worker_functions() {
+  export -f \
+    die \
+    warn \
+    in_flight_state_dir \
+    in_flight_lock_path \
+    in_flight_json_path \
+    release_group_lock \
+    register_inflight \
+    unregister_inflight \
+    interrupt_inflight_cells \
+    is_terminal_status \
+    resolve_adapter_for_harness \
+    new_cell_id \
+    task_executor_version \
+    harbor_runner_image_digest \
+    write_sweep_metadata \
+    compose_env_redacted \
+    is_transient_stderr \
+    run_executor_with_retry \
+    resolve_tasks_dir \
+    inspect_existing_cells \
+    compute_cell_cost \
+    budget_path \
+    init_budget \
+    append_budget_cell \
+    budget_is_halted \
+    write_budget_halted_cell \
+    run_one_cell \
+    budget_or_run_cell
+}
+
+# launch_cell_worker starts a cell in a fresh session so the worker's PID
+# doubles as the process-group leader for interrupt reaping.
+launch_cell_worker() {
+  local lock_fd="$1"
+  shift
+  setsid bash -c '
+    budget_or_run_cell "$@"
+    status=$?
+    release_group_lock "${!#}"
+    exit "${status}"
+  ' bash "$@" "${lock_fd}" &
+}
+
 # register_inflight registers a cell as in-flight in the state file.
 # Reads current entries, adds this cell, removes dead PIDs, writes back.
 register_inflight() {
@@ -116,7 +178,7 @@ register_inflight() {
   current_json="$(jq \
     --arg cell_id "${cell_id}" \
     --arg cell_dir "${cell_dir}" \
-    --argjson pid $$ \
+    --argjson pid "${BASHPID}" \
     '.cells += [{cell_id:$cell_id, cell_dir:$cell_dir, pid:$pid}]' \
     <<<"${current_json}")"
 
@@ -161,7 +223,7 @@ interrupt_inflight_cells() {
 
     # Try to kill the cell's process group
     if [[ -n "${pid}" ]] && (( pid > 0 )); then
-      kill -TERM -"${pid}" >/dev/null 2>&1 || true
+      kill -TERM -"${pid}" >/dev/null 2>&1 || kill -TERM "${pid}" >/dev/null 2>&1 || true
     fi
 
     # Try to docker stop any harbor-runner containers in this cell
@@ -643,19 +705,84 @@ cached_harbor_image_sha() {
 
 cmd_preflight() {
   require_tool sha256sum
+
+  local failed=0
   local source_sha cached_sha
+  local state_dir host_state_dir lock_dir probe
+  local build_output build_rc
+
+  printf 'preflight checklist:\n'
+
+  check_tool() {
+    local tool="$1"
+    if command -v "${tool}" >/dev/null 2>&1; then
+      printf '  [x] %s (%s)\n' "${tool}" "$(command -v "${tool}")"
+      return 0
+    fi
+    printf '  [ ] %s (missing)\n' "${tool}"
+    failed=1
+    return 1
+  }
+
+  check_writable_dir() {
+    local label="$1" dir="$2" tmp
+    if mkdir -p "${dir}" 2>/dev/null; then
+      tmp="${dir}/.preflight.$$"
+      if : >"${tmp}" 2>/dev/null; then
+        rm -f "${tmp}"
+        printf '  [x] %s (%s)\n' "${label}" "${dir}"
+        return 0
+      fi
+    fi
+    printf '  [ ] %s (%s not writable)\n' "${label}" "${dir}"
+    failed=1
+    return 1
+  }
+
+  check_tool yq
+  check_tool jq
+  check_tool docker
+  check_tool setsid
+  check_tool flock
+
+  state_dir="$(in_flight_state_dir)"
+  lock_dir="${FIZEAU_BENCH_STATE_DIR}/locks"
+  check_writable_dir "benchmark state dir" "${state_dir}"
+  check_writable_dir "benchmark lock dir" "${lock_dir}"
+
   source_sha="$(compute_harbor_source_sha)"
   cached_sha="$(cached_harbor_image_sha "${HARBOR_IMAGE_TAG}")"
-  printf 'preflight: source image-content-sha=%s\n' "${source_sha}"
-  printf 'preflight: cached image-content-sha=%s\n' "${cached_sha:-<none>}"
+  printf '  [x] harbor source fingerprint (%s)\n' "${source_sha}"
+  printf '  [x] cached harbor image fingerprint (%s)\n' "${cached_sha:-<none>}"
+
   if [[ -n "${cached_sha}" && "${cached_sha}" == "${source_sha}" ]]; then
-    printf 'preflight: harbor-runner image up to date; skipping rebuild\n'
-    return 0
+    printf '  [x] harbor-runner image up to date (%s)\n' "${HARBOR_IMAGE_TAG}"
+  else
+    if [[ ! -x "${HARBOR_BUILD_SCRIPT}" ]]; then
+      printf '  [ ] harbor-runner build script executable (%s missing or not executable)\n' "${HARBOR_BUILD_SCRIPT}"
+      failed=1
+    else
+      printf '  [*] building harbor-runner image via %s\n' "${HARBOR_BUILD_SCRIPT}"
+      set +e
+      build_output="$(IMAGE_TAG="${HARBOR_IMAGE_TAG}" "${HARBOR_BUILD_SCRIPT}" 2>&1)"
+      build_rc=$?
+      set -e
+      printf '%s\n' "${build_output}"
+      if [[ ${build_rc} -eq 0 ]]; then
+        printf '  [x] harbor-runner image buildable (%s)\n' "${HARBOR_IMAGE_TAG}"
+      else
+        printf '  [ ] harbor-runner image buildable (%s)\n' "${HARBOR_IMAGE_TAG}"
+        failed=1
+      fi
+    fi
   fi
-  [[ -x "${HARBOR_BUILD_SCRIPT}" ]] || die "preflight: build script missing or not executable: ${HARBOR_BUILD_SCRIPT}"
-  require_tool docker
-  printf 'preflight: rebuilding harbor-runner (source sha differs)\n'
-  IMAGE_TAG="${HARBOR_IMAGE_TAG}" "${HARBOR_BUILD_SCRIPT}"
+
+  if [[ ${failed} -ne 0 ]]; then
+    printf 'preflight: one or more checks failed\n' >&2
+    return 1
+  fi
+
+  printf 'preflight: all checks passed\n'
 }
 
 # ---------------------------------------------------------------------------
@@ -1132,9 +1259,11 @@ run_one_cell() {
     --arg image "${HARBOR_IMAGE_TAG}" \
     --argjson env "${env_json}" \
     --argjson secret_env_keys "${secret_keys_json}" \
+    --arg job_name "${cell_id}" \
     '{task_id:$task_id, tasks_dir:$tasks_dir, cell_dir:$cell_dir,
       harbor_plugin:$plugin, image:$image, env:$env,
-      secret_env_keys:$secret_env_keys, extra_args:[]}')"
+      secret_env_keys:$secret_env_keys,
+      extra_args:["--jobs-dir","/output","--job-name",$job_name]}')"
 
   local executor="${TASK_EXECUTORS_DIR}/harbor"
   if [[ -n "${BENCH_TASK_EXECUTOR_OVERRIDE:-}" ]]; then
@@ -1287,6 +1416,8 @@ run_sweep() {
   require_tool yq
   require_tool jq
   require_tool sha256sum
+  require_tool flock
+  require_tool setsid
 
   mkdir -p "${out}" "${FIZEAU_BENCH_STATE_DIR}"
 
@@ -1442,14 +1573,14 @@ run_sweep() {
           local lock_fd
           lock_fd="$(acquire_group_lock "${cg}")"
 
-          # Run cell in background
-          (
-            budget_or_run_cell "${out}" "${p_id}" "${p_file}" \
-              "${fw}" "${ds}" "${ds_dir}" "${tsk}" \
-              "${rep_idx}" "${t_reps}" "${adp}" "${att_of}" \
-              "${te_v}" "${hd_v}" "${cap}" "${interrupted_flag}"
-            release_group_lock "${lock_fd}"
-          ) &
+          # Run cell in a fresh session so the worker PID is a killable
+          # process-group leader for signal handling.
+          export_cell_worker_functions
+          launch_cell_worker "${lock_fd}" \
+            "${out}" "${p_id}" "${p_file}" \
+            "${fw}" "${ds}" "${ds_dir}" "${tsk}" \
+            "${rep_idx}" "${t_reps}" "${adp}" "${att_of}" \
+            "${te_v}" "${hd_v}" "${cap}" "${interrupted_flag}"
 
           active_jobs=$((active_jobs + 1))
         done

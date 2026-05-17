@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SUMMARY: harbor task-executor. Reads task-spec.json on stdin; runs `docker run --rm fizeau-harbor-runner:latest run --agent-import-path … --task-id … --output /output …`; writes cell_dir/result.json. The docker socket is mounted so harbor can spawn the task container.
+# SUMMARY: harbor task-executor. Reads task-spec.json on stdin; resolves the local task path, then runs `docker run --rm ... fizeau-harbor-runner:latest run --yes --delete --path ... --agent-import-path ... --model ... --jobs-dir /output --job-name ...`; writes cell_dir/result.json or a missing_result stub. The docker socket is mounted so Harbor can spawn the task container.
 set -euo pipefail
 
 usage() {
@@ -15,7 +15,10 @@ task-spec.json fields (see scripts/benchmark/task-executors/CONTRACT.md):
   image           string  default "fizeau-harbor-runner:latest"
   env             object  env to forward into the container
   secret_env_keys [str]   subset of env keys whose values are secrets (redacted in logs)
-  extra_args      [str]   passthrough trailing args appended after --output /output
+  extra_args      [str]   passthrough trailing args appended after Harbor's fixed args
+
+The executor resolves <tasks_dir>/<task_id> (or <tasks_dir>/terminal-bench/<task_id>)
+and runs Harbor with `--yes --delete --path <task_path> --agent-import-path ... --model ...`.
 EOF
   return 2
 }
@@ -35,14 +38,33 @@ tasks_dir="$(jq -r '.tasks_dir // ""' <<<"$spec")"
 cell_dir="$(jq -r '.cell_dir // ""' <<<"$spec")"
 plugin="$(jq -r '.harbor_plugin // ""' <<<"$spec")"
 image="$(jq -r '.image // "fizeau-harbor-runner:latest"' <<<"$spec")"
+cell_id="$(basename "$cell_dir")"
+model="$(jq -r '.env.FIZEAU_MODEL // ""' <<<"$spec")"
+dry_run="${HARBOR_TASK_EXECUTOR_DRY_RUN:-0}"
 
 if [[ -z "$task_id" || -z "$tasks_dir" || -z "$cell_dir" || -z "$plugin" ]]; then
   echo "harbor: task-spec missing one of {task_id, tasks_dir, cell_dir, harbor_plugin}" >&2
   exit 2
 fi
+if [[ -z "$model" && "${dry_run}" != "1" ]]; then
+  echo "harbor: task-spec missing env.FIZEAU_MODEL" >&2
+  exit 2
+fi
 if [[ ! -d "$tasks_dir" ]]; then
   echo "harbor: tasks_dir does not exist: $tasks_dir" >&2
   exit 2
+fi
+task_path="${tasks_dir}/${task_id}"
+if [[ ! -d "${task_path}" ]]; then
+  alt_task_path="${tasks_dir}/terminal-bench/${task_id}"
+  if [[ -d "${alt_task_path}" ]]; then
+    task_path="${alt_task_path}"
+  elif [[ "${dry_run}" == "1" ]]; then
+    task_path="${task_path}"
+  else
+    echo "harbor: task path does not exist: ${task_path}" >&2
+    exit 2
+  fi
 fi
 mkdir -p "$cell_dir"
 
@@ -53,16 +75,26 @@ declare -a docker_args=(
   -v "$tasks_dir:/tasks:ro"
 )
 
+declare -a harbor_args=(
+  run
+  --yes
+  --delete
+  --path "$task_path"
+  --agent-import-path "$plugin"
+  --model "$model"
+)
+
 while IFS=$'\t' read -r key val; do
   [[ -z "$key" ]] && continue
   docker_args+=(-e "$key=$val")
+  harbor_args+=(--ae "$key=$val")
 done < <(jq -r '(.env // {}) | to_entries[] | "\(.key)\t\(.value)"' <<<"$spec")
 
-docker_args+=("$image" run
-  --agent-import-path "$plugin"
-  --task-id "$task_id"
-  --tasks-dir /tasks
-  --output /output
+docker_args+=(
+  --name "fizeau-harbor-${cell_id}"
+  --label "fizeau-cell=${cell_id}"
+  "$image"
+  "${harbor_args[@]}"
 )
 
 while IFS= read -r arg; do
