@@ -1,0 +1,54 @@
+{
+  "attempt_id": "20260517T203431-b74ab6b2",
+  "bead_id": "fizeau-b4b89163",
+  "base_rev": "5fababc0b9a42d134659687f68f8c22a14daf2b0",
+  "created_at": "2026-05-17T20:34:36.523225684Z",
+  "requested": {
+    "prompt": "synthesized",
+    "min_power": 5
+  },
+  "bead": {
+    "id": "fizeau-b4b89163",
+    "title": "bench-pr-A2: bash runner skeleton + listing subcommands + --plan + execution loop + report.json + per-cell retry",
+    "description": "PROBLEM: Parent PR A replaces cmd/bench/matrix.go (~2232 LOC Go) with a bash script at scripts/benchmark/benchmark that drives the matrix expansion, per-cell execution, and report assembly. This bead delivers the runner's non-runtime-concern core: arg parsing, listing subcommands, plan mode, the per-cell loop that calls the A1 harness-adapter + harbor task-executor, and report.json composition. Concurrency/signals/budget live in A3; parity in A4.\n\nROOT CAUSE: cmd/bench/matrix.go is the only entry point today; there is no scripts/benchmark/benchmark file. PR A's foundation must exist before A3/A4 can extend it.\n\nPROPOSED FIX:\n  1. scripts/benchmark/benchmark (new bash, +x): dispatch `./benchmark \u003csubcommand\u003e` for profiles|bench-sets|task-executors|harness-adapters|validate|preflight|(none=run).\n  2. Run-mode flags: --profile P[,…] --bench-set B[,…] [--plan] [--force-rerun] [--retry-invalid] [--reps N] [--jobs N] [--max-cost-usd X] [--out DIR]. Flag parsing only; --max-cost-usd and --jobs values stored in env vars for A3.\n  3. YAML reads via `yq -o=json` for profiles, bench-sets, concurrency-groups.\n  4. Matrix expansion: profile × task × rep → ordered cell list. Resolve bench-set `tasks_from:` (path relative to bench-set file) and inline `tasks:`. Default `task_executor=harbor` when `framework==terminal-bench` (final schema in PR C).\n  5. preflight: invoke build-harbor-runner.sh (from A1) when cached image label sha differs from current content sha.\n  6. --plan: print expanded matrix; create NO files; build NO Docker images; exit 0.\n  7. Per-cell loop (sequential in this bead; A3 adds the --jobs pool):\n     a. Compute cell_dir = $out/$profile/$task/$rep.\n     b. Resume: if cell_dir/report.json exists with terminal final_status, skip unless --force-rerun. --retry-invalid reruns cells with non-empty invalid_class OR orphan cell-state.json.\n     c. Write cell_dir/cell-state.json sentinel {pid,started_at,profile,task,rep}.\n     d. `./harness-adapters/\u003cname\u003e command \u003c profile.json \u003e command-spec.json`.\n     e. Compose task-spec.json (cell_dir, command-spec, env from harness install-spec, tasks_dir).\n     f. Invoke `./task-executors/\u003cname\u003e \u003c task-spec.json` (writes cell_dir/result.json).\n     g. Compose cell_dir/report.json: embedded profile, command, env_redacted (mask any key in secret_env_keys), fiz.txt, fiz.err, session/, plus result fields.\n     h. Delete cell-state.json.\n  8. Per-cell retry: bounded exponential backoff for transient errors (connection refused, 5xx, EOF parse). New attempt written to a fresh cell_dir with `attempt_of:\u003cprior-cell-id\u003e` field; prior cell back-written with `superseded_by:\u003cnew-cell-id\u003e` (the one allowed mutation of a closed cell).\n  9. Capture task_executor_version + harbor_runner_image_digest once per ./benchmark invocation into \u003cout\u003e/sweep.json; runner copies into each cell's report.json.\n  10. Listing subcommands (profiles, bench-sets, task-executors, harness-adapters): iterate the corresponding scripts/benchmark/ subdir + print '# SUMMARY:' headers from each file. validate: parse each YAML/script and report errors.\n\nNON-SCOPE (deferred, preserved from parent):\n  - cell-report.schema.json (PR B); tasks_from/task_executor bench-set schema finalization (PR C)\n  - Node collector/importers (PR D/E); deleting cmd/bench (PR F); docs (PR G)\n  - Concurrency-group flock, --jobs pool, SIGTERM/SIGINT, in-flight.json (A3)\n  - Budget enforcement, budget.json, budget_halted (A3)\n  - Go-runner deactivation (A3)\n  - Parity fixtures and diff.sh (A4)\n  - Harbor image, shell adapters, runtime-probe, agent-leak fix (A1)\n\nGOVERNING: plan-2026-05-15-benchmark-runner-simplification. Depends on A1.\n\nACCEPTANCE:\n  1. TestRunnerPlanModeIsHermetic (bash test test_runner.sh::test_plan_mode_no_side_effects): `./scripts/benchmark/benchmark --plan --profile sindri-lucebox --bench-set tb-2-1-canary` prints the matrix, creates NO files under bench/results, builds NO Docker images (`docker image ls fizeau-harbor-runner` unchanged), exits 0. (Parent AC1.)\n  2. TestRunnerProducesCanaryCells (test_runner.sh::test_full_run_canary): `./scripts/benchmark/benchmark --profile sindri-lucebox --bench-set tb-2-1-canary` writes cells under bench/results/fiz-tools-v1/cells/; each has report.json with non-empty embedded profile, command, env_redacted, fiz.txt, fiz.err, session/. (Parent AC2.)\n  3. test_runner.sh::test_resume_skips_terminal_cells: re-running the same command without --force-rerun touches no cell. With --force-rerun, all cells rerun.\n  4. test_runner.sh::test_retry_invalid_reruns_only_invalid: seed a cell with invalid_class=\"x\"; --retry-invalid reruns it and skips others.\n  5. test_runner.sh::test_per_cell_retry_writes_attempt_of_and_supersedes: inject a transient-error harness; assert new cell has attempt_of:\u003cid\u003e and prior cell back-written with superseded_by:\u003cid\u003e.\n  6. test_runner.sh::test_sweep_json_captures_image_digest: \u003cout\u003e/sweep.json contains harbor_runner_image_digest matching `docker image inspect -f '{{.Id}}' fizeau-harbor-runner:latest`; each cell's report.json copies it.\n  7. test_runner.sh::test_listing_subcommands_emit_summaries: `./benchmark harness-adapters` prints all 8 adapter names with their `# SUMMARY:` lines.\n\nGATES: `go test ./...` green (unchanged code paths); `lefthook run pre-commit` green; `bash scripts/benchmark/test/run.sh`.",
+    "acceptance": "All 7 ACs pass; satisfies parent AC1 and AC2; go test + lefthook gates green.",
+    "parent": "fizeau-11e9c095",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "subpart:A2"
+    ],
+    "metadata": {
+      "events": [
+        {
+          "actor": "ddx",
+          "body": "{\"resolved_provider\":\"claude\",\"resolved_model\":\"haiku\",\"fallback_chain\":[]}",
+          "created_at": "2026-05-17T20:34:30.899770514Z",
+          "kind": "routing",
+          "source": "legacy agent execute-bead",
+          "summary": "provider=claude model=haiku"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"attempt_id\":\"20260517T203218-cb152d85\",\"harness\":\"claude\",\"model\":\"haiku\",\"input_tokens\":7,\"output_tokens\":4,\"total_tokens\":11,\"cost_usd\":0,\"duration_ms\":125564,\"exit_code\":143}",
+          "created_at": "2026-05-17T20:34:30.959897001Z",
+          "kind": "cost",
+          "source": "legacy agent execute-bead",
+          "summary": "tokens=11 model=haiku"
+        }
+      ]
+    }
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T203431-b74ab6b2",
+    "prompt": ".ddx/executions/20260517T203431-b74ab6b2/prompt.md",
+    "manifest": ".ddx/executions/20260517T203431-b74ab6b2/manifest.json",
+    "result": ".ddx/executions/20260517T203431-b74ab6b2/result.json",
+    "checks": ".ddx/executions/20260517T203431-b74ab6b2/checks.json",
+    "usage": ".ddx/executions/20260517T203431-b74ab6b2/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-b4b89163-20260517T203431-b74ab6b2"
+  },
+  "prompt_sha": "5bb696a7bd55ad852ae52aceae985309b256202295b5031b2e1f760711e4e6ed"
+}

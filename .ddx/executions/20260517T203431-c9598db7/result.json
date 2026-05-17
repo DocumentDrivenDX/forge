@@ -1,0 +1,16 @@
+{
+  "bead_id": "fizeau-328c544b",
+  "attempt_id": "20260517T203431-c9598db7",
+  "base_rev": "5fababc0b9a42d134659687f68f8c22a14daf2b0",
+  "result_rev": "5fababc0b9a42d134659687f68f8c22a14daf2b0",
+  "outcome": "task_failed",
+  "status": "execution_failed",
+  "detail": "loading bead fizeau-328c544b from worktree snapshot: bead: not found: fizeau-328c544b",
+  "duration_ms": 0,
+  "exit_code": 1,
+  "error": "loading bead fizeau-328c544b from worktree snapshot: bead: not found: fizeau-328c544b",
+  "project_root": "/Users/erik/Projects/fizeau",
+  "failure_mode": "unknown",
+  "started_at": "0001-01-01T00:00:00Z",
+  "finished_at": "0001-01-01T00:00:00Z"
+}
