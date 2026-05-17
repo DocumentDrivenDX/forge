@@ -1,0 +1,33 @@
+{
+  "attempt_id": "20260517T192434-67c518fb",
+  "bead_id": "fizeau-52ab2b02",
+  "base_rev": "24d26011ba623cb36438f2abbc4782aa590ea2a3",
+  "created_at": "2026-05-17T19:24:37.411131844Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-52ab2b02",
+    "title": "bench-pr-A2: shell harness adapters and task executor contract",
+    "description": "PROBLEM\nThe parent PR A runner cannot remove host Python until the matrix-side harness adapter flow is available as shell scripts with a stable JSON stdin/stdout contract.\n\nROOT CAUSE\ncmd/bench/matrix.go:1105 puts the repo root on host PYTHONPATH so Harbor can import scripts.benchmark.harbor_adapters.*, coupling benchmark execution to host Python. The parent scope requires porting matrix-side Python harness_adapters/ to shell harness-adapters/ and having scripts/benchmark/benchmark invoke harness-adapters/\u003cname\u003e with profile.json on stdin to produce command-spec.json.\n\nPROPOSED FIX\nCreate scripts/benchmark/harness-adapters/ shell adapter entrypoints for the PR A smoke matrix, including the harbor adapter contract. Implement adapter discovery for scripts/benchmark/benchmark harness-adapters. Define and validate JSON stdin/stdout fields for profile.json -\u003e command-spec.json. Compose the task-spec shape consumed by task-executors/\u003cname\u003e from the planned cell, profile, task, and command-spec, but use a local fake task executor in tests rather than Docker. Add tests proving adapter invocation, malformed JSON failures, command-spec creation, task-spec composition, and no reliance on host PYTHONPATH.\n\nNON-SCOPE\nDo not implement the full per-cell lifecycle, resume/rerun policy, flock concurrency, process group signal handling, docker stop cleanup, harbor-runner Docker image, or real Harbor container execution in this child. Do not remove cmd/bench/matrix.go unless needed only to route to the new script behind existing commands. Do not implement parent acceptance criteria assigned to sibling child beads. Preserve every parent non-scope constraint unless this child explicitly narrows it. Governing artifact reference must remain governing:plan-2026-05-15-benchmark-runner-simplification. Parent/dependency ID fizeau-11e9c095 must remain traceable. Verification requirements cd cli \u0026\u0026 go test ./... and lefthook run pre-commit are required gates.\n\nAC\n1. TestHarnessAdapterDiscovery: scripts/benchmark/benchmark harness-adapters lists the shell harness-adapters available for PR A smoke execution.\n2. TestHarnessAdapterCommandSpec: harness-adapters/harbor reads profile.json from stdin and emits deterministic command-spec.json with required fields.\n3. TestHarnessAdapterRejectsInvalidInput: malformed or schema-invalid profile JSON exits non-zero with a useful stderr message and no partial command-spec success.\n4. TestBenchmarkTaskSpecComposition: the runner composes task-spec JSON from planned cell data plus command-spec and passes it to task-executors/\u003cname\u003e on stdin.\n5. TestBenchmarkNoHostPythonPathAdapterFlow: adapter execution does not require repo-root PYTHONPATH or host Python imports from scripts.benchmark.harbor_adapters.*.\n6. TestBenchmarkVerificationGatesA2: cd cli \u0026\u0026 go test ./... passes.\n7. TestBenchmarkLefthookGateA2: lefthook run pre-commit passes.",
+    "acceptance": "1. TestHarnessAdapterDiscovery passes.\n2. TestHarnessAdapterCommandSpec passes.\n3. TestHarnessAdapterRejectsInvalidInput passes.\n4. TestBenchmarkTaskSpecComposition passes.\n5. TestBenchmarkNoHostPythonPathAdapterFlow passes.\n6. TestBenchmarkVerificationGatesA2: cd cli \u0026\u0026 go test ./... passes.\n7. TestBenchmarkLefthookGateA2: lefthook run pre-commit passes.",
+    "parent": "fizeau-bfdd6a77",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed"
+    ]
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T192434-67c518fb",
+    "prompt": ".ddx/executions/20260517T192434-67c518fb/prompt.md",
+    "manifest": ".ddx/executions/20260517T192434-67c518fb/manifest.json",
+    "result": ".ddx/executions/20260517T192434-67c518fb/result.json",
+    "checks": ".ddx/executions/20260517T192434-67c518fb/checks.json",
+    "usage": ".ddx/executions/20260517T192434-67c518fb/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-52ab2b02-20260517T192434-67c518fb"
+  },
+  "prompt_sha": "10d83c27c5863ca22181bc1dbfa7ec32fdca083465f958d6308cff153f6792cd"
+}
