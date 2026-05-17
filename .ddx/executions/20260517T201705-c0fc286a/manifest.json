@@ -1,0 +1,54 @@
+{
+  "attempt_id": "20260517T201705-c0fc286a",
+  "bead_id": "fizeau-974b7d33",
+  "base_rev": "9bad9920f83b5aca60f93b1e89580b01d5e4497a",
+  "created_at": "2026-05-17T20:17:08.586423201Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-974b7d33",
+    "title": "bench-pr-A4b: harbor-runner Docker wrapper, image build, and container-shutdown integration",
+    "description": "PROBLEM\nHarbor and plugin execution still require Python on the host (introduced by cmd/bench/matrix.go:1105), and the PR A runner has no way to stop in-flight Harbor containers when a benchmark is interrupted. The fizeau-harbor-runner image and the task-executors/harbor shell wrapper do not yet exist.\n\nROOT CAUSE\nThere is no container-based execution path for Harbor: cmd/bench/matrix.go:1105 imports Python on the host, no task-executors/harbor wrapper writes cell_dir/result.json, no fizeau-harbor-runner image build assets exist, and scripts/benchmark/benchmark does not track or docker-stop in-flight harbor-runner containers during shutdown.\n\nPROPOSED FIX\nAdd task-executors/harbor as a shell wrapper that runs Harbor through the fizeau-harbor-runner Docker image, passes the task spec on stdin or via mounted file, captures the container result, and writes cell_dir/result.json without importing Python on the host. Add the container-image build assets (Dockerfile and any supporting scripts) needed for PR A smoke tests to build fizeau-harbor-runner. Extend the shutdown path added in sibling A4a so that on SIGINT/SIGTERM the runner calls docker stop for each tracked in-flight harbor-runner container before the SIGKILL escalation. Tests must mock docker for deterministic verification and must not require a live Docker daemon.\n\nNON-SCOPE\nDo not reimplement the concurrency pool, flock locking, or process-group SIGTERM/SIGKILL escalation (covered by sibling A4a — this child only adds the docker-stop call into the existing shutdown sequence). Do not change planning semantics, adapter JSON contracts, or report composition beyond what is required to integrate the Docker wrapper. Do not finalize the PR C bench-set schema. Do not require real Docker daemon access in unit tests; mock docker. Preserve every parent non-scope constraint unless this child explicitly narrows it. Governing artifact reference governing:plan-2026-05-15-benchmark-runner-simplification must remain. Parent/dependency ID fizeau-11e9c095 must remain traceable. Verification gates cd cli \u0026\u0026 go test ./... and lefthook run pre-commit are required.\n\nAC\n1. TestBenchmarkSignalStopsHarborContainers: shutdown calls docker stop for each tracked in-flight harbor-runner container.\n2. TestHarborTaskExecutorDockerWrapper: task-executors/harbor invokes the fizeau-harbor-runner image with task-spec input, captures the container result, and writes cell_dir/result.json without host Python imports.\n3. TestHarborRunnerImageBuildSmoke: harbor-runner image build assets exist and the configured build command succeeds or is covered by a mockable CI-safe smoke path.\n4. TestBenchmarkVerificationGatesA4b: cd cli \u0026\u0026 go test ./... passes.\n5. TestBenchmarkLefthookGateA4b: lefthook run pre-commit passes.",
+    "acceptance": "1. TestBenchmarkSignalStopsHarborContainers passes.\n2. TestHarborTaskExecutorDockerWrapper passes.\n3. TestHarborRunnerImageBuildSmoke passes.\n4. TestBenchmarkVerificationGatesA4b: cd cli \u0026\u0026 go test ./... passes.\n5. TestBenchmarkLefthookGateA4b: lefthook run pre-commit passes.",
+    "parent": "fizeau-08c92a37",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed",
+      "needs-human-decomposition"
+    ],
+    "metadata": {
+      "events": [
+        {
+          "actor": "erik",
+          "body": "{\"depth\":3,\"max\":3}",
+          "created_at": "2026-05-17T20:17:00.076950757Z",
+          "kind": "triage-overflow",
+          "source": "ddx work",
+          "summary": "depth cap exceeded"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"decision\":\"warn\",\"decision_source\":\"pre_claim_intake\",\"detail\":\"bead depth 3 reached max_decomposition_depth 3; operator must split\",\"fingerprint\":\"94c841f916ea8dd55f9c10e471020fe274d118cdf54d7997ef0f8baecea57445\",\"policy_mode\":\"warn-only\",\"reason\":\"decomposition_depth_cap\",\"rule_id\":\"pre_claim_intake.decomposition_depth_cap\",\"suggested_action\":\"revise the rewrite so it preserves every explicit commitment\"}",
+          "created_at": "2026-05-17T20:17:00.164026548Z",
+          "kind": "intake.warn",
+          "source": "ddx work",
+          "summary": "decomposition_depth_cap"
+        }
+      ]
+    }
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T201705-c0fc286a",
+    "prompt": ".ddx/executions/20260517T201705-c0fc286a/prompt.md",
+    "manifest": ".ddx/executions/20260517T201705-c0fc286a/manifest.json",
+    "result": ".ddx/executions/20260517T201705-c0fc286a/result.json",
+    "checks": ".ddx/executions/20260517T201705-c0fc286a/checks.json",
+    "usage": ".ddx/executions/20260517T201705-c0fc286a/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-974b7d33-20260517T201705-c0fc286a"
+  },
+  "prompt_sha": "58dca16d34efe25c73c6022c7a7fd31418d8d6b88a30d231726d2824fe853284"
+}
