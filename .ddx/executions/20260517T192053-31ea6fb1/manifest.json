@@ -1,0 +1,33 @@
+{
+  "attempt_id": "20260517T192053-31ea6fb1",
+  "bead_id": "fizeau-3b7d5c8e",
+  "base_rev": "18e388e75fc5921d0d8900ca5e04cbe602765ed1",
+  "created_at": "2026-05-17T19:20:58.382303557Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-3b7d5c8e",
+    "title": "bench-pr-A1: bash runner discovery and planning shell",
+    "description": "PROBLEM\nParent bead fizeau-11e9c095 is too broad for one execution pass. This child creates the executable bash runner entrypoint and read-only planning/discovery surface needed by later PR A children.\n\nROOT CAUSE\nThe current runner is concentrated in cmd/bench/matrix.go:1 and is approximately 2232 LOC, making matrix behavior, discovery, validation, execution, resume, and concurrency hard to replace safely in one pass. It also injects the repo root into host PYTHONPATH at cmd/bench/matrix.go:1105, which is part of the host-Python dependency being removed by the parent scope.\n\nPROPOSED FIX\nAdd scripts/benchmark/benchmark as a bash executable. Implement argument parsing and dispatch for profiles, bench-sets, task-executors, harness-adapters, validate, preflight, and run mode. Implement --plan-only planning for --profile, --bench-set, --reps, --jobs, --max-cost-usd, and --out without executing cells. Read profile, bench-set, and concurrency-group YAML through yq -o=json. Expand profile x task x rep in deterministic order. Resolve bench-set tasks_from paths relative to the bench-set file and inline tasks lists. For PR A smoke coverage, default task_executor to harbor when framework == terminal-bench. Add shell-focused tests around CLI parsing, YAML conversion, matrix planning, tasks_from resolution, and terminal-bench default executor.\n\nNON-SCOPE\nDo not execute cells, invoke harness adapters, invoke task executors, write result.json/report.json, implement resume/rerun behavior, implement flock concurrency, manage process groups, stop Docker containers, build the harbor-runner image, or port Python harness adapters in this child. Do not implement parent acceptance criteria assigned to sibling child beads. Preserve every parent non-scope constraint unless this child explicitly narrows it. Governing artifact reference must remain governing:plan-2026-05-15-benchmark-runner-simplification. Parent/dependency ID fizeau-11e9c095 must remain traceable. Verification requirements cd cli \u0026\u0026 go test ./... and lefthook run pre-commit are required gates.\n\nAC\n1. TestBenchmarkDispatchSubcommands: scripts/benchmark/benchmark supports profiles, bench-sets, task-executors, harness-adapters, validate, preflight, and no-subcommand run-mode dispatch with documented usage failures for invalid arguments.\n2. TestBenchmarkPlanMatrixExpansion: --plan expands profile x task x rep in deterministic order from yq -o=json YAML input and writes/prints a machine-readable plan without running cells.\n3. TestBenchmarkTasksFromResolution: bench-set tasks_from references are resolved relative to the bench-set file and merge with inline tasks lists.\n4. TestBenchmarkTerminalBenchDefaultsHarbor: matrix planning defaults task_executor to harbor when framework == terminal-bench and no explicit task_executor is present.\n5. TestBenchmarkVerificationGatesA1: cd cli \u0026\u0026 go test ./... passes.\n6. TestBenchmarkLefthookGateA1: lefthook run pre-commit passes.",
+    "acceptance": "1. TestBenchmarkDispatchSubcommands passes.\n2. TestBenchmarkPlanMatrixExpansion passes.\n3. TestBenchmarkTasksFromResolution passes.\n4. TestBenchmarkTerminalBenchDefaultsHarbor passes.\n5. TestBenchmarkVerificationGatesA1: cd cli \u0026\u0026 go test ./... passes.\n6. TestBenchmarkLefthookGateA1: lefthook run pre-commit passes.",
+    "parent": "fizeau-bfdd6a77",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed"
+    ]
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T192053-31ea6fb1",
+    "prompt": ".ddx/executions/20260517T192053-31ea6fb1/prompt.md",
+    "manifest": ".ddx/executions/20260517T192053-31ea6fb1/manifest.json",
+    "result": ".ddx/executions/20260517T192053-31ea6fb1/result.json",
+    "checks": ".ddx/executions/20260517T192053-31ea6fb1/checks.json",
+    "usage": ".ddx/executions/20260517T192053-31ea6fb1/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-3b7d5c8e-20260517T192053-31ea6fb1"
+  },
+  "prompt_sha": "49407b0b52a22381fb2705e32537d41807b3332d260fe00830c8420a4daaf645"
+}

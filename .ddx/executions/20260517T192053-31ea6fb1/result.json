@@ -1,0 +1,47 @@
+{
+  "bead_id": "fizeau-3b7d5c8e",
+  "attempt_id": "20260517T192053-31ea6fb1",
+  "base_rev": "18e388e75fc5921d0d8900ca5e04cbe602765ed1",
+  "result_rev": "9c382278c5ec707533730ee1c67a13ad41a66a54",
+  "implementation_rev": "9c382278c5ec707533730ee1c67a13ad41a66a54",
+  "landed_branch": "master",
+  "outcome": "preserved",
+  "status": "land_conflict",
+  "detail": "large-deletion gate: cli/benchmark_test.go deleted 227 lines (threshold 200) without intentional large deletion acknowledgement",
+  "orchestrator_status": "land_conflict",
+  "reason": "large-deletion gate: cli/benchmark_test.go deleted 227 lines (threshold 200) without intentional large deletion acknowledgement",
+  "preserve_ref": "refs/ddx/iterations/fizeau-3b7d5c8e/20260517T192053-31ea6fb1-ec429a2c06e9",
+  "candidate_ref": "refs/ddx/iterations/20260517T192053-31ea6fb1/0",
+  "required_exec_summary": "skipped",
+  "cycle_trace": [
+    {
+      "cycle_index": 0,
+      "attempt_id": "20260517T192053-31ea6fb1",
+      "result_rev": "9c382278c5ec707533730ee1c67a13ad41a66a54",
+      "implementer_route": {
+        "harness": "codex",
+        "model": "gpt-5.4-mini"
+      },
+      "review_result": {},
+      "final_decision": "success"
+    }
+  ],
+  "harness": "codex",
+  "model": "gpt-5.4-mini",
+  "predicted_power": 8,
+  "predicted_cost_usd_per_1k_tokens": 0.0075,
+  "predicted_cost_source": "subscription",
+  "session_id": "eb-4d8e9c27",
+  "duration_ms": 849326,
+  "tokens": 13012809,
+  "exit_code": 0,
+  "project_root": "/Users/erik/Projects/fizeau",
+  "execution_dir": ".ddx/executions/20260517T192053-31ea6fb1",
+  "prompt_file": ".ddx/executions/20260517T192053-31ea6fb1/prompt.md",
+  "manifest_file": ".ddx/executions/20260517T192053-31ea6fb1/manifest.json",
+  "result_file": ".ddx/executions/20260517T192053-31ea6fb1/result.json",
+  "usage_file": ".ddx/executions/20260517T192053-31ea6fb1/usage.json",
+  "rate_limit_budget": 300000000000,
+  "started_at": "2026-05-17T19:20:58.404819744Z",
+  "finished_at": "2026-05-17T19:35:07.731623683Z"
+}
