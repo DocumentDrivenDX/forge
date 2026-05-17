@@ -693,7 +693,7 @@ validate_task_executors() {
 
 # print_plan emits one line per (profile, task, rep) cell. Pure: no writes.
 print_plan() {
-  local profiles_csv="$1" bench_sets_csv="$2"
+  local profiles_csv="$1" bench_sets_csv="$2" reps_override="${3:-}"
   IFS=',' read -r -a profile_ids <<<"${profiles_csv}"
   IFS=',' read -r -a bench_set_ids <<<"${bench_sets_csv}"
 
@@ -708,7 +708,11 @@ print_plan() {
       bs_file="$(resolve_bench_set_file "${bs_id}")"
       framework="$(bench_set_framework "${bs_file}")"
       dataset="$(bench_set_dataset "${bs_file}")"
-      reps="$(bench_set_reps "${bs_file}")"
+      if [[ -n "${reps_override}" ]]; then
+        reps="${reps_override}"
+      else
+        reps="$(bench_set_reps "${bs_file}")"
+      fi
       task_executor="$(resolve_bench_set_task_executor "${bs_file}")"
       tasks="$(resolve_tasks "${bs_file}")"
       i=0
@@ -1786,7 +1790,7 @@ main() {
       [[ -n "${profile_csv}" ]]   || die "--profile is required"
       [[ -n "${bench_set_csv}" ]] || die "--bench-set is required"
       if [[ ${plan} -eq 1 ]]; then
-        print_plan "${profile_csv}" "${bench_set_csv}"
+        print_plan "${profile_csv}" "${bench_set_csv}" "${reps_override}"
         exit 0
       fi
       if [[ -z "${out}" ]]; then
