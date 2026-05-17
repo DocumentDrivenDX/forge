@@ -1,0 +1,45 @@
+{
+  "bead_id": "fizeau-8a5e74f0",
+  "attempt_id": "20260517T203908-8dd4e1ef",
+  "base_rev": "61ce40ffa3a37bf193ec8f97913c985fcfdb1b10",
+  "result_rev": "cec9023d54291e1026302be5fc00ee24c561e648",
+  "implementation_rev": "cec9023d54291e1026302be5fc00ee24c561e648",
+  "landed_branch": "master",
+  "outcome": "preserved",
+  "status": "land_conflict",
+  "detail": "merge conflict",
+  "orchestrator_status": "land_conflict",
+  "reason": "merge conflict",
+  "preserve_ref": "refs/ddx/iterations/fizeau-8a5e74f0/20260517T203908-8dd4e1ef-95f0cc5f5a92",
+  "candidate_ref": "refs/ddx/iterations/20260517T203908-8dd4e1ef/0",
+  "required_exec_summary": "skipped",
+  "cycle_trace": [
+    {
+      "cycle_index": 0,
+      "attempt_id": "20260517T203908-8dd4e1ef",
+      "result_rev": "cec9023d54291e1026302be5fc00ee24c561e648",
+      "implementer_route": {
+        "harness": "claude",
+        "model": "haiku"
+      },
+      "review_result": {},
+      "final_decision": "success"
+    }
+  ],
+  "harness": "claude",
+  "model": "haiku",
+  "session_id": "eb-11b23bec",
+  "duration_ms": 1207941,
+  "tokens": 30620,
+  "cost_usd": 1.4145985000000003,
+  "exit_code": 0,
+  "project_root": "/Users/erik/Projects/fizeau",
+  "execution_dir": ".ddx/executions/20260517T203908-8dd4e1ef",
+  "prompt_file": ".ddx/executions/20260517T203908-8dd4e1ef/prompt.md",
+  "manifest_file": ".ddx/executions/20260517T203908-8dd4e1ef/manifest.json",
+  "result_file": ".ddx/executions/20260517T203908-8dd4e1ef/result.json",
+  "usage_file": ".ddx/executions/20260517T203908-8dd4e1ef/usage.json",
+  "rate_limit_budget": 300000000000,
+  "started_at": "2026-05-17T20:39:14.815371452Z",
+  "finished_at": "2026-05-17T20:59:22.757032943Z"
+}
