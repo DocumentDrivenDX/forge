@@ -1,0 +1,111 @@
+{
+  "attempt_id": "20260517T213607-2acfafb2",
+  "bead_id": "fizeau-4b76e6b8",
+  "base_rev": "e62bed01499fddc9cf731629defabbf768469ea0",
+  "created_at": "2026-05-17T21:36:14.751765994Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-4b76e6b8",
+    "title": "bench-pr-A2b: per-cell execution loop + report.json composition + sweep.json + resume/--force-rerun/--retry-invalid",
+    "description": "PROBLEM: A2a delivers the runner skeleton and --plan but stubs the execution path. This child wires the sequential per-cell loop that calls the A1 harness-adapter + harbor task-executor, composes report.json, captures sweep.json metadata, and implements resume/--force-rerun/--retry-invalid semantics. Per-cell retry for transient errors is split into A2c; concurrency lives in A3.\n\nROOT CAUSE: After A2a lands, scripts/benchmark/benchmark dispatches subcommands and expands the matrix but the run path is gated with `not yet implemented`. Cells cannot be produced until the execution loop and report assembly are wired up.\n\nPROPOSED FIX (inside scripts/benchmark/benchmark, removing A2a's `not yet implemented` guard):\n  1. Per-cell loop (sequential; A3 adds the --jobs pool):\n     a. Compute cell_dir = $out/$profile/$task/$rep.\n     b. Resume: if cell_dir/report.json exists with terminal final_status, skip unless --force-rerun. --retry-invalid reruns cells with non-empty invalid_class OR orphan cell-state.json.\n     c. Write cell_dir/cell-state.json sentinel {pid,started_at,profile,task,rep}.\n     d. `./harness-adapters/\u003cname\u003e command \u003c profile.json \u003e command-spec.json`.\n     e. Compose task-spec.json (cell_dir, command-spec, env from harness install-spec, tasks_dir).\n     f. Invoke `./task-executors/\u003cname\u003e \u003c task-spec.json` (writes cell_dir/result.json).\n     g. Compose cell_dir/report.json: embedded profile, command, env_redacted (mask any key in secret_env_keys), fiz.txt, fiz.err, session/, plus result fields.\n     h. Delete cell-state.json on terminal success/failure.\n  2. sweep.json: capture task_executor_version + harbor_runner_image_digest (from `docker image inspect -f '{{.Id}}' fizeau-harbor-runner:latest`) once per ./benchmark invocation into \u003cout\u003e/sweep.json; runner copies into each cell's report.json.\n  3. Pre-create $out/$profile/$task tree before fan-out; fail fast on unwritable $out.\n\nNON-SCOPE (preserved from parent):\n  - Per-cell retry with attempt_of/superseded_by for transient errors (A2c)\n  - Bash skeleton, listing subcommands, --plan, matrix expansion, preflight, validate (A2a)\n  - cell-report.schema.json (PR B); tasks_from/task_executor bench-set schema finalization (PR C)\n  - Node collector/importers (PR D/E); deleting cmd/bench (PR F); docs (PR G)\n  - Concurrency-group flock, --jobs pool, SIGTERM/SIGINT, in-flight.json, budget enforcement, budget.json, budget_halted, go-runner deactivation (A3)\n  - Parity fixtures and diff.sh (A4)\n  - Harbor image, shell adapters, runtime-probe, agent-leak fix (A1)\n\nGOVERNING: plan-2026-05-15-benchmark-runner-simplification. Depends on A1, A2a.\n\nACCEPTANCE:\n  1. TestRunnerProducesCanaryCells (scripts/benchmark/test/test_runner.sh::test_full_run_canary): `./scripts/benchmark/benchmark --profile sindri-lucebox --bench-set tb-2-1-canary` writes cells under bench/results/fiz-tools-v1/cells/; each has report.json with non-empty embedded profile, command, env_redacted, fiz.txt, fiz.err, session/. (Parent AC2.)\n  2. TestResumeSkipsTerminalCells (test_runner.sh::test_resume_skips_terminal_cells): re-running the same command without --force-rerun touches no cell (mtimes unchanged). With --force-rerun, all cells rerun (mtimes advance). (Parent AC3.)\n  3. TestRetryInvalidRerunsOnlyInvalid (test_runner.sh::test_retry_invalid_reruns_only_invalid): seed a cell with invalid_class=\"x\"; --retry-invalid reruns it and skips the others (assert by mtime). Also reruns cells with orphan cell-state.json. (Parent AC4.)\n  4. TestSweepJsonCapturesImageDigest (test_runner.sh::test_sweep_json_captures_image_digest): \u003cout\u003e/sweep.json contains harbor_runner_image_digest matching `docker image inspect -f '{{.Id}}' fizeau-harbor-runner:latest`; each cell's report.json copies it and task_executor_version. (Parent AC6.)\n  5. TestEnvRedactionMasksSecretKeys (test_runner.sh::test_env_redacted_masks_secret_keys): a profile with secret_env_keys=[OPENAI_API_KEY] produces report.json whose env_redacted has OPENAI_API_KEY=\"***\" and unrelated keys verbatim.\n\nGATES: `go test ./...` green (Go unchanged); `lefthook run pre-commit` green; `bash scripts/benchmark/test/run.sh`.",
+    "acceptance": "All 5 ACs pass; satisfies parent AC2, AC3, AC4, AC6; go test + lefthook gates green.",
+    "parent": "fizeau-b4b89163",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "subpart:A2b"
+    ],
+    "metadata": {
+      "events": [
+        {
+          "actor": "ddx",
+          "body": "{\"resolved_provider\":\"claude\",\"resolved_model\":\"haiku\",\"fallback_chain\":[]}",
+          "created_at": "2026-05-17T21:25:20.551371265Z",
+          "kind": "routing",
+          "source": "legacy agent execute-bead",
+          "summary": "provider=claude model=haiku"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"attempt_id\":\"20260517T210318-f73c3271\",\"harness\":\"claude\",\"model\":\"haiku\",\"input_tokens\":464,\"output_tokens\":50563,\"total_tokens\":51027,\"cost_usd\":1.1087652500000003,\"duration_ms\":1316559,\"exit_code\":0}",
+          "created_at": "2026-05-17T21:25:20.606895465Z",
+          "kind": "cost",
+          "source": "legacy agent execute-bead",
+          "summary": "tokens=51027 cost_usd=1.1088 model=haiku"
+        },
+        {
+          "actor": "",
+          "body": "{\"candidate_ref\":\"refs/ddx/iterations/20260517T210318-f73c3271/0\",\"cycle_index\":0,\"attempt_id\":\"20260517T210318-f73c3271\",\"base_rev\":\"36bdafe60ae809aa83dfb8ba4560c8d1eeda3559\",\"result_rev\":\"9f17a37a63fae45d2143a5f8da1a4e24005bad05\"}",
+          "created_at": "2026-05-17T21:25:20.651955125Z",
+          "kind": "candidate_cycle_pinned",
+          "source": "",
+          "summary": ""
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"resolved_provider\":\"grendel-omlx\",\"resolved_model\":\"Qwen3.6-27B-MLX-8bit\",\"fallback_chain\":[],\"requested_min_power\":5,\"actual_power\":5}",
+          "created_at": "2026-05-17T21:25:41.622924359Z",
+          "kind": "routing",
+          "source": "legacy agent execute-bead",
+          "summary": "provider=grendel-omlx model=Qwen3.6-27B-MLX-8bit"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"actual_harness\":\"fiz\",\"actual_model\":\"Qwen3.6-27B-MLX-8bit\",\"actual_power\":5,\"actual_provider\":\"grendel-omlx\",\"attempt_id\":\"20260517T212524-38c34148\",\"bead_id\":\"fizeau-4b76e6b8\",\"estimated_difficulty\":\"medium\",\"rejected_route_pins\":null,\"requested_power_class\":\"standard\",\"requested_profile\":\"cheap\",\"routing_intent_degraded\":false,\"routing_intent_note\":\"\",\"routing_intent_source\":\"readiness\"}",
+          "created_at": "2026-05-17T21:25:41.996554638Z",
+          "kind": "execution-routing-intent",
+          "source": "ddx work",
+          "summary": "source=readiness difficulty=medium powerClass=standard model=Qwen3.6-27B-MLX-8bit harness=fiz"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"actual_power\":5,\"model\":\"Qwen3.6-27B-MLX-8bit\",\"provider\":\"grendel-omlx\",\"reason\":\"ladder exhausted at power 5\"}",
+          "created_at": "2026-05-17T21:25:42.089078958Z",
+          "kind": "execution-escalation-aborted",
+          "source": "ddx work",
+          "summary": "escalation aborted: ladder exhausted at power 5 provider=grendel-omlx model=Qwen3.6-27B-MLX-8bit"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"actual_power\":5,\"detail\":\"agent: provider error: openai: Post \\\"http://grendel:1235/v1/chat/completions\\\": dial tcp 100.97.179.68:1235: i/o timeout\",\"error\":\"agent: provider error: openai: Post \\\"http://grendel:1235/v1/chat/completions\\\": dial tcp 100.97.179.68:1235: i/o timeout\",\"harness\":\"fiz\",\"model\":\"Qwen3.6-27B-MLX-8bit\",\"outcome_reason\":\"provider_connectivity\",\"provider\":\"grendel-omlx\"}",
+          "created_at": "2026-05-17T21:25:42.168448905Z",
+          "kind": "route-failure",
+          "source": "ddx work",
+          "summary": "provider=grendel-omlx model=Qwen3.6-27B-MLX-8bit connectivity failure"
+        },
+        {
+          "actor": "erik",
+          "body": "agent: provider error: openai: Post \"http://grendel:1235/v1/chat/completions\": dial tcp 100.97.179.68:1235: i/o timeout\npowerClass=standard\nresult_rev=3655b323447fb4c06ec0442a50b4c802de190e96\nbase_rev=3655b323447fb4c06ec0442a50b4c802de190e96\noutcome_reason=provider_connectivity",
+          "created_at": "2026-05-17T21:25:42.207002816Z",
+          "kind": "execute-bead",
+          "source": "ddx work",
+          "summary": "execution_failed"
+        }
+      ],
+      "work-failed-routes": [
+        {
+          "actual_power": 5,
+          "at": "2026-05-17T21:25:42Z",
+          "count": 1,
+          "model": "Qwen3.6-27B-MLX-8bit",
+          "provider": "grendel-omlx",
+          "reason": "provider_connectivity"
+        }
+      ]
+    }
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T213607-2acfafb2",
+    "prompt": ".ddx/executions/20260517T213607-2acfafb2/prompt.md",
+    "manifest": ".ddx/executions/20260517T213607-2acfafb2/manifest.json",
+    "result": ".ddx/executions/20260517T213607-2acfafb2/result.json",
+    "checks": ".ddx/executions/20260517T213607-2acfafb2/checks.json",
+    "usage": ".ddx/executions/20260517T213607-2acfafb2/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-4b76e6b8-20260517T213607-2acfafb2"
+  },
+  "prompt_sha": "5ed17b8ecd7c90994017fec5bbd0761a0001f98fecf8c68e8d66f95dd8232bfb"
+}
