@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# SUMMARY: test fixture harness that fails N times then succeeds. Parameterized via TRANSIENT_FAIL_COUNT env.
+set -euo pipefail
+
+spec="$(cat)"
+[[ -n "${spec}" ]] || { echo "transient-harness: empty task-spec on stdin" >&2; exit 2; }
+
+cell_dir="$(jq -r '.cell_dir // ""' <<<"${spec}")"
+task_id="$(jq -r '.task_id // ""' <<<"${spec}")"
+[[ -n "${cell_dir}" && -n "${task_id}" ]] || { echo "transient-harness: missing cell_dir or task_id" >&2; exit 2; }
+
+mkdir -p "${cell_dir}"
+result_path="${cell_dir}/result.json"
+state_dir="${cell_dir%/*}"
+state_file="${state_dir}/.transient-state-${task_id}"
+
+# Number of times to fail before succeeding (default 1)
+fail_count="${TRANSIENT_FAIL_COUNT:-1}"
+
+# Read current attempt count
+attempt=1
+if [[ -f "${state_file}" ]]; then
+  attempt=$(<"${state_file}")
+  attempt=$((attempt + 1))
+fi
+
+# Write updated attempt count
+printf '%d\n' "${attempt}" >"${state_file}"
+
+# If we haven't reached fail_count yet, fail with transient error
+if (( attempt <= fail_count )); then
+  jq -n \
+    --arg task "${task_id}" \
+    --arg error_class "connection_refused" \
+    --argjson attempt "${attempt}" \
+    --argjson fail_count "${fail_count}" \
+    '{task_id:$task, error_class:$error_class, final_status:"fail", attempt:$attempt, fail_count:$fail_count, note:"transient failure"}' \
+    >"${result_path}"
+  exit 1
+fi
+
+# On final attempt, succeed
+jq -n \
+  --arg task "${task_id}" \
+  --argjson attempt "${attempt}" \
+  --argjson fail_count "${fail_count}" \
+  '{task_id:$task, final_status:"completed", attempt:$attempt, fail_count:$fail_count, note:"succeeded after transient failures"}' \
+  >"${result_path}"
+exit 0

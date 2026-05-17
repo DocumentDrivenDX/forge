@@ -114,6 +114,7 @@ export_cell_worker_functions() {
     unregister_inflight \
     interrupt_inflight_cells \
     is_terminal_status \
+    is_transient_error_class \
     resolve_adapter_for_harness \
     new_cell_id \
     task_executor_version \
@@ -131,6 +132,7 @@ export_cell_worker_functions() {
     budget_is_halted \
     write_budget_halted_cell \
     run_one_cell \
+    run_cell_with_per_cell_retry \
     budget_or_run_cell
 }
 
@@ -860,6 +862,15 @@ is_terminal_status() {
   esac
 }
 
+# is_transient_error_class checks if an error_class from result.json is
+# retryable.
+is_transient_error_class() {
+  case "$1" in
+    connection_refused|http_5xx|eof_parse|provider_timeout|dial_timeout) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # Map the profile's `harness:` field to a harness-adapter file name.
 # `none` (or absent) means native fiz.
 resolve_adapter_for_harness() {
@@ -1431,16 +1442,72 @@ run_one_cell() {
   printf '%s\n' "${cell_dir}"
 }
 
+# run_cell_with_per_cell_retry invokes run_one_cell with per-cell retry logic
+# for transient errors. Each retry attempt gets a fresh cell_id and cell_dir,
+# linked via attempt_of/superseded_by. Returns the final cell_dir.
+run_cell_with_per_cell_retry() {
+  local out="$1" profile_id="$2" profile_file="$3"
+  local framework="$4" dataset="$5" dataset_dir="$6" task="$7"
+  local rep_idx="$8" total_reps="$9" adapter="${10}"
+  local te_ver="${11}" hd="${12}" interrupted_flag="${13:-}"
+
+  local max_attempts="${BENCH_RETRY_MAX_ATTEMPTS}"
+  local backoff="${BENCH_RETRY_BACKOFF_BASE}"
+  local attempt=1
+  local prior_cell_dir=""
+
+  while :; do
+    local cell_dir
+    cell_dir="$(run_one_cell "${out}" "${profile_id}" "${profile_file}" \
+                  "${framework}" "${dataset}" "${dataset_dir}" "${task}" \
+                  "${rep_idx}" "${total_reps}" "${adapter}" "${prior_cell_dir}" \
+                  "${te_ver}" "${hd}" "${interrupted_flag}")"
+
+    if [[ ! -f "${cell_dir}/report.json" ]]; then
+      # No result to check, just return the cell
+      printf '%s\n' "${cell_dir}"
+      return 0
+    fi
+
+    local error_class final_status
+    error_class="$(jq -r '.error_class // ""' "${cell_dir}/report.json" 2>/dev/null || printf '')"
+    final_status="$(jq -r '.final_status // ""' "${cell_dir}/report.json" 2>/dev/null || printf '')"
+
+    # If non-transient error or success, stop retrying
+    if [[ -z "${error_class}" ]] || ! is_transient_error_class "${error_class}"; then
+      printf '%s\n' "${cell_dir}"
+      return 0
+    fi
+
+    # If max attempts reached, mark final cell with transient_exhausted and stop
+    if (( attempt >= max_attempts )); then
+      local tmp
+      tmp="$(mktemp)"
+      jq '. + {final_status:"transient_exhausted"}' "${cell_dir}/report.json" >"${tmp}"
+      mv "${tmp}" "${cell_dir}/report.json"
+      printf '%s\n' "${cell_dir}"
+      return 0
+    fi
+
+    # Transient error and more attempts available: sleep and retry
+    warn "cell $(basename "${cell_dir}"): transient error (attempt ${attempt}/${max_attempts}); sleeping ${backoff}s before retry"
+    sleep "${backoff}"
+    backoff=$((backoff * 2))
+    attempt=$((attempt + 1))
+    prior_cell_dir="${cell_dir}"
+  done
+}
+
 # budget_or_run_cell either writes a budget-halted placeholder (when the
-# budget cap has been hit) or invokes run_one_cell. On success it appends the
-# cell's cost into <out>/budget.json so the halt flag flips for the next
-# cell. cap="" disables budget machinery entirely. interrupted_flag="" disables
-# interrupt checking.
+# budget cap has been hit) or invokes run_cell_with_per_cell_retry. On success
+# it appends the cell's cost into <out>/budget.json so the halt flag flips for
+# the next cell. cap="" disables budget machinery entirely. interrupted_flag=""
+# disables interrupt checking.
 budget_or_run_cell() {
   local out="$1" profile_id="$2" profile_file="$3"
   local framework="$4" dataset="$5" dataset_dir="$6" task="$7"
-  local rep_idx="$8" total_reps="$9" adapter="${10}" attempt_of="${11}"
-  local te_ver="${12}" hd="${13}" cap="${14}" interrupted_flag="${15:-}"
+  local rep_idx="$8" total_reps="$9" adapter="${10}"
+  local te_ver="${11}" hd="${12}" cap="${13}" interrupted_flag="${14:-}"
 
   local cell_dir
   if [[ -n "${cap}" ]] && budget_is_halted "${out}"; then
@@ -1451,9 +1518,9 @@ budget_or_run_cell() {
     return 0
   fi
 
-  cell_dir="$(run_one_cell "${out}" "${profile_id}" "${profile_file}" \
+  cell_dir="$(run_cell_with_per_cell_retry "${out}" "${profile_id}" "${profile_file}" \
                 "${framework}" "${dataset}" "${dataset_dir}" "${task}" \
-                "${rep_idx}" "${total_reps}" "${adapter}" "${attempt_of}" \
+                "${rep_idx}" "${total_reps}" "${adapter}" \
                 "${te_ver}" "${hd}" "${interrupted_flag}")"
 
   if [[ -n "${cap}" && -f "${cell_dir}/report.json" ]]; then
@@ -1582,17 +1649,17 @@ run_sweep() {
         if [[ ${force_rerun} -eq 1 ]]; then
           local r
           for ((r = 1; r <= reps; r++)); do
-            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|${r}|${reps}|${adapter}||${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
+            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|${r}|${reps}|${adapter}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
           done
         elif [[ ${retry_invalid} -eq 1 ]]; then
           local prior
           while IFS= read -r prior; do
             [[ -n "${prior}" ]] || continue
-            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|1|${reps}|${adapter}|${prior}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
+            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|1|${reps}|${adapter}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
           done <"${invalid_file}"
           while IFS= read -r prior; do
             [[ -n "${prior}" ]] || continue
-            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|1|${reps}|${adapter}|${prior}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
+            cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|1|${reps}|${adapter}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
           done <"${orphan_file}"
           warn "retry-invalid: profile=${profile_id} task=${task} reran invalid=${invalid_count} orphan=${orphan_count}"
         else
@@ -1603,7 +1670,7 @@ run_sweep() {
             need=$((reps - terminal_count))
             idx=$((terminal_count + 1))
             for ((r = 1; r <= need; r++)); do
-              cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|${idx}|${reps}|${adapter}||${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
+              cells_to_run+=("${profile_id}|${profile_file}|${framework}|${dataset}|${dataset_dir}|${task}|${idx}|${reps}|${adapter}|${te_ver}|${hd}|${max_cost_usd}|${concurrency_group}")
               idx=$((idx + 1))
             done
           fi
@@ -1628,7 +1695,7 @@ run_sweep() {
           fi
 
           # Parse cell spec
-          IFS='|' read -r p_id p_file fw ds ds_dir tsk rep_idx t_reps adp att_of te_v hd_v cap cg <<<"${cell_spec}"
+          IFS='|' read -r p_id p_file fw ds ds_dir tsk rep_idx t_reps adp te_v hd_v cap cg <<<"${cell_spec}"
 
           # Acquire concurrency-group lock
           local lock_fd
@@ -1640,7 +1707,7 @@ run_sweep() {
           launch_cell_worker "${lock_fd}" \
             "${out}" "${p_id}" "${p_file}" \
             "${fw}" "${ds}" "${ds_dir}" "${tsk}" \
-            "${rep_idx}" "${t_reps}" "${adp}" "${att_of}" \
+            "${rep_idx}" "${t_reps}" "${adp}" \
             "${te_v}" "${hd_v}" "${cap}" "${interrupted_flag}"
 
           active_jobs=$((active_jobs + 1))
