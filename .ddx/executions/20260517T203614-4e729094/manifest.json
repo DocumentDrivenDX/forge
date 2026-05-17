@@ -1,0 +1,77 @@
+{
+  "attempt_id": "20260517T203614-4e729094",
+  "bead_id": "fizeau-328c544b",
+  "base_rev": "69863c17a4e3e9b80015599c1cd768d27b3aab0a",
+  "created_at": "2026-05-17T20:36:17.022810524Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-328c544b",
+    "title": "bench-pr-A1: harbor-runner Docker image + shell harness-adapters + task-executor + runtime-probe + agent-leak fix",
+    "description": "PROBLEM: The Go runner (cmd/bench/matrix.go) puts repo root on host PYTHONPATH at cmd/bench/matrix.go:1105 so Harbor can import scripts.benchmark.harbor_adapters.*, forcing host Python. Matrix-side Python harness adapters in scripts/benchmark/harness_adapters/{fiz,opencode,pi,cost_probe,noop,dumb_script}.py likewise require host Python. Separately, internal/serviceimpl/execute_native.go:265 silently flips PlanningMode=true whenever ToolPreset==\"benchmark\", leaking a runner-side concept into the agent.\n\nROOT CAUSE:\n  - cmd/bench/matrix.go:1105 — host PYTHONPATH wiring forces Python on host\n  - cmd/bench/matrix.go:1015-1025 — claude/codex spawn uses --agent-import-path against host Python\n  - internal/serviceimpl/execute_native.go:265 — `PlanningMode: req.PlanningMode || req.ToolPreset == \"benchmark\"` couples agent planning to a runner preset\n\nPROPOSED FIX:\n  1. Build scripts/benchmark/Dockerfile.harbor-runner: FROM python:3.12-slim; pip install harbor-bench==\u003cpinned\u003e; COPY scripts/benchmark/harbor_adapters/ and harbor_agent.py to /app; PYTHONPATH=/app; ENTRYPOINT [\"harbor\"]. If pip-installable form unavailable, fall back to `pip install git+https://...`.\n  2. scripts/benchmark/build-harbor-runner.sh: docker build labeled with image-content-sha = sha256 of harbor_adapters/ + harbor_agent.py + Dockerfile.harbor-runner.\n  3. scripts/benchmark/task-executors/harbor: bash wrapper that `docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v $cell_dir:/output -v $tasks_dir:/tasks:ro -e FIZEAU_API_KEY ... fizeau-harbor-runner:latest run --agent-import-path $harbor_plugin --task-id $task_id --output /output`. Reads task-spec.json on stdin; writes cell_dir/result.json.\n  4. scripts/benchmark/harness-adapters/{fiz,claude,codex,opencode,pi,cost-probe,noop,dumb-script}: bash ports of harness_adapters/*.py. Each executable supports `\u003cname\u003e install \u003cagent-artifact-path\u003e` → install-spec.json {install_command, artifact_source, binary_path, harbor_plugin} and `\u003cname\u003e command` (stdin profile JSON) → command-spec.json {command, env, secret_env_keys}. Each file starts with `# SUMMARY:` header line.\n  5. scripts/benchmark/harness-adapters/fiz: read sampling.planning_mode (default false); append `--plan` to command when true.\n  6. scripts/benchmark/runtime-probe.sh: case on profile.metadata.runtime; curl+jq against lucebox|llamacpp|vllm|omlx|ds4|rapid-mlx endpoints; emit {name,version,commit,endpoint}.\n  7. scripts/benchmark/task-executors/CONTRACT.md and scripts/benchmark/harness-adapters/CONTRACT.md: document JSON shapes + `# SUMMARY:` convention.\n  8. internal/serviceimpl/execute_native.go:265 — delete `|| req.ToolPreset == \"benchmark\"`. PlanningMode flows only from req.PlanningMode.\n  9. Add sampling.planning_mode:bool default false to profile YAML schema docs (in CONTRACT.md). Migrate every profile under scripts/benchmark/profiles/ that today relies on the preset (identify via `rg -l 'preset.*benchmark|FIZEAU_PRESET' scripts/benchmark/profiles/`) by adding sampling.planning_mode: true.\n\nNON-SCOPE (deferred to other PRs, preserved from parent):\n  - cell-report.schema.json (PR B)\n  - tasks_from / task_executor bench-set schema (PR C)\n  - Node collector (PR D); Node importers (PR E); deleting cmd/bench (PR F); docs (PR G)\n  - Bash runner script itself (A2)\n  - Concurrency / signals / budget (A3)\n  - Parity fixtures (A4)\n\nGOVERNING: plan-2026-05-15-benchmark-runner-simplification.\n\nACCEPTANCE (numbered, with named test symbols + gates):\n  1. TestExecuteNativeRemovesBenchmarkPresetPlanning (internal/serviceimpl/execute_native_test.go): builds a Request with ToolPreset=\"benchmark\" and PlanningMode=false, asserts resolved PlanningMode==false; with PlanningMode=true, asserts true. Run: `go test ./internal/serviceimpl/... -run TestExecuteNativeRemovesBenchmarkPresetPlanning`.\n  2. `grep -n 'ToolPreset == \"benchmark\"' internal/serviceimpl/execute_native.go` returns nothing.\n  3. test_harness_adapters.bats / test_harness_adapters.sh function test_fiz_command_emits_plan_flag_when_planning_mode_true: pipes a profile JSON with sampling.planning_mode:true into `./harness-adapters/fiz command`, jq asserts `.command | index(\"--plan\")` non-null; with false, null.\n  4. test_harness_adapters function test_each_adapter_has_summary_header: for each of fiz,claude,codex,opencode,pi,cost-probe,noop,dumb-script: `head -3 harness-adapters/$a | grep -q '^# SUMMARY:'`.\n  5. test_harbor_image function test_build_sha_label_matches_content: ./build-harbor-runner.sh; `docker inspect -f '{{index .Config.Labels \"image-content-sha\"}}' fizeau-harbor-runner:latest` equals `sha256sum harbor_adapters/* harbor_agent.py Dockerfile.harbor-runner | sha256sum | awk '{print $1}'`.\n  6. test_runtime_probe function test_runtime_probe_emits_model_server_shape: against a mocked HTTP server, runtime-probe.sh emits JSON with keys name,version,commit,endpoint.\n  7. CONTRACT.md files exist at task-executors/CONTRACT.md and harness-adapters/CONTRACT.md, each documenting install-spec and command-spec JSON shapes.\n\nGATES: `go test ./...` green; `lefthook run pre-commit` green; bash tests run via `bash scripts/benchmark/test/run.sh`.",
+    "acceptance": "All 7 ACs in description pass; go test + lefthook gates green.",
+    "parent": "fizeau-11e9c095",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "subpart:A1"
+    ],
+    "metadata": {
+      "events": [
+        {
+          "actor": "ddx",
+          "body": "{\"resolved_provider\":\"claude\",\"resolved_model\":\"haiku\",\"fallback_chain\":[]}",
+          "created_at": "2026-05-17T20:34:31.339854741Z",
+          "kind": "routing",
+          "source": "legacy agent execute-bead",
+          "summary": "provider=claude model=haiku"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"attempt_id\":\"20260517T203233-b9596cda\",\"harness\":\"claude\",\"model\":\"haiku\",\"input_tokens\":7,\"output_tokens\":3,\"total_tokens\":10,\"cost_usd\":0,\"duration_ms\":110395,\"exit_code\":143}",
+          "created_at": "2026-05-17T20:34:31.415928964Z",
+          "kind": "cost",
+          "source": "legacy agent execute-bead",
+          "summary": "tokens=10 model=haiku"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"actual_harness\":\"\",\"actual_model\":\"\",\"actual_power\":0,\"actual_provider\":\"\",\"attempt_id\":\"20260517T203431-c9598db7\",\"bead_id\":\"fizeau-328c544b\",\"estimated_difficulty\":\"\",\"rejected_route_pins\":null,\"requested_power_class\":\"standard\",\"requested_profile\":\"cheap\",\"routing_intent_degraded\":true,\"routing_intent_note\":\"actual route facts unavailable\",\"routing_intent_source\":\"default\"}",
+          "created_at": "2026-05-17T20:34:50.210744779Z",
+          "kind": "execution-routing-intent",
+          "source": "ddx work",
+          "summary": "source=default powerClass=standard note=actual route facts unavailable"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"base_rev\":\"5fababc0b9a42d134659687f68f8c22a14daf2b0\",\"classification\":\"transport\",\"detail\":\"execute-bead context load: loading bead fizeau-328c544b from worktree snapshot: bead: not found: fizeau-328c544b: loading bead fizeau-328c544b from worktree snapshot: bead: not found: fizeau-328c544b\",\"rationale\":\"Bead lookup failed in worktree snapshot ('bead: not found: fizeau-328c544b') before execution began — infrastructure-level load failure, not a content or implementation issue.\",\"recommended_action\":\"release_claim_retry\",\"result_rev\":\"5fababc0b9a42d134659687f68f8c22a14daf2b0\",\"session_id\":\"\",\"status\":\"execution_failed\",\"suggested_amendments\":[],\"suggested_followup_beads\":[]}",
+          "created_at": "2026-05-17T20:35:05.592719051Z",
+          "kind": "bead-quality.triage",
+          "source": "ddx work",
+          "summary": "transport: release_claim_retry"
+        },
+        {
+          "actor": "erik",
+          "body": "execute-bead context load: loading bead fizeau-328c544b from worktree snapshot: bead: not found: fizeau-328c544b: loading bead fizeau-328c544b from worktree snapshot: bead: not found: fizeau-328c544b\npowerClass=standard\nresult_rev=5fababc0b9a42d134659687f68f8c22a14daf2b0\nbase_rev=5fababc0b9a42d134659687f68f8c22a14daf2b0\noutcome_reason=transport",
+          "created_at": "2026-05-17T20:35:05.643255506Z",
+          "kind": "execute-bead",
+          "source": "ddx work",
+          "summary": "execution_failed"
+        }
+      ]
+    }
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T203614-4e729094",
+    "prompt": ".ddx/executions/20260517T203614-4e729094/prompt.md",
+    "manifest": ".ddx/executions/20260517T203614-4e729094/manifest.json",
+    "result": ".ddx/executions/20260517T203614-4e729094/result.json",
+    "checks": ".ddx/executions/20260517T203614-4e729094/checks.json",
+    "usage": ".ddx/executions/20260517T203614-4e729094/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-328c544b-20260517T203614-4e729094"
+  },
+  "prompt_sha": "146e0dcadf46342f8a1998127347f1222a5d3804234870cd64dc0555e0f2c960"
+}
