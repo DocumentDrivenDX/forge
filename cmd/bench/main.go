@@ -26,6 +26,9 @@ func run(args []string) int {
 	case "run":
 		fmt.Fprintf(os.Stderr, "use ./benchmark — see scripts/benchmark/README.md\n")
 		return 2
+	case "sweep":
+		fmt.Fprintf(os.Stderr, "use ./benchmark — see scripts/benchmark/README.md\n")
+		return 2
 	case "report":
 		return cmdReport(args[1:])
 	case "profiles":
