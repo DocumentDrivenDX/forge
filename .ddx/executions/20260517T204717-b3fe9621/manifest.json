@@ -1,0 +1,167 @@
+{
+  "attempt_id": "20260517T204717-b3fe9621",
+  "bead_id": "fizeau-08c92a37",
+  "base_rev": "1f750d8c9d4b01f204c24e108bcff3a62a701aab",
+  "created_at": "2026-05-17T20:47:20.919947651Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-08c92a37",
+    "title": "bench-pr-A4: concurrency, signal handling, and harbor-runner container wrapper",
+    "description": "PROBLEM\nThe PR A bash runner must run cells concurrently while respecting concurrency groups and must wrap Harbor in Docker so hosts no longer need Python for Harbor/plugin execution.\n\nROOT CAUSE\nThe parent scope requires replacing cmd/bench/matrix.go:1 with scripts/benchmark/benchmark and removing the host Python dependency introduced by cmd/bench/matrix.go:1105. It also requires flock-based concurrency-group locking, setsid process groups, background-job pooling capped by --jobs, SIGINT/SIGTERM shutdown, docker stop for in-flight harbor-runner containers, and a fizeau-harbor-runner image. These execution concerns are independent from planning and sequential lifecycle work and need isolated coverage.\n\nPROPOSED FIX\nAdd concurrent execution to scripts/benchmark/benchmark with a background-job pool capped by --jobs. Use flock per concurrency group at ${FIZEAU_BENCH_STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/fizeau-benchmark}/locks/\u003cgroup\u003e.lock. Start each cell under setsid and track process groups. On SIGINT/SIGTERM, stop accepting new cells, SIGTERM each in-flight cell process group, docker stop each in-flight harbor-runner container, wait 30 seconds, then SIGKILL remaining process groups. Add task-executors/harbor shell wrapper that runs Harbor through the fizeau-harbor-runner Docker image and writes cell_dir/result.json. Add container-image build assets needed by PR A smoke tests. Tests should mock docker, flock-sensitive workers, and long-running cells.\n\nNON-SCOPE\nDo not change planning semantics, adapter JSON contracts, or report composition except where required to integrate concurrent execution. Do not finalize the PR C bench-set schema. Do not require real Docker daemon access in unit tests; mock docker for deterministic verification. Do not implement parent acceptance criteria assigned to sibling child beads. Preserve every parent non-scope constraint unless this child explicitly narrows it. Governing artifact reference must remain governing:plan-2026-05-15-benchmark-runner-simplification. Parent/dependency ID fizeau-11e9c095 must remain traceable. Verification requirements cd cli \u0026\u0026 go test ./... and lefthook run pre-commit are required gates.\n\nAC\n1. TestBenchmarkJobsLimit: run mode never has more than --jobs cells in flight.\n2. TestBenchmarkConcurrencyGroupFlock: cells sharing a concurrency group serialize through the configured flock lock path, while unrelated groups may run concurrently.\n3. TestBenchmarkSignalTerminatesProcessGroups: SIGINT/SIGTERM stops scheduling new cells, sends SIGTERM to each in-flight process group, waits, and escalates to SIGKILL after the configured timeout.\n4. TestBenchmarkSignalStopsHarborContainers: shutdown calls docker stop for each tracked in-flight harbor-runner container.\n5. TestHarborTaskExecutorDockerWrapper: task-executors/harbor invokes the fizeau-harbor-runner image with task-spec input, captures the container result, and writes cell_dir/result.json without host Python imports.\n6. TestHarborRunnerImageBuildSmoke: harbor-runner image build assets exist and the configured build command succeeds or is covered by a mockable CI-safe smoke path.\n7. TestBenchmarkVerificationGatesA4: cd cli \u0026\u0026 go test ./... passes.\n8. TestBenchmarkLefthookGateA4: lefthook run pre-commit passes.",
+    "acceptance": "1. TestBenchmarkJobsLimit passes.\n2. TestBenchmarkConcurrencyGroupFlock passes.\n3. TestBenchmarkSignalTerminatesProcessGroups passes.\n4. TestBenchmarkSignalStopsHarborContainers passes.\n5. TestHarborTaskExecutorDockerWrapper passes.\n6. TestHarborRunnerImageBuildSmoke passes.\n7. TestBenchmarkVerificationGatesA4: cd cli \u0026\u0026 go test ./... passes.\n8. TestBenchmarkLefthookGateA4: lefthook run pre-commit passes.",
+    "parent": "fizeau-bfdd6a77",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed"
+    ],
+    "metadata": {
+      "events": [
+        {
+          "actor": "ddx",
+          "body": "{\"resolved_provider\":\"claude\",\"resolved_model\":\"haiku\",\"fallback_chain\":[]}",
+          "created_at": "2026-05-17T20:13:30.537146288Z",
+          "kind": "routing",
+          "source": "legacy agent execute-bead",
+          "summary": "provider=claude model=haiku"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"attempt_id\":\"20260517T194535-38f22384\",\"harness\":\"claude\",\"model\":\"haiku\",\"input_tokens\":758,\"output_tokens\":26118,\"total_tokens\":26876,\"cost_usd\":1.4738224500000006,\"duration_ms\":1668930,\"exit_code\":0}",
+          "created_at": "2026-05-17T20:13:30.600897596Z",
+          "kind": "cost",
+          "source": "legacy agent execute-bead",
+          "summary": "tokens=26876 cost_usd=1.4738 model=haiku"
+        },
+        {
+          "actor": "",
+          "body": "{\"candidate_ref\":\"refs/ddx/iterations/20260517T194535-38f22384/0\",\"cycle_index\":0,\"attempt_id\":\"20260517T194535-38f22384\",\"base_rev\":\"7aceb3063285755ce5750cd2f861a2d53eb77236\",\"result_rev\":\"71f9dd2ca08978b539b9560f3720d55cf06fd96c\"}",
+          "created_at": "2026-05-17T20:13:30.663859697Z",
+          "kind": "candidate_cycle_pinned",
+          "source": "",
+          "summary": ""
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"resolved_provider\":\"vidar\",\"resolved_model\":\"Qwen3.6-27B-MLX-8bit\",\"fallback_chain\":[],\"requested_min_power\":5,\"actual_power\":5}",
+          "created_at": "2026-05-17T20:14:01.749778316Z",
+          "kind": "routing",
+          "source": "legacy agent execute-bead",
+          "summary": "provider=vidar model=Qwen3.6-27B-MLX-8bit"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"actual_harness\":\"fiz\",\"actual_model\":\"Qwen3.6-27B-MLX-8bit\",\"actual_power\":5,\"actual_provider\":\"vidar\",\"attempt_id\":\"20260517T201338-96aae6f0\",\"bead_id\":\"fizeau-08c92a37\",\"estimated_difficulty\":\"hard\",\"rejected_route_pins\":null,\"requested_power_class\":\"smart\",\"requested_profile\":\"cheap\",\"routing_intent_degraded\":false,\"routing_intent_note\":\"\",\"routing_intent_source\":\"readiness\"}",
+          "created_at": "2026-05-17T20:14:02.832418728Z",
+          "kind": "execution-routing-intent",
+          "source": "ddx work",
+          "summary": "source=readiness difficulty=hard powerClass=smart model=Qwen3.6-27B-MLX-8bit harness=fiz"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"actual_power\":5,\"model\":\"Qwen3.6-27B-MLX-8bit\",\"provider\":\"vidar\",\"reason\":\"ladder exhausted at power 5\"}",
+          "created_at": "2026-05-17T20:14:03.163880013Z",
+          "kind": "execution-escalation-aborted",
+          "source": "ddx work",
+          "summary": "escalation aborted: ladder exhausted at power 5 provider=vidar model=Qwen3.6-27B-MLX-8bit"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"actual_power\":5,\"detail\":\"agent: provider error: openai: Post \\\"http://vidar:1235/v1/chat/completions\\\": dial tcp 100.108.162.80:1235: i/o timeout\",\"error\":\"agent: provider error: openai: Post \\\"http://vidar:1235/v1/chat/completions\\\": dial tcp 100.108.162.80:1235: i/o timeout\",\"harness\":\"fiz\",\"model\":\"Qwen3.6-27B-MLX-8bit\",\"outcome_reason\":\"provider_connectivity\",\"provider\":\"vidar\"}",
+          "created_at": "2026-05-17T20:14:03.453421538Z",
+          "kind": "route-failure",
+          "source": "ddx work",
+          "summary": "provider=vidar model=Qwen3.6-27B-MLX-8bit connectivity failure"
+        },
+        {
+          "actor": "erik",
+          "body": "agent: provider error: openai: Post \"http://vidar:1235/v1/chat/completions\": dial tcp 100.108.162.80:1235: i/o timeout\npowerClass=smart\nresult_rev=6d5bdb842b29c6993da75b15a24be420c528950d\nbase_rev=6d5bdb842b29c6993da75b15a24be420c528950d\noutcome_reason=provider_connectivity",
+          "created_at": "2026-05-17T20:14:03.552468003Z",
+          "kind": "execute-bead",
+          "source": "ddx work",
+          "summary": "execution_failed"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"ac_map\":[{\"parent_ac\":\"1. TestBenchmarkJobsLimit: run mode never has more than --jobs cells in flight.\",\"coverage\":\"A4a AC1 TestBenchmarkJobsLimit\"},{\"parent_ac\":\"2. TestBenchmarkConcurrencyGroupFlock: cells sharing a concurrency group serialize through the configured flock lock path, while unrelated groups may run concurrently.\",\"coverage\":\"A4a AC2 TestBenchmarkConcurrencyGroupFlock\"},{\"parent_ac\":\"3. TestBenchmarkSignalTerminatesProcessGroups: SIGINT/SIGTERM stops scheduling new cells, sends SIGTERM to each in-flight process group, waits, and escalates to SIGKILL after the configured timeout.\",\"coverage\":\"A4a AC3 TestBenchmarkSignalTerminatesProcessGroups\"},{\"parent_ac\":\"4. TestBenchmarkSignalStopsHarborContainers: shutdown calls docker stop for each tracked in-flight harbor-runner container.\",\"coverage\":\"A4b AC1 TestBenchmarkSignalStopsHarborContainers\"},{\"parent_ac\":\"5. TestHarborTaskExecutorDockerWrapper: task-executors/harbor invokes the fizeau-harbor-runner image with task-spec input, captures the container result, and writes cell_dir/result.json without host Python imports.\",\"coverage\":\"A4b AC2 TestHarborTaskExecutorDockerWrapper\"},{\"parent_ac\":\"6. TestHarborRunnerImageBuildSmoke: harbor-runner image build assets exist and the configured build command succeeds or is covered by a mockable CI-safe smoke path.\",\"coverage\":\"A4b AC3 TestHarborRunnerImageBuildSmoke\"},{\"parent_ac\":\"7. TestBenchmarkVerificationGatesA4: cd cli \\u0026\\u0026 go test ./... passes.\",\"coverage\":\"A4a AC4 TestBenchmarkVerificationGatesA4a and A4b AC4 TestBenchmarkVerificationGatesA4b\"},{\"parent_ac\":\"8. TestBenchmarkLefthookGateA4: lefthook run pre-commit passes.\",\"coverage\":\"A4a AC5 TestBenchmarkLefthookGateA4a and A4b AC5 TestBenchmarkLefthookGateA4b\"}],\"child_ids\":[\"fizeau-d0369045\",\"fizeau-974b7d33\"],\"rationale\":\"Split along the natural seam between in-process scheduling/signal control (A4a: pool, flock, setsid, SIGTERM/SIGKILL escalation) and container-execution integration (A4b: task-executors/harbor wrapper, fizeau-harbor-runner image assets, docker stop hook into the existing shutdown). Each child is independently testable with mocked docker and flock-sensitive workers, preserves all parent non-scope, governing artifact, dependency ID, and verification gates, and together cover every parent AC.\"}",
+          "created_at": "2026-05-17T20:16:21.211257887Z",
+          "kind": "triage-decomposed",
+          "source": "ddx work",
+          "summary": "decomposed into fizeau-d0369045, fizeau-974b7d33"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"resolved_provider\":\"claude\",\"resolved_model\":\"haiku\",\"fallback_chain\":[]}",
+          "created_at": "2026-05-17T20:45:46.89280108Z",
+          "kind": "routing",
+          "source": "legacy agent execute-bead",
+          "summary": "provider=claude model=haiku"
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"attempt_id\":\"20260517T201734-3594abbb\",\"harness\":\"claude\",\"model\":\"haiku\",\"input_tokens\":674,\"output_tokens\":25471,\"total_tokens\":26145,\"cost_usd\":1.3738905000000003,\"duration_ms\":1687336,\"exit_code\":0}",
+          "created_at": "2026-05-17T20:45:47.068063848Z",
+          "kind": "cost",
+          "source": "legacy agent execute-bead",
+          "summary": "tokens=26145 cost_usd=1.3739 model=haiku"
+        },
+        {
+          "actor": "",
+          "body": "{\"candidate_ref\":\"refs/ddx/iterations/20260517T201734-3594abbb/0\",\"cycle_index\":0,\"attempt_id\":\"20260517T201734-3594abbb\",\"base_rev\":\"9bad9920f83b5aca60f93b1e89580b01d5e4497a\",\"result_rev\":\"7c0604f09e2fb44903f098c0948cbc130a603389\"}",
+          "created_at": "2026-05-17T20:45:47.154103782Z",
+          "kind": "candidate_cycle_pinned",
+          "source": "",
+          "summary": ""
+        },
+        {
+          "actor": "ddx",
+          "body": "{\"actual_harness\":\"\",\"actual_model\":\"\",\"actual_power\":0,\"actual_provider\":\"\",\"attempt_id\":\"20260517T204553-3f2c1805\",\"bead_id\":\"fizeau-08c92a37\",\"estimated_difficulty\":\"\",\"rejected_route_pins\":null,\"requested_power_class\":\"standard\",\"requested_profile\":\"cheap\",\"routing_intent_degraded\":true,\"routing_intent_note\":\"actual route facts unavailable\",\"routing_intent_source\":\"default\"}",
+          "created_at": "2026-05-17T20:45:59.845943748Z",
+          "kind": "execution-routing-intent",
+          "source": "ddx work",
+          "summary": "source=default powerClass=standard note=actual route facts unavailable"
+        },
+        {
+          "actor": "erik",
+          "body": "{\"base_rev\":\"f3d2f21bf7852889f982c3312968130edecbe58d\",\"classification\":\"transport\",\"detail\":\"execute-bead context load: loading bead fizeau-08c92a37 from worktree snapshot: bead: not found: fizeau-08c92a37: loading bead fizeau-08c92a37 from worktree snapshot: bead: not found: fizeau-08c92a37\",\"rationale\":\"execute-bead failed to load bead fizeau-08c92a37 from worktree snapshot (bead: not found); this is an infrastructure/transport-level failure unrelated to bead content or implementation, so the claim should be released and retried\",\"recommended_action\":\"release_claim_retry\",\"result_rev\":\"f3d2f21bf7852889f982c3312968130edecbe58d\",\"session_id\":\"\",\"status\":\"execution_failed\",\"suggested_amendments\":[],\"suggested_followup_beads\":[]}",
+          "created_at": "2026-05-17T20:46:46.925065594Z",
+          "kind": "bead-quality.triage",
+          "source": "ddx work",
+          "summary": "transport: release_claim_retry"
+        },
+        {
+          "actor": "erik",
+          "body": "execute-bead context load: loading bead fizeau-08c92a37 from worktree snapshot: bead: not found: fizeau-08c92a37: loading bead fizeau-08c92a37 from worktree snapshot: bead: not found: fizeau-08c92a37\npowerClass=standard\nresult_rev=f3d2f21bf7852889f982c3312968130edecbe58d\nbase_rev=f3d2f21bf7852889f982c3312968130edecbe58d\noutcome_reason=transport",
+          "created_at": "2026-05-17T20:46:47.063763092Z",
+          "kind": "execute-bead",
+          "source": "ddx work",
+          "summary": "execution_failed"
+        }
+      ],
+      "work-failed-routes": [
+        {
+          "actual_power": 5,
+          "at": "2026-05-17T20:14:03Z",
+          "count": 1,
+          "model": "Qwen3.6-27B-MLX-8bit",
+          "provider": "vidar",
+          "reason": "provider_connectivity"
+        }
+      ]
+    }
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T204717-b3fe9621",
+    "prompt": ".ddx/executions/20260517T204717-b3fe9621/prompt.md",
+    "manifest": ".ddx/executions/20260517T204717-b3fe9621/manifest.json",
+    "result": ".ddx/executions/20260517T204717-b3fe9621/result.json",
+    "checks": ".ddx/executions/20260517T204717-b3fe9621/checks.json",
+    "usage": ".ddx/executions/20260517T204717-b3fe9621/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-08c92a37-20260517T204717-b3fe9621"
+  },
+  "prompt_sha": "6e39e7e3081adcd487476913dd90b0fc2a5e49fc5425218f16d3f49fc682111a"
+}
