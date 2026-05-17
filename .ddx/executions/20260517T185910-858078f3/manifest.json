@@ -1,0 +1,32 @@
+{
+  "attempt_id": "20260517T185910-858078f3",
+  "bead_id": "fizeau-f7c4e686",
+  "base_rev": "ddfd825193411f354ce161d694e804a96bc13a92",
+  "created_at": "2026-05-17T18:59:13.794497698Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-f7c4e686",
+    "title": "bench-pr-A9: deactivate Go runner execution subcommands with redirect",
+    "description": "Short-circuit fiz-bench execution subcommands (matrix, sweep, run, plan) so users land on the new bash runner. Listing subcommands (profiles, bench-sets) stay functional until PR F.\n\nGO CHANGE:\n  - cmd/bench/main.go: each execution subcommand (matrix, sweep, run, plan) prints a one-line redirect \"use ./benchmark — see scripts/benchmark/README.md\" to stderr and exits 2.\n\nDEPENDS ON A4 (bash runner usable) and A8 (parity fixtures captured FIRST per the parent's \"must happen BEFORE deactivation merges\" note).\n\nACCEPTANCE:\n  1. `fiz-bench matrix 2\u003e\u00261 | grep -q 'use ./benchmark'; test $? -eq 0`.\n  2. `fiz-bench sweep`, `fiz-bench run`, `fiz-bench plan` each exit 2 with the same redirect message.\n  3. `fiz-bench profiles` and `fiz-bench bench-sets` still function (preserved listing subcommands).",
+    "acceptance": "AC1 satisfies AC6 of the parent bead. All 3 commands in the description ACCEPTANCE block pass.",
+    "parent": "fizeau-11e9c095",
+    "labels": [
+      "area:bench",
+      " kind:chore",
+      " governing:plan-2026-05-15-benchmark-runner-simplification",
+      " pr:A"
+    ]
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T185910-858078f3",
+    "prompt": ".ddx/executions/20260517T185910-858078f3/prompt.md",
+    "manifest": ".ddx/executions/20260517T185910-858078f3/manifest.json",
+    "result": ".ddx/executions/20260517T185910-858078f3/result.json",
+    "checks": ".ddx/executions/20260517T185910-858078f3/checks.json",
+    "usage": ".ddx/executions/20260517T185910-858078f3/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-f7c4e686-20260517T185910-858078f3"
+  },
+  "prompt_sha": "31bb42df5ef2eeac1efb156af1724a4b21444b13e358fb9a04fb5e4819fb6fb1"
+}
