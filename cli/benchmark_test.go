@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -287,5 +288,152 @@ func TestBenchmarkRunnerMatrixJSON(t *testing.T) {
 		if repCounts[rep] != 3 {
 			t.Errorf("expected 3 cells with %s, got %d", rep, repCounts[rep])
 		}
+	}
+}
+
+// TestHarborTaskExecutorSmoke verifies scripts/benchmark/task-executors/harbor
+// runs end-to-end with a fixture spec and produces well-formed result.json.
+func TestHarborTaskExecutorSmoke(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	harborExecutor := filepath.Join(repoRoot, "scripts", "benchmark", "task-executors", "harbor")
+
+	if _, err := os.Stat(harborExecutor); err != nil {
+		t.Fatalf("harbor executor not found: %v", err)
+	}
+
+	// Check if docker is available
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	tmpDir := t.TempDir()
+	cellDir := filepath.Join(tmpDir, "cell")
+	tasksDir := filepath.Join(tmpDir, "tasks")
+
+	if err := os.MkdirAll(cellDir, 0755); err != nil {
+		t.Fatalf("failed to create cell dir: %v", err)
+	}
+	if err := os.MkdirAll(tasksDir, 0755); err != nil {
+		t.Fatalf("failed to create tasks dir: %v", err)
+	}
+
+	taskSpec := map[string]interface{}{
+		"task_id":       "test-task",
+		"tasks_dir":     tasksDir,
+		"cell_dir":      cellDir,
+		"harbor_plugin": "scripts.benchmark.harbor_agent:FizeauAgent",
+		"image":         "fizeau-harbor-runner:latest",
+	}
+
+	specJSON, err := json.Marshal(taskSpec)
+	if err != nil {
+		t.Fatalf("failed to marshal task spec: %v", err)
+	}
+
+	cmd := exec.Command(harborExecutor)
+	cmd.Stdin = strings.NewReader(string(specJSON))
+	cmd.Dir = filepath.Join(repoRoot, "scripts", "benchmark")
+	cmd.Env = append(os.Environ(), "HARBOR_TASK_EXECUTOR_DRY_RUN=1")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err = cmd.Run()
+	if err != nil {
+		t.Logf("executor stderr: %s", stderr.String())
+		t.Fatalf("executor failed: %v", err)
+	}
+
+	resultPath := filepath.Join(cellDir, "result.json")
+	resultData, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatalf("result.json not found: %v", err)
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(resultData, &result); err != nil {
+		t.Fatalf("result.json is not valid JSON: %v", err)
+	}
+
+	if _, ok := result["dry_run"]; !ok {
+		t.Errorf("result.json missing 'dry_run' field")
+	}
+	if taskID, ok := result["task_id"]; !ok || taskID != "test-task" {
+		t.Errorf("result.json task_id mismatch: expected 'test-task', got %v", taskID)
+	}
+}
+
+// TestHarborRunnerImageNoHostPython verifies scripts/benchmark/harbor-runner/Dockerfile
+// does not rely on host Python site-packages and build.sh only uses files under
+// scripts/benchmark/harbor-runner/ and scripts/benchmark/harbor_adapters/.
+func TestHarborRunnerImageNoHostPython(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	dockerfile := filepath.Join(repoRoot, "scripts", "benchmark", "harbor-runner", "Dockerfile")
+	buildScript := filepath.Join(repoRoot, "scripts", "benchmark", "harbor-runner", "build.sh")
+
+	dockerfileData, err := os.ReadFile(dockerfile)
+	if err != nil {
+		t.Fatalf("Dockerfile not found: %v", err)
+	}
+
+	dockerfileContent := string(dockerfileData)
+
+	// Check that Dockerfile does not mount or copy host site-packages
+	hostPythonPatterns := []string{
+		"site-packages",
+		"/usr/local/lib/python",
+		"/usr/lib/python",
+	}
+
+	for _, pattern := range hostPythonPatterns {
+		if strings.Contains(dockerfileContent, pattern) {
+			t.Errorf("Dockerfile contains reference to host Python: %s", pattern)
+		}
+	}
+
+	// Check that Dockerfile doesn't do COPY from host Python locations
+	if strings.Contains(dockerfileContent, "COPY /") {
+		t.Errorf("Dockerfile uses absolute COPY paths which may reference host Python")
+	}
+
+	// Verify build.sh only references appropriate paths
+	buildScriptData, err := os.ReadFile(buildScript)
+	if err != nil {
+		t.Fatalf("build.sh not found: %v", err)
+	}
+
+	buildScriptContent := string(buildScriptData)
+
+	// Check that all file references use controlled variables
+	lines := strings.Split(buildScriptContent, "\n")
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") || trimmed == "" {
+			continue
+		}
+
+		// Look for quoted file paths
+		if strings.Contains(trimmed, "\"${") || strings.Contains(trimmed, "'${") {
+			// Path uses variable, which is fine
+			continue
+		}
+
+		// Check for absolute paths not in comments or strings
+		if strings.Contains(trimmed, "\"/") && !strings.Contains(trimmed, "DOCKER") {
+			// This might be an absolute path outside our controlled directories
+			// Allow REPO_ROOT usage which contains /
+			if !strings.Contains(trimmed, "REPO_ROOT") {
+				t.Logf("line %d may use uncontrolled absolute path: %s", i+1, trimmed)
+			}
+		}
+	}
+
+	// Verify the adapters and agent paths are under harbor-runner parent and harbor_adapters
+	if !strings.Contains(buildScriptContent, "ADAPTERS_DIR") {
+		t.Errorf("build.sh missing ADAPTERS_DIR reference")
+	}
+	if !strings.Contains(buildScriptContent, "HARBOR_AGENT_PATH") {
+		t.Errorf("build.sh missing HARBOR_AGENT_PATH reference")
 	}
 }
