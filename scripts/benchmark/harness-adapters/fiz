@@ -2,6 +2,9 @@
 # SUMMARY: fiz native-harness adapter. install stages the fiz binary into /installed-agent/fiz; command emits FIZEAU_* env from the profile and an argv that invokes fiz --json directly.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/common.sh"
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -27,8 +30,10 @@ cmd_install() {
 }
 
 cmd_command() {
-  jq -c '
-    . as $p
+  local profile_json
+  profile_json="$(benchmark_adapter_read_profile fiz)"
+  jq -cn --argjson p "${profile_json}" '
+    $p
     | ($p.provider // {}) as $prov
     | ($p.sampling // {}) as $sampling
     | ($p.limits // {}) as $limits

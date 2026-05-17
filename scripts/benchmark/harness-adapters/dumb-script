@@ -2,6 +2,9 @@
 # SUMMARY: dumb-script calibration adapter. install is a no-op; command hard-codes the TerminalBench hello-world solution; useful for verifying grading path without any model traffic.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/common.sh"
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -19,7 +22,7 @@ cmd_install() {
 }
 
 cmd_command() {
-  cat >/dev/null
+  benchmark_adapter_read_profile dumb-script >/dev/null
   jq -cn '{
     command: ["sh","-c","printf \"hello world\\n\" > hello.txt"],
     env: {},

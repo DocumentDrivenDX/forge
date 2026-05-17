@@ -2,6 +2,9 @@
 # SUMMARY: opencode wrapper-harness adapter. install records the npm-installed opencode binary; command emits OPENCODE_* env (including the synthesized opencode.json provider config) consumed by harbor_adapters.opencode:OpencodeAgent inside the harbor-runner.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/common.sh"
+
 OPENCODE_VERSION="${OPENCODE_VERSION:-1.3.17}"
 
 usage() {
@@ -29,8 +32,10 @@ cmd_install() {
 }
 
 cmd_command() {
-  jq -c '
-    . as $p
+  local profile_json
+  profile_json="$(benchmark_adapter_read_profile opencode)"
+  jq -cn --argjson p "${profile_json}" '
+    $p
     | ($p.provider // {}) as $prov
     | ($p.sampling // {}) as $sampling
     | ($p.limits   // {}) as $limits

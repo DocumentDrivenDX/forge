@@ -83,6 +83,9 @@ keys are passed through and may be referenced by individual adapters):
 }
 ```
 
+`metadata` is optional in the checked-in profile catalog; adapters use it
+when present but do not require it for command-spec generation.
+
 `sampling` field schema (all keys optional; adapters omit env vars for
 unset keys):
 
@@ -140,5 +143,8 @@ profile and rejects:
 - output that is not valid JSON;
 - output missing one of `{command, env, secret_env_keys}`;
 - `secret_env_keys` entries not present in `env`.
+
+Adapters reject malformed or schema-invalid profile JSON on stdin before
+emitting a command spec.
 
 `shellcheck` (CI gate) must pass on every file in this directory.

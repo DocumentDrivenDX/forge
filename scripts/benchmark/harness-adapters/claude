@@ -2,6 +2,9 @@
 # SUMMARY: claude wrapper-harness adapter. install stages the claude binary into /installed-agent/claude; command emits ANTHROPIC_API_KEY + model selection env consumed by harbor_adapters.claude:ClaudeAgent inside the harbor-runner.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/common.sh"
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -27,8 +30,10 @@ cmd_install() {
 }
 
 cmd_command() {
-  jq -c '
-    . as $p
+  local profile_json
+  profile_json="$(benchmark_adapter_read_profile claude)"
+  jq -cn --argjson p "${profile_json}" '
+    $p
     | ($p.provider // {}) as $prov
     | ($p.sampling // {}) as $sampling
     | ($prov.api_key_env // "") as $keyenv

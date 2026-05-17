@@ -2,6 +2,9 @@
 # SUMMARY: pi wrapper-harness adapter. install records the npm-installed pi binary; command emits PI_CODING_AGENT_DIR + provider/model selection env consumed by harbor_adapters.pi:PiAgent inside the harbor-runner.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${SCRIPT_DIR}/common.sh"
+
 usage() {
   cat >&2 <<'EOF'
 Usage:
@@ -27,8 +30,10 @@ cmd_install() {
 }
 
 cmd_command() {
-  jq -c '
-    . as $p
+  local profile_json
+  profile_json="$(benchmark_adapter_read_profile pi)"
+  jq -cn --argjson p "${profile_json}" '
+    $p
     | ($p.provider // {}) as $prov
     | ($p.sampling // {}) as $sampling
     | ($prov.api_key_env // "") as $keyenv
