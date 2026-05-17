@@ -1,0 +1,98 @@
+{
+  "cell_id": "20260517T185308Z-472f",
+  "framework": "terminal-bench",
+  "dataset": "terminal-bench/terminal-bench-2-1",
+  "dataset_version": "2.1",
+  "harness": "noop",
+  "profile": {
+    "id": "sindri-lucebox",
+    "metadata": {
+      "draft_model_file": "model.safetensors",
+      "draft_model_repo": "z-lab/Qwen3.6-27B-DFlash",
+      "model_family": "qwen3-6-27b",
+      "model_id": "luce-dflash",
+      "provider_surface": "sindri-lucebox",
+      "quant_label": "gguf-q4-k-m",
+      "runtime": "lucebox-dflash",
+      "server": "sindri",
+      "target_model_file": "Qwen3.6-27B-Q4_K_M.gguf",
+      "target_model_repo": "unsloth/Qwen3.6-27B-GGUF"
+    },
+    "provider": {
+      "type": "lucebox",
+      "model": "luce-dflash",
+      "base_url": "http://sindri:8080/v1",
+      "api_key_env": "LUCEBOX_API_KEY"
+    },
+    "pricing": {
+      "input_usd_per_mtok": 0,
+      "output_usd_per_mtok": 0,
+      "cached_input_usd_per_mtok": 0
+    },
+    "limits": {
+      "max_output_tokens": 32768,
+      "context_tokens": 131072,
+      "rate_limit_rpm": 60,
+      "rate_limit_tpm": 100000
+    },
+    "sampling": {
+      "temperature": 0.6,
+      "reasoning": "off",
+      "top_p": 0.95,
+      "top_k": 20
+    },
+    "versioning": {
+      "resolved_at": "2026-05-13",
+      "snapshot": "lucebox-hub dflash speculative decoder | served_model=luce-dflash | target=unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf | draft=z-lab/Qwen3.6-27B-DFlash:model.safetensors | hw=sindri-3090-ti | endpoint=http://sindri:8080/v1"
+    },
+    "agent_timeout_multiplier": 5,
+    "harness": "none",
+    "surface": "fiz_provider_native",
+    "concurrency_group": "sindri-lucebox-dflash"
+  },
+  "profile_id": "sindri-lucebox",
+  "profile_path": "/var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-4cb31dc5-20260517T184434-f1c6dce5/scripts/benchmark/profiles/sindri-lucebox.yaml",
+  "profile_snapshot": "lucebox-hub dflash speculative decoder | served_model=luce-dflash | target=unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf | draft=z-lab/Qwen3.6-27B-DFlash:model.safetensors | hw=sindri-3090-ti | endpoint=http://sindri:8080/v1",
+  "fiz_tools_version": 1,
+  "adapter_module": "scripts.benchmark.harness_adapters.noop",
+  "harbor_agent": "scripts/benchmark/harness_adapters/noop.py:Agent",
+  "rep": 1,
+  "task_id": "configure-git-webserver",
+  "category": "system-administration",
+  "difficulty": "hard",
+  "output_dir": "/tmp/tmp.znX8Sw3fCb/cells/terminal-bench-2-1/configure-git-webserver/20260517T185308Z-472f",
+  "process_outcome": "completed",
+  "grading_outcome": "graded",
+  "reward": 0,
+  "final_status": "graded_fail",
+  "invalid_class": "invalid_setup",
+  "turns": null,
+  "tool_calls": null,
+  "tool_call_errors": null,
+  "input_tokens": null,
+  "output_tokens": null,
+  "cached_input_tokens": null,
+  "retried_input_tokens": null,
+  "wall_seconds": 0,
+  "cost_usd": 0,
+  "pricing_source": "/var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-4cb31dc5-20260517T184434-f1c6dce5/scripts/benchmark/profiles/sindri-lucebox.yaml#sha256=117c945f3349f8f67e366b4003a65ac8ebb679089aad7acb1579cf6e71f7991e",
+  "command": [
+    "sh",
+    "-c",
+    "true"
+  ],
+  "exit_code": 0,
+  "sampling_used": {
+    "reasoning": "off",
+    "temperature": 0.6,
+    "top_k": 20,
+    "top_p": 0.95
+  },
+  "runtime_props": {
+    "extractor": "lucebox",
+    "extracted_at": "2026-05-17T18:53:08.472980363Z",
+    "extraction_failed": "lucebox: no endpoints responded at http://sindri:8080"
+  },
+  "started_at": "2026-05-17T18:53:08.46468708Z",
+  "finished_at": "2026-05-17T18:53:08.534556555Z"
+}

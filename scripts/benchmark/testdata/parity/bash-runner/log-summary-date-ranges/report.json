@@ -1,0 +1,93 @@
+{
+  "task_id": "log-summary-date-ranges",
+  "framework": "terminal-bench",
+  "dataset": "terminal-bench-2-1",
+  "cell_id": "20260517T185425Z-52e3",
+  "started_at": "2026-05-17T18:54:26Z",
+  "finished_at": "2026-05-17T18:54:26Z",
+  "rep": "1/3",
+  "profile": {
+    "id": "sindri-lucebox",
+    "harness": "none",
+    "surface": "fiz_provider_native",
+    "concurrency_group": "sindri-lucebox-dflash",
+    "metadata": {
+      "model_family": "qwen3-6-27b",
+      "model_id": "luce-dflash",
+      "target_model_repo": "unsloth/Qwen3.6-27B-GGUF",
+      "target_model_file": "Qwen3.6-27B-Q4_K_M.gguf",
+      "draft_model_repo": "z-lab/Qwen3.6-27B-DFlash",
+      "draft_model_file": "model.safetensors",
+      "quant_label": "gguf-q4-k-m",
+      "provider_surface": "sindri-lucebox",
+      "runtime": "lucebox-dflash",
+      "server": "sindri"
+    },
+    "provider": {
+      "type": "lucebox",
+      "model": "luce-dflash",
+      "base_url": "http://sindri:8080/v1",
+      "api_key_env": "LUCEBOX_API_KEY"
+    },
+    "pricing": {
+      "input_usd_per_mtok": 0,
+      "output_usd_per_mtok": 0,
+      "cached_input_usd_per_mtok": 0
+    },
+    "limits": {
+      "max_output_tokens": 32768,
+      "context_tokens": 131072,
+      "rate_limit_rpm": 60,
+      "rate_limit_tpm": 100000
+    },
+    "sampling": {
+      "temperature": 0.6,
+      "reasoning": "off",
+      "top_p": 0.95,
+      "top_k": 20
+    },
+    "versioning": {
+      "resolved_at": "2026-05-13",
+      "snapshot": "lucebox-hub dflash speculative decoder | served_model=luce-dflash | target=unsloth/Qwen3.6-27B-GGUF:Qwen3.6-27B-Q4_K_M.gguf | draft=z-lab/Qwen3.6-27B-DFlash:model.safetensors | hw=sindri-3090-ti | endpoint=http://sindri:8080/v1"
+    },
+    "agent_timeout_multiplier": 5
+  },
+  "command": [
+    "/installed-agent/fiz",
+    "--json",
+    "--preset",
+    "default",
+    "-p",
+    "$HARBOR_INSTRUCTION"
+  ],
+  "env_redacted": {
+    "FIZEAU_BASE_URL": "http://sindri:8080/v1",
+    "FIZEAU_MODEL": "luce-dflash",
+    "FIZEAU_API_KEY": "***REDACTED***",
+    "FIZEAU_PROVIDER": "lucebox",
+    "FIZEAU_TEMPERATURE": "0.6",
+    "FIZEAU_TOP_P": "0.95",
+    "FIZEAU_TOP_K": "20",
+    "FIZEAU_REASONING": "off",
+    "FIZEAU_MAX_OUTPUT_TOKENS": "32768"
+  },
+  "artifacts": {
+    "fiz_txt": "fiz.txt",
+    "fiz_err": "fiz.err",
+    "session_dir": "session"
+  },
+  "result": {
+    "task_id": "log-summary-date-ranges",
+    "final_status": "graded_fail",
+    "invalid_class": "invalid_setup",
+    "status": "graded_fail",
+    "reward": 0,
+    "exit_code": 0,
+    "wall_seconds": 0
+  },
+  "final_status": "graded_fail",
+  "invalid_class": "invalid_setup",
+  "cost_usd_at_run_time": 0,
+  "task_executor_version": "b166cbdb222755afc6eebc8ba834ab7ad833c02e2057af63a20bcf493bf46e9e",
+  "harbor_runner_image_digest": "sha256:test-digest-bash"
+}
