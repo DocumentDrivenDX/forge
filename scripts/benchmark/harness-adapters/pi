@@ -52,6 +52,12 @@ cmd_command() {
         if $resolved == "openai-compat" then {PI_CODING_AGENT_DIR: "/installed-agent/pi-agent"} else {} end
       ) as $pi_dir_env
     | ($base_env + $pi_dir_env + {FIZEAU_MODEL: $model}) as $env
+    | (
+        [
+          "OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY","GEMINI_API_KEY"
+        ] | map(select($env[.] != null))
+        + (if ($keyenv != "" and $env[$keyenv] != null) then [$keyenv] else [] end)
+      ) as $secret_keys
     | {
         command: (
           ["/installed-agent/pi","--mode","json","--print","--no-session",
@@ -61,9 +67,7 @@ cmd_command() {
           + ["$HARBOR_INSTRUCTION"]
         ),
         env: $env,
-        secret_env_keys: [
-          "OPENROUTER_API_KEY","OPENAI_API_KEY","ANTHROPIC_API_KEY","GEMINI_API_KEY",$keyenv
-        ] | unique | map(select(. != ""))
+        secret_env_keys: $secret_keys | unique
       }
   '
 }
