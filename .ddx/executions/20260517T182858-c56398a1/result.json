@@ -1,0 +1,46 @@
+{
+  "bead_id": "fizeau-b49d5ea7",
+  "attempt_id": "20260517T182858-c56398a1",
+  "base_rev": "dcda6a1841ffeeaed4a7b84a8c97afe1ca1b7022",
+  "result_rev": "367127d18bc73598b3f6d146f96c158dca478b00",
+  "implementation_rev": "367127d18bc73598b3f6d146f96c158dca478b00",
+  "outcome": "error",
+  "status": "execution_failed",
+  "detail": "land coordination failed: land advancer: landing worktree has staged changes after waiting 2s:\nM\t.ddx/beads.jsonl: land advancer: landing worktree has staged changes after waiting 2s:\nM\t.ddx/beads.jsonl",
+  "orchestrator_status": "execution_failed",
+  "reason": "land coordination failed: land advancer: landing worktree has staged changes after waiting 2s:\nM\t.ddx/beads.jsonl",
+  "preserve_ref": "refs/ddx/iterations/fizeau-b49d5ea7/20260517T182858-c56398a1-dcda6a1841ff",
+  "candidate_ref": "refs/ddx/iterations/20260517T182858-c56398a1/0",
+  "required_exec_summary": "skipped",
+  "cycle_trace": [
+    {
+      "cycle_index": 0,
+      "attempt_id": "20260517T182858-c56398a1",
+      "result_rev": "367127d18bc73598b3f6d146f96c158dca478b00",
+      "implementer_route": {
+        "harness": "claude",
+        "model": "haiku"
+      },
+      "review_result": {},
+      "final_decision": "success"
+    }
+  ],
+  "harness": "claude",
+  "model": "haiku",
+  "session_id": "eb-bac75b57",
+  "duration_ms": 350512,
+  "tokens": 21840,
+  "cost_usd": 0.5889172000000004,
+  "exit_code": 0,
+  "error": "land advancer: landing worktree has staged changes after waiting 2s:\nM\t.ddx/beads.jsonl",
+  "project_root": "/Users/erik/Projects/fizeau",
+  "failure_mode": "unknown",
+  "execution_dir": ".ddx/executions/20260517T182858-c56398a1",
+  "prompt_file": ".ddx/executions/20260517T182858-c56398a1/prompt.md",
+  "manifest_file": ".ddx/executions/20260517T182858-c56398a1/manifest.json",
+  "result_file": ".ddx/executions/20260517T182858-c56398a1/result.json",
+  "usage_file": ".ddx/executions/20260517T182858-c56398a1/usage.json",
+  "rate_limit_budget": 300000000000,
+  "started_at": "2026-05-17T18:29:00.960518325Z",
+  "finished_at": "2026-05-17T18:34:51.473350867Z"
+}

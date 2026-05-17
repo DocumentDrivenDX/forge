@@ -1,0 +1,33 @@
+{
+  "attempt_id": "20260517T182858-c56398a1",
+  "bead_id": "fizeau-b49d5ea7",
+  "base_rev": "dcda6a1841ffeeaed4a7b84a8c97afe1ca1b7022",
+  "created_at": "2026-05-17T18:29:00.954029205Z",
+  "requested": {
+    "prompt": "synthesized"
+  },
+  "bead": {
+    "id": "fizeau-b49d5ea7",
+    "title": "bench-pr-A.4: per-cell loop + flock concurrency + signal handling + preflight",
+    "description": "PROBLEM\nWith the runner skeleton (A.1), shell harness-adapters (A.2), and harbor-runner image (A.3) in place, the runner still needs the execution engine: per-cell loop, resume logic, concurrency-group flocks, signal handling, and the preflight subcommand.\n\nROOT CAUSE\nThese behaviors live in cmd/bench/matrix.go's cell-execution block (process-group setsid, per-group locks, SIGINT/SIGTERM trap, resume-by-report.json). They must move to bash to complete the runner.\n\nPROPOSED FIX\nIn scripts/benchmark/benchmark, implement:\n  - Per-cell loop: write cell-state.json sentinel; pipe profile.json → harness-adapters/\u003cname\u003e → command-spec.json; compose task-spec.json; pipe → task-executors/\u003cname\u003e (which writes cell_dir/result.json); compose cell_dir/report.json; delete cell-state.json on terminal status.\n  - Resume: skip cell when cell_dir/report.json exists with terminal final_status. --force-rerun overrides. --retry-invalid reruns cells with non-empty invalid_class OR orphan cell-state.json.\n  - Concurrency: flock per concurrency-group at ${FIZEAU_BENCH_STATE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/fizeau-benchmark}/locks/\u003cgroup\u003e.lock; setsid for each cell; background-job pool capped by --jobs.\n  - Signal handling: trap SIGINT/SIGTERM. Stop accepting new cells. SIGTERM each in-flight cell process group AND `docker stop` each in-flight fizeau-harbor-\u003ccell-id\u003e container. Wait 30s, then SIGKILL.\n  - `preflight` subcommand: verify yq/jq/docker/setsid/flock present, fizeau-harbor-runner image buildable or pullable, required state dirs writable; exits non-zero with a checklist on failure.\n\nNON-SCOPE\n- Do not delete cmd/bench/matrix.go or harbor_adapters/*.py here — a later PR removes them.\n- Do not change adapter contracts established in A.2.\n- Preserve every parent non-scope item.\n\nAC\n1. End-to-end: `./benchmark --profile P --bench-set B --reps 1 --jobs 2 --out tmp/` runs cells via shell adapter + harbor task-executor and produces report.json per cell; covered by TestBenchmarkRunnerEndToEnd (skips when docker unavailable).\n2. TestBenchmarkRunnerResumeSkipsCompleted asserts re-run with same --out skips cells with terminal report.json unless --force-rerun.\n3. TestBenchmarkRunnerRetryInvalid asserts --retry-invalid reruns cells with non-empty invalid_class or orphan cell-state.json.\n4. TestBenchmarkRunnerConcurrencyGroupFlock asserts two cells in the same concurrency-group serialize via the documented lock path.\n5. TestBenchmarkRunnerSignalHandling asserts SIGTERM stops new cells, terminates in-flight cell process groups, and issues `docker stop` for in-flight harbor containers within 30s before SIGKILL.\n6. TestBenchmarkRunnerPreflight asserts `./benchmark preflight` returns 0 on healthy host and non-zero with a per-check checklist when a dependency is missing.\n7. cd cli \u0026\u0026 go test ./... passes.\n8. lefthook run pre-commit passes.",
+    "acceptance": "1. TestBenchmarkRunnerEndToEnd drives a full cell with shell adapter + harbor executor (docker-gated skip).\n2. TestBenchmarkRunnerResumeSkipsCompleted verifies resume-by-report.json and --force-rerun override.\n3. TestBenchmarkRunnerRetryInvalid verifies --retry-invalid semantics.\n4. TestBenchmarkRunnerConcurrencyGroupFlock verifies per-group flock serialization at the documented state-dir path.\n5. TestBenchmarkRunnerSignalHandling verifies SIGTERM stops accepting cells, kills cell process groups, docker-stops in-flight harbor containers, escalates to SIGKILL after 30s.\n6. TestBenchmarkRunnerPreflight verifies preflight subcommand passes on healthy host and reports checklist failures.\n7. cd cli \u0026\u0026 go test ./... passes.\n8. lefthook run pre-commit passes.",
+    "parent": "fizeau-bfdd6a77",
+    "labels": [
+      "area:bench",
+      "kind:feature",
+      "governing:plan-2026-05-15-benchmark-runner-simplification",
+      "pr:A",
+      "decomposed"
+    ]
+  },
+  "paths": {
+    "dir": ".ddx/executions/20260517T182858-c56398a1",
+    "prompt": ".ddx/executions/20260517T182858-c56398a1/prompt.md",
+    "manifest": ".ddx/executions/20260517T182858-c56398a1/manifest.json",
+    "result": ".ddx/executions/20260517T182858-c56398a1/result.json",
+    "checks": ".ddx/executions/20260517T182858-c56398a1/checks.json",
+    "usage": ".ddx/executions/20260517T182858-c56398a1/usage.json",
+    "worktree": "var/tmp/ddx-exec-wt/.execute-bead-wt-fizeau-b49d5ea7-20260517T182858-c56398a1"
+  },
+  "prompt_sha": "c4fdce4e7e6bcee8089aa50b3dd33f77fbbd0543049d05e4cea9afbc8e6baf57"
+}
