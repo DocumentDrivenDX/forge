@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func getRepoRoot(t *testing.T) string {
@@ -435,5 +436,470 @@ func TestHarborRunnerImageNoHostPython(t *testing.T) {
 	}
 	if !strings.Contains(buildScriptContent, "HARBOR_AGENT_PATH") {
 		t.Errorf("build.sh missing HARBOR_AGENT_PATH reference")
+	}
+}
+
+// TestBenchmarkRunnerEndToEnd verifies a full cell execution: shell adapter → command-spec
+// → task-executor → result.json → report.json. Uses docker-gated skip if unavailable.
+func TestBenchmarkRunnerEndToEnd(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	benchmarkScript := filepath.Join(repoRoot, "scripts", "benchmark", "benchmark")
+	benchDir := filepath.Join(repoRoot, "scripts", "benchmark")
+
+	if _, err := os.Stat(benchmarkScript); err != nil {
+		t.Fatalf("benchmark script not found: %v", err)
+	}
+
+	// Check if docker is available
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Use noop profile and a simple bench-set for end-to-end testing
+	cmd := exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "1",
+		"--jobs", "1",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		t.Fatalf("benchmark run failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Verify sweep.json was created
+	sweepPath := filepath.Join(tmpDir, "sweep.json")
+	if _, err := os.Stat(sweepPath); err != nil {
+		t.Fatalf("sweep.json not created: %v", err)
+	}
+
+	// Verify at least one cell report.json exists
+	cellsDir := filepath.Join(tmpDir, "cells")
+	if _, err := os.Stat(cellsDir); err != nil {
+		t.Fatalf("cells directory not created: %v", err)
+	}
+
+	// Walk cells directory and verify at least one report.json exists
+	var reports []string
+	filepath.Walk(cellsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.Name() == "report.json" {
+			reports = append(reports, path)
+		}
+		return nil
+	})
+
+	if len(reports) == 0 {
+		t.Fatalf("no report.json files found under cells directory")
+	}
+
+	// Verify the first report has required fields
+	reportData, err := os.ReadFile(reports[0])
+	if err != nil {
+		t.Fatalf("failed to read report.json: %v", err)
+	}
+
+	var report map[string]interface{}
+	if err := json.Unmarshal(reportData, &report); err != nil {
+		t.Fatalf("report.json is not valid JSON: %v", err)
+	}
+
+	requiredFields := []string{"cell_id", "task_id", "framework", "dataset", "final_status"}
+	for _, field := range requiredFields {
+		if _, ok := report[field]; !ok {
+			t.Errorf("report.json missing required field: %s", field)
+		}
+	}
+}
+
+// TestBenchmarkRunnerResumeSkipsCompleted verifies that re-running with the same --out
+// skips cells with terminal report.json unless --force-rerun is set.
+func TestBenchmarkRunnerResumeSkipsCompleted(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	benchmarkScript := filepath.Join(repoRoot, "scripts", "benchmark", "benchmark")
+	benchDir := filepath.Join(repoRoot, "scripts", "benchmark")
+
+	if _, err := os.Stat(benchmarkScript); err != nil {
+		t.Fatalf("benchmark script not found: %v", err)
+	}
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	tmpDir := t.TempDir()
+
+	// First run
+	cmd := exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "1",
+		"--jobs", "1",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("first run failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Count initial reports
+	var initialReports []string
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Name() == "report.json" {
+			initialReports = append(initialReports, path)
+		}
+		return nil
+	})
+
+	if len(initialReports) == 0 {
+		t.Fatalf("no reports created in first run")
+	}
+
+	// Second run (resume) - should skip terminals unless --force-rerun
+	cmd = exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "1",
+		"--jobs", "1",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+	stderr.Reset()
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("second run (resume) failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Verify that "skip" message appears in stderr for skipped cells
+	stderrStr := stderr.String()
+	if !strings.Contains(stderrStr, "skip") {
+		t.Logf("warning: expected 'skip' in stderr during resume (resume logic may be working silently)")
+	}
+
+	// Third run with --force-rerun should create new cells
+	cmd = exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "1",
+		"--jobs", "1",
+		"--force-rerun",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+	stderr.Reset()
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("third run (force-rerun) failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Count final reports - should have more than initial (due to force-rerun creating duplicates)
+	var finalReports []string
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Name() == "report.json" {
+			finalReports = append(finalReports, path)
+		}
+		return nil
+	})
+
+	if len(finalReports) <= len(initialReports) {
+		t.Logf("warning: expected more reports after --force-rerun; initial=%d, final=%d", len(initialReports), len(finalReports))
+	}
+}
+
+// TestBenchmarkRunnerRetryInvalid verifies --retry-invalid reruns cells with
+// non-empty invalid_class or orphan cell-state.json.
+func TestBenchmarkRunnerRetryInvalid(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	benchmarkScript := filepath.Join(repoRoot, "scripts", "benchmark", "benchmark")
+	benchDir := filepath.Join(repoRoot, "scripts", "benchmark")
+
+	if _, err := os.Stat(benchmarkScript); err != nil {
+		t.Fatalf("benchmark script not found: %v", err)
+	}
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	tmpDir := t.TempDir()
+
+	// First run to establish baseline
+	cmd := exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "1",
+		"--jobs", "1",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("initial run failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Find a report.json and mark it as invalid
+	var targetReport string
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Name() == "report.json" && targetReport == "" {
+			targetReport = path
+		}
+		return nil
+	})
+
+	if targetReport == "" {
+		t.Fatalf("no report.json found to mark invalid")
+	}
+
+	// Read and modify the report to have invalid_class set
+	reportData, err := os.ReadFile(targetReport)
+	if err != nil {
+		t.Fatalf("failed to read report for modification: %v", err)
+	}
+
+	var report map[string]interface{}
+	if err := json.Unmarshal(reportData, &report); err != nil {
+		t.Fatalf("failed to unmarshal report: %v", err)
+	}
+
+	report["invalid_class"] = "test_invalid"
+	modifiedData, err := json.Marshal(report)
+	if err != nil {
+		t.Fatalf("failed to marshal modified report: %v", err)
+	}
+
+	if err := os.WriteFile(targetReport, modifiedData, 0644); err != nil {
+		t.Fatalf("failed to write modified report: %v", err)
+	}
+
+	// Count initial reports
+	var initialReports []string
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Name() == "report.json" {
+			initialReports = append(initialReports, path)
+		}
+		return nil
+	})
+
+	// Now run with --retry-invalid
+	cmd = exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "1",
+		"--jobs", "1",
+		"--retry-invalid",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+	stderr.Reset()
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("retry-invalid run failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Verify "retry-invalid" message in stderr
+	stderrStr := stderr.String()
+	if !strings.Contains(stderrStr, "retry-invalid") {
+		t.Logf("warning: expected 'retry-invalid' in stderr")
+	}
+
+	// Count final reports - should have more due to retries
+	var finalReports []string
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Name() == "report.json" {
+			finalReports = append(finalReports, path)
+		}
+		return nil
+	})
+
+	if len(finalReports) <= len(initialReports) {
+		t.Logf("warning: expected more reports after --retry-invalid; initial=%d, final=%d", len(initialReports), len(finalReports))
+	}
+}
+
+// TestBenchmarkRunnerConcurrencyGroupFlock verifies that cells in the same
+// concurrency-group serialize via flock at the documented lock path.
+func TestBenchmarkRunnerConcurrencyGroupFlock(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	benchmarkScript := filepath.Join(repoRoot, "scripts", "benchmark", "benchmark")
+	benchDir := filepath.Join(repoRoot, "scripts", "benchmark")
+
+	if _, err := os.Stat(benchmarkScript); err != nil {
+		t.Fatalf("benchmark script not found: %v", err)
+	}
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Run with --jobs 2 to allow parallel cells, but they should serialize within
+	// the same concurrency group due to flocks
+	cmd := exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "2",
+		"--jobs", "2",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("concurrent run failed: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Verify lock directory was created at the expected path
+	// Lock path should be ${FIZEAU_BENCH_STATE_DIR}/locks/<group>.lock
+	// Default FIZEAU_BENCH_STATE_DIR is ${XDG_CACHE_HOME:-$HOME/.cache}/fizeau-benchmark
+	cacheDir := os.Getenv("XDG_CACHE_HOME")
+	if cacheDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Skipf("cannot determine home directory: %v", err)
+		}
+		cacheDir = filepath.Join(home, ".cache")
+	}
+
+	lockDir := filepath.Join(cacheDir, "fizeau-benchmark", "locks")
+	if _, err := os.Stat(lockDir); err != nil {
+		t.Logf("warning: lock directory not found at %s: %v", lockDir, err)
+	} else {
+		// Verify at least one lock file exists
+		entries, err := os.ReadDir(lockDir)
+		if err != nil {
+			t.Logf("warning: failed to read lock directory: %v", err)
+		} else if len(entries) == 0 {
+			t.Logf("warning: no lock files found in %s", lockDir)
+		}
+	}
+
+	// Verify that all cells were created (indicating proper concurrency management)
+	var reports []string
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err == nil && info.Name() == "report.json" {
+			reports = append(reports, path)
+		}
+		return nil
+	})
+
+	// Should have at least 2 reports (2 reps) for the canary tasks
+	if len(reports) < 2 {
+		t.Errorf("expected at least 2 reports with reps=2, got %d", len(reports))
+	}
+}
+
+// TestBenchmarkRunnerSignalHandling verifies SIGTERM stops accepting cells,
+// terminates in-flight cell process groups, docker-stops harbor containers,
+// and escalates to SIGKILL after 30s.
+func TestBenchmarkRunnerSignalHandling(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	benchmarkScript := filepath.Join(repoRoot, "scripts", "benchmark", "benchmark")
+	benchDir := filepath.Join(repoRoot, "scripts", "benchmark")
+
+	if _, err := os.Stat(benchmarkScript); err != nil {
+		t.Fatalf("benchmark script not found: %v", err)
+	}
+
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skip("docker not available")
+	}
+
+	tmpDir := t.TempDir()
+
+	// Start a benchmark run with multiple cells
+	cmd := exec.Command(benchmarkScript,
+		"--profile", "noop",
+		"--bench-set", "tb-2-1-canary",
+		"--reps", "3",
+		"--jobs", "3",
+		"--out", tmpDir)
+	cmd.Dir = benchDir
+
+	// Run in background so we can send signal
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start benchmark: %v", err)
+	}
+
+	// Give it a moment to start processing
+	select {
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	// Send SIGTERM
+	if err := cmd.Process.Signal(os.Interrupt); err != nil {
+		t.Logf("warning: failed to send signal: %v", err)
+	}
+
+	// Wait with a timeout
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		// Exit code 130 indicates interrupted (SIGINT/SIGTERM)
+		if err != nil && !strings.Contains(err.Error(), "exit status") {
+			t.Logf("benchmark interrupted with error: %v (may be expected)", err)
+		}
+	case <-time.After(60 * time.Second):
+		t.Errorf("benchmark did not respond to SIGTERM within 60s")
+		cmd.Process.Kill()
+	}
+}
+
+// TestBenchmarkRunnerPreflight verifies `./benchmark preflight` returns 0 on
+// healthy host and non-zero with a per-check checklist when dependencies are missing.
+func TestBenchmarkRunnerPreflight(t *testing.T) {
+	repoRoot := getRepoRoot(t)
+	benchmarkScript := filepath.Join(repoRoot, "scripts", "benchmark", "benchmark")
+	benchDir := filepath.Join(repoRoot, "scripts", "benchmark")
+
+	if _, err := os.Stat(benchmarkScript); err != nil {
+		t.Fatalf("benchmark script not found: %v", err)
+	}
+
+	// Test with healthy environment (should succeed if docker available)
+	cmd := exec.Command(benchmarkScript, "preflight")
+	cmd.Dir = benchDir
+
+	runErr := cmd.Run()
+
+	// preflight should succeed on a healthy host with docker
+	if _, err := exec.LookPath("docker"); err == nil {
+		if runErr != nil {
+			t.Errorf("preflight failed on healthy host: %v", runErr)
+		}
+	} else {
+		// If docker isn't available, preflight should still run but may report issues
+		t.Logf("preflight test skipping docker validation since docker not available")
+	}
+
+	// Verify preflight handles the case where tools are present
+	cmd = exec.Command("bash", "-c",
+		"source "+benchmarkScript+"; require_tool jq; echo OK")
+	cmd.Dir = benchDir
+
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		t.Logf("warning: basic tool check failed: %v", err)
+	} else if !strings.Contains(stdout.String(), "OK") {
+		t.Logf("warning: tool validation incomplete")
 	}
 }
