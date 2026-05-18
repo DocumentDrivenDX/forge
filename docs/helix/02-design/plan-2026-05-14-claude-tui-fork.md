@@ -1,21 +1,72 @@
 # Design Plan: `claude-tui` PTY Harness Fork
 
-**Date**: 2026-05-14
-**Status**: SUPERSEDED (the prerequisite work moved to
-[`plan-2026-05-14-harness-interface-refactor.md`](./plan-2026-05-14-harness-interface-refactor.md);
-this plan does not resume until ADR-013 is re-proposed after
-[CONTRACT-004](./contracts/CONTRACT-004-harness-implementation.md) merges)
-**Governs**: [ADR-013](./adr/ADR-013-claude-tui-pty-harness-fork.md) (withdrawn)
+**Date**: 2026-05-14 (rehydrated 2026-05-17)
+**Status**: ACTIVE — prerequisite refactor merged; plan reopened against CONTRACT-004.
+**Governs**: [ADR-013](./adr/ADR-013-claude-tui-pty-harness-fork.md) (pending re-acceptance)
 
-> **Status note (2026-05-14):** Implementation of the `claude-tui` fork
-> is paused. The previous review found that the fork would either
-> duplicate ~25 per-harness exports under a new prefix or wire service
-> code through a fifth set of per-harness imports — the very leak
-> pattern that motivated the universal harness interface refactor
-> (ADR-014 / CONTRACT-004). That refactor is the prerequisite. After
-> it merges, a new claude-tui plan is written against the new
-> contract; the steps below are kept for reference but do not reflect
-> the intended final implementation path.
+> **Rehydration note (2026-05-17):** The prerequisite refactor (ADR-014 /
+> CONTRACT-004) is now done — see AR-2026-05-17-repo amendment for the
+> verification trail. Specifically:
+>
+> - `internal/routehealth/refresh_scheduler.go` exists and is wired at
+>   `service.go:1080-1081`; the per-harness `Refresh*QuotaAsync` helpers
+>   are gone.
+> - Zero per-harness imports remain in production service files
+>   (`service.go`, `service_providers.go`, `service_models.go`,
+>   `service_subscription_quota.go`, `internal/runtimesignals/collect.go`).
+> - The CONTRACT-004 sub-interfaces (`QuotaHarness`, `AccountHarness`,
+>   `ModelDiscoveryHarness`) are declared in `internal/harnesses/types.go`
+>   and implemented by claude/codex/gemini/opencode/pi.
+> - The lint rule that forbids per-harness imports outside the dispatcher
+>   exists at `internal/lint/harnessimports/analyzer.go`.
+>
+> Therefore the `claude-tui` harness lands as a sibling
+> `internal/harnesses/claude-tui/` package implementing
+> `Harness + QuotaHarness + AccountHarness + ModelDiscoveryHarness`
+> against the merged contract. No service-side changes are required;
+> the dispatcher already constructs runners through the registered-name
+> seam (`internal/serviceimpl/execute_dispatch.go`).
+>
+> The implementation steps below remain the right shape. They are
+> re-anchored against the merged contract in §"CONTRACT-004 Alignment"
+> immediately after Requirements.
+
+## CONTRACT-004 Alignment
+
+The interface footprint `claude-tui.Runner` implements:
+
+| Interface | Methods | Source of truth |
+|-----------|---------|-----------------|
+| `harnesses.Harness` | `Info`, `HealthCheck`, `Execute` | `internal/harnesses/types.go` |
+| `harnesses.QuotaHarness` | `QuotaStatus`, `RefreshQuota`, `QuotaFreshness`, `SupportedLimitIDs` | `internal/harnesses/types.go` |
+| `harnesses.AccountHarness` | `AccountStatus`, `RefreshAccount`, `AccountFreshness` | `internal/harnesses/types.go` |
+| `harnesses.ModelDiscoveryHarness` | `DefaultModelSnapshot`, `ResolveModelAlias`, `SupportedAliases` | `internal/harnesses/types.go` |
+
+Sharing seam with the existing `claude` harness:
+
+- `internal/harnesses/anthropic/` neutral package is the only allowed
+  import edge between `claude` and `claude-tui` (Step 1).
+- The durable `claudeQuotaSnapshot` cache (now unexported per the
+  refactor) is owned by `claude` and **mirrored** into `anthropic/` so
+  `claude-tui` can read it without importing `claude`. The single-
+  account-per-installation assumption from ADR-013 holds.
+- `ModelDiscoveryHarness.DefaultModelSnapshot()` MUST drive live PTY
+  per the no-static-fallback principle just adopted (parent bead
+  `fizeau-89eca738`). The Go-literal fallback that the existing
+  `claude` harness still carries at `defaultClaudeModelDiscovery()`
+  is being removed in the parallel cassette/PTY chain; `claude-tui`
+  is implemented from day one without that anti-pattern.
+
+Async refresh: `claude-tui` does NOT call any `Refresh*Async` helper
+directly. The service-level `routehealth.RefreshScheduler` (already
+running) consumes `QuotaHarness.QuotaFreshness()` /
+`AccountHarness.AccountFreshness()` and drives refreshes. The runner's
+job is to implement the four interfaces correctly; the scheduler does
+the rest.
+
+Lint: the existing `internal/lint/harnessimports/analyzer.go` will
+flag any cross-harness import that violates the boundary. `claude-tui`
+must pass the rule from its first PR.
 
 ## Problem Statement
 

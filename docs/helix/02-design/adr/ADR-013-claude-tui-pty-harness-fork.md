@@ -1,7 +1,7 @@
 ---
 ddx:
   id: ADR-013
-  status: withdrawn
+  status: re-proposed
   depends_on:
     - ADR-002
     - ADR-004
@@ -14,9 +14,29 @@ ddx:
 
 | Date | Status | Deciders | Related | Confidence |
 |------|--------|----------|---------|------------|
-| 2026-05-14 | **Withdrawn** pending [ADR-014](./ADR-014-universal-harness-interface.md) / [CONTRACT-004](../contracts/CONTRACT-004-harness-implementation.md) | Fizeau maintainers | ADR-002, ADR-004, ADR-011, ADR-014, CONTRACT-004 | Medium |
+| 2026-05-14 | Withdrawn pending CONTRACT-004 | Fizeau maintainers | ADR-002, ADR-004, ADR-011, ADR-014, CONTRACT-004 | Medium |
+| 2026-05-17 | **Re-proposed** — CONTRACT-004 merged; awaiting empirical billing-observation evidence for acceptance | Fizeau maintainers | same | Medium |
 
-> **Status note (2026-05-14):** This ADR is withdrawn pending the
+> **Re-proposal note (2026-05-17):** CONTRACT-004 and the harness
+> interface refactor (ADR-014) are merged — see AR-2026-05-17-repo
+> amendment for the verification trail (scheduler at
+> `internal/routehealth/refresh_scheduler.go`, zero per-harness imports
+> in production service code, lint rule at
+> `internal/lint/harnessimports/analyzer.go`).
+>
+> This ADR is re-proposed against the merged contract. The design
+> constraints in the withdrawal note below remain authoritative —
+> they are constraints, not interface contract, and CONTRACT-004 did
+> not alter them. The implementation chain is rehydrated at
+> [`plan-2026-05-14-claude-tui-fork.md`](../plan-2026-05-14-claude-tui-fork.md).
+>
+> **Promotion gate**: this ADR moves from `re-proposed` to `accepted`
+> when the empirical subscription-billing observation (constraint #8
+> below) is captured against an authenticated Anthropic account and
+> recorded in `docs/helix/02-design/`. Filing this work as a bead is
+> the first sub-task in the rehydrated plan.
+
+> **Historical status note (2026-05-14):** This ADR was withdrawn pending the
 > universal harness interface refactor in
 > [ADR-014](./ADR-014-universal-harness-interface.md) and
 > [CONTRACT-004](../contracts/CONTRACT-004-harness-implementation.md).
