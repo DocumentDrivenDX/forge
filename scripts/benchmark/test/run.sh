@@ -35,6 +35,7 @@ main() {
   run_test "${SCRIPT_DIR}/test_harness_adapters.sh"
   run_test "${SCRIPT_DIR}/test_harbor_image.sh"
   run_test "${SCRIPT_DIR}/test_runtime_probe.sh"
+  run_test "${SCRIPT_DIR}/test_parity.sh"
 
   echo "========================================"
   echo "Test Summary:"
